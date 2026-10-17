@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/clak",
+      "binaries/clak-shim"
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    },
+    "resources": {
+      "../../LICENSE": "LICENSE.txt",
+      "THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+    }
+  }
+}

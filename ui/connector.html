@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clak — MCP server</title>
+  <link rel="stylesheet" href="clak.css">
+  <link rel="stylesheet" href="editors.css">
+</head>
+<!-- An MCP server: name, command, address and sign-in (OAuth in the browser, or a token); or a
+     program on this computer (stdio), with its command line and its variables.
+     Like a WinUI ContentDialog on Windows, like an AppKit sheet on the Mac. -->
+<body class="ed-dialog">
+  <main class="ed-main">
+    <h1 id="heading"></h1>
+    <p id="intro" class="ed-intro"></p>
+
+    <div id="link" class="ed-bar info ed-gap hidden" title="Anyone can write a link. Nothing connects until you confirm.">
+      <span class="ed-bar-text">From a clak:// link: check the name and address</span>
+    </div>
+
+    <fieldset id="inputs">
+      <div id="kind-row" class="ed-segmented ed-kind" role="radiogroup">
+        <button id="kind-url" role="radio" title="A server on the network, over HTTP">Address</button>
+        <button id="kind-stdio" role="radio" title="A program on this computer that Clak starts, over stdio">Program</button>
+      </div>
+
+      <label class="ed-label first" for="name">Name</label>
+      <input id="name" type="text" maxlength="40" spellcheck="false">
+
+      <label class="ed-label" for="command" title="What agents type: clak &lt;command&gt; &lt;tool&gt;. Empty: made from the name.">Command<span class="ed-optional">  ·  optional</span></label>
+      <div class="ed-prefix"><span>clak</span><input id="command" type="text" class="mono" maxlength="24" spellcheck="false"></div>
+
+      <div id="stdio-panel" class="hidden">
+        <label class="ed-label" for="launch" title="The program and its arguments, as in the server's docs. Quote an argument with spaces.">Command line</label>
+        <input id="launch" type="text" class="mono" maxlength="4096" spellcheck="false" placeholder="npx -y @scope/server --flag">
+        <div id="program-line" class="quiet ed-hint hidden">File: <strong id="program" class="mono"></strong></div>
+
+        <label class="ed-label" for="env" title="One per line: NAME=value. Stored encrypted.">Environment variables<span class="ed-optional">  ·  optional</span></label>
+        <textarea id="env" class="mono" rows="3" spellcheck="false" autocomplete="off"></textarea>
+        <label id="drop-env-row" class="ed-check hidden"><input id="drop-env" type="checkbox"> Remove the stored variables</label>
+
+        <div id="runs" class="ed-bar warn ed-gap hidden">
+          <span class="ed-bar-text">Runs on this computer at every Clak start</span>
+        </div>
+      </div>
+
+      <div id="url-panel">
+      <label class="ed-label" for="url">MCP server address</label>
+      <input id="url" type="text" class="mono" maxlength="2048" spellcheck="false">
+      <div id="host-line" class="quiet ed-hint hidden">Host: <strong id="host"></strong></div>
+
+      <div id="insecure" class="ed-bar warn lock ed-gap hidden">
+        <span class="ed-bar-text">Unencrypted (http): the token travels in clear text</span>
+      </div>
+
+      <label class="ed-label first">Authentication</label>
+      <div class="ed-group">
+        <section>
+          <label class="ed-radio" title="Opens the sign-in page in your browser. The access is stored encrypted and renews itself.">
+            <input id="mode-oauth" type="radio" name="mode"> Sign in with the service (OAuth)
+          </label>
+          <div id="oauth-panel" class="ed-sub">
+            <label id="reauth-row" class="ed-check first hidden" title="Opens the sign-in page again: for another account, or after a revoked access">
+              <input id="reauth" type="checkbox"> Sign in again
+            </label>
+            <details id="client" class="ed-expander ed-gap" title="Only for services without dynamic registration: create an OAuth app in the service's settings">
+              <summary>OAuth client (optional)</summary>
+              <div>
+                <div class="quiet ed-redirect">Redirect URI <span class="mono">http://127.0.0.1/callback</span> (any port)</div>
+                <label class="ed-label" for="client-id">Client ID</label>
+                <input id="client-id" type="text" class="mono" maxlength="512" spellcheck="false">
+                <label class="ed-label" for="client-secret">Client secret (if it has one)</label>
+                <input id="client-secret" type="password" autocomplete="off">
+              </div>
+            </details>
+          </div>
+        </section>
+        <section>
+          <label class="ed-radio"><input id="mode-token" type="radio" name="mode"> Access token, or none</label>
+          <div id="token-panel" class="ed-sub">
+            <input id="token" type="password" autocomplete="off" aria-label="Access token">
+            <div id="token-note" class="quiet ed-hint"></div>
+            <label id="drop-row" class="ed-check hidden"><input id="drop" type="checkbox"> Remove the stored token</label>
+          </div>
+        </section>
+      </div>
+      </div>
+
+      <div class="ed-probe">
+        <button id="probe" title="Connects to the server and asks for its list of commands, without saving anything."></button>
+        <span id="probe-result"></span>
+      </div>
+    </fieldset>
+
+    <div id="status" class="ed-bar info ed-status hidden"><span id="status-text" class="ed-bar-text"></span></div>
+    <div id="error" class="ed-bar err ed-error hidden"><span id="error-text" class="ed-bar-text"></span></div>
+  </main>
+  <footer class="ed-foot">
+    <div class="ed-buttons">
+      <button id="cancel">Cancel</button>
+      <button id="save" class="accent" disabled></button>
+    </div>
+  </footer>
+  <script src="clak.js"></script>
+  <script src="editors.js"></script>
+  <script src="connector.js"></script>
+</body>
+</html>

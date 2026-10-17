@@ -1,0 +1,15 @@
+[package]
+name = "clak-daemon"
+description = "The hub without windows, for testing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clak-wire.workspace = true
+clak-hub.workspace = true
+clak-host.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

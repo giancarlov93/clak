@@ -1,0 +1,18 @@
+[package]
+name = "clak-host"
+description = "The whole hub: the core with the real system, the connectors, the APIs and the settings as a program"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clak-wire.workspace = true
+clak-hub.workspace = true
+clak-platform.workspace = true
+clak-connectors.workspace = true
+clak-apis.workspace = true
+clak-settings.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }

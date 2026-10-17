@@ -1,0 +1,136 @@
+/* Clak: the shared style. On Windows like WinUI (Segoe UI Variable, Mica, 4/8 px corners),
+   on the Mac like AppKit (SF, vibrancy, 6 px controls). The class on <html> is set by
+   clak.js; the material behind the page is provided by the window. */
+
+:root {
+  --accent: #2F5BEA;
+  --accent-text: #fff;
+  --text: #1b1b1b;
+  --quiet: #5f5f5f;
+  --faint: #8a8a8a;
+  --layer: rgba(255, 255, 255, 0.62);
+  --card: rgba(255, 255, 255, 0.78);
+  --stroke: rgba(0, 0, 0, 0.08);
+  --control: rgba(255, 255, 255, 0.85);
+  --control-hover: rgba(249, 249, 249, 0.6);
+  --solid: #f3f3f3;
+  --caution: #9d5d00;
+  --caution-bg: rgba(255, 244, 206, 0.9);
+  --danger: #c42b1c;
+  --ok: #0f7b0f;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --radius: 4px;
+  --radius-card: 8px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --accent: #7FA0FF;
+    --accent-text: #0a1230;
+    --text: #fff;
+    --quiet: #c5c5c5;
+    --faint: #9a9a9a;
+    --layer: rgba(58, 58, 58, 0.30);
+    --card: rgba(255, 255, 255, 0.05);
+    --stroke: rgba(255, 255, 255, 0.08);
+    --control: rgba(255, 255, 255, 0.06);
+    --control-hover: rgba(255, 255, 255, 0.09);
+    --solid: #202020;
+    --caution: #fce100;
+    --caution-bg: rgba(67, 53, 25, 0.9);
+    --danger: #ff99a4;
+    --ok: #6ccb5f;
+  }
+}
+
+:root[data-theme="dark"] {
+  --accent: #7FA0FF;
+  --accent-text: #0a1230;
+  --text: #fff;
+  --quiet: #c5c5c5;
+  --faint: #9a9a9a;
+  --layer: rgba(58, 58, 58, 0.30);
+  --card: rgba(255, 255, 255, 0.05);
+  --stroke: rgba(255, 255, 255, 0.08);
+  --control: rgba(255, 255, 255, 0.06);
+  --control-hover: rgba(255, 255, 255, 0.09);
+  --solid: #202020;
+}
+
+html.mac {
+  --accent: #007AFF;
+  --radius: 6px;
+  --radius-card: 10px;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  /* Transparent: the window's material shows through. Without material, a solid background. */
+  background: transparent;
+  color: var(--text);
+  font: 14px/1.43 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+html.mac body { font: 13px/1.38 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+html.solid body { background: var(--solid); }
+
+.mono { font-family: var(--mono); }
+.quiet { color: var(--quiet); font-size: 12px; }
+.selectable { user-select: text; -webkit-user-select: text; cursor: text; }
+
+h1 { font-size: 20px; font-weight: 600; margin: 0; }
+h2 { font-size: 14px; font-weight: 600; margin: 16px 0 6px 1px; }
+html.mac h1 { font-size: 17px; }
+html.mac h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--quiet); }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-card);
+  padding: 10px 14px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--control);
+  border: 1px solid var(--stroke);
+  border-bottom-color: rgba(0, 0, 0, 0.16);
+  border-radius: var(--radius);
+  padding: 5px 12px 6px;
+  min-height: 32px;
+  cursor: default;
+}
+html.mac button { min-height: 24px; padding: 2px 12px 3px; box-shadow: 0 0.5px 1px rgba(0,0,0,.15); border-bottom-color: var(--stroke); }
+button:hover:not(:disabled) { background: var(--control-hover); }
+button:disabled { opacity: .45; }
+button.accent { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+button.accent:hover:not(:disabled) { filter: brightness(1.08); }
+button.link { background: none; border: none; color: var(--accent); padding: 0; min-height: 0; box-shadow: none; }
+button.danger { color: var(--danger); }
+
+.warning {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--caution-bg);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.warning::before { content: "⚠"; color: var(--caution); }
+
+.lines { display: grid; grid-template-columns: 92px 1fr; gap: 2px 8px; }
+.lines dt { color: var(--quiet); }
+.lines dd { margin: 0; overflow-wrap: anywhere; }
+
+.hidden { display: none !important; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(127, 127, 127, .35); border-radius: 5px; border: 3px solid transparent; background-clip: content-box; }

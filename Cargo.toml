@@ -1,0 +1,75 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/clak-wire",
+    "crates/clak-platform",
+    "crates/clak-hub",
+    "crates/clak-connectors",
+    "crates/clak-apis",
+    "crates/clak-settings",
+    "crates/clak-host",
+    "crates/clak-setup",
+    "crates/clak-agent",
+    "crates/clak-daemon",
+    "crates/clak-kit",
+    "crates/clak-app",
+]
+default-members = [
+    "crates/clak-wire",
+    "crates/clak-platform",
+    "crates/clak-hub",
+    "crates/clak-connectors",
+    "crates/clak-apis",
+    "crates/clak-settings",
+    "crates/clak-host",
+    "crates/clak-setup",
+    "crates/clak-agent",
+    "crates/clak-daemon",
+    "crates/clak-kit",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+clak-wire = { path = "crates/clak-wire" }
+clak-platform = { path = "crates/clak-platform" }
+clak-hub = { path = "crates/clak-hub" }
+clak-connectors = { path = "crates/clak-connectors" }
+clak-apis = { path = "crates/clak-apis" }
+clak-settings = { path = "crates/clak-settings" }
+clak-host = { path = "crates/clak-host" }
+clak-setup = { path = "crates/clak-setup" }
+clak-agent = { path = "crates/clak-agent" }
+clak-kit = { path = "crates/clak-kit" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = "0.10"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+getrandom = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs", "process"] }
+tokio-tungstenite = "0.27"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+reqwest = { version = "0.12", default-features = false, features = ["default-tls", "json", "stream", "gzip"] }
+url = "2"
+unicode-normalization = "0.1"
+regex = "1"
+dirs = "6"
+anyhow = "1"
+thiserror = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+# The CLI and the shim start on every agent command: small and fast even in debug.
+[profile.dev.package."*"]
+opt-level = 1

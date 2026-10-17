@@ -1,0 +1,107 @@
+# On every push to main: tests, installers for Windows and Mac, a GitHub release.
+#
+# The version is X.Y from the root Cargo.toml plus the run number: 0.3.0 in Cargo.toml
+# gives 0.3.17 on the seventeenth run. To move to 0.4, just change it there.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          base=$(node scripts/version.mjs | cut -d. -f1,2)
+          echo "version=$base.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            test: true
+            files: nsis/*-setup.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            test: true
+            files: dmg/*.dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            test: false
+            files: dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Tauri CLI
+        shell: bash
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Version
+        shell: bash
+        run: node scripts/version.mjs "${{ needs.version.outputs.version }}"
+
+      - name: Test
+        if: matrix.test
+        shell: bash
+        run: cargo test
+
+      - name: Installer
+        shell: bash
+        run: node scripts/bundle.mjs --target "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clak-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/bundle/${{ matrix.files }}
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          ls -l dist
+          gh release create "v$VERSION" dist/* \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "Clak $VERSION" \
+            --generate-notes

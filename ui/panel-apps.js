@@ -1,0 +1,50 @@
+// The Applications tab: the programs the user allowed once and that the hub
+// remembers, by executable. "Forget" makes them ask again on the next connection.
+"use strict";
+
+(() => {
+  const el = Clak.el;
+  const D = Describe;
+  let page = null;
+  let list = null;
+  let state = Panel.state();
+
+  const row = (app, now) => {
+    const signed = !!app.signer;
+    return el("div", { class: Clak.mac ? "row allowed" : "card allowed", "data-id": app.key },
+      Kit.tile("apps", 36, "#007aff", app.exe),
+      el("div", { class: "lines" },
+        el("div", { class: "name" }, el("strong", null, app.name), Kit.badge(signed ? `signed by ${app.signer}` : "unsigned", signed ? "ok" : "warn")),
+        el("div", { class: "mono quiet ellipsis selectable", title: app.exe }, app.exe),
+        el("div", { class: "quiet" }, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`)),
+      el("button", { title: "It will ask again the next time it connects", onclick: () => Panel.send({ type: "forget_app", key: app.key }) }, "Forget"));
+  };
+
+  const draw = () => {
+    if (!page) return;
+    const now = Date.now();
+    const apps = [...(state.apps || [])].sort((a, b) => a.since - b.since);
+    const rows = apps.map((a) => row(a, now));
+    Kit.replace(list,
+      Kit.section("Allowed", { count: apps.length, help: "Remembered by executable: same path and same developer or, if unsigned, same content" }),
+      apps.length === 0 ? Kit.empty("apps", "None allowed") : Clak.mac ? el("div", { class: "card group rows" }, rows) : rows);
+  };
+
+  Panel.tab({
+    id: "apps",
+    title: "Applications",
+    icon: Kit.navIcon("apps", Kit.TINTS.apps),
+    order: 30,
+    count: (s) => (s.apps || []).length,
+    mount(section) {
+      page = section;
+      list = el("div");
+      page.append(Kit.title("Applications"), list);
+      setInterval(() => !page.classList.contains("hidden") && draw(), 30000);
+    },
+    render(s) {
+      state = s;
+      draw();
+    },
+  });
+})();

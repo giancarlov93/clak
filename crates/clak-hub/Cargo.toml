@@ -1,0 +1,32 @@
+[package]
+name = "clak-hub"
+description = "The core of the Clak hub: programs, agents, permissions, questions to the user, the two channels"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clak-wire.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+indexmap = "2"
+regex.workspace = true
+unicode-normalization.workspace = true
+unicode-general-category = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_Pipes", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Memory"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+clak-kit.workspace = true

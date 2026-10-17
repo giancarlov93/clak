@@ -1,0 +1,26 @@
+[package]
+name = "clak-apis"
+description = "REST APIs: from an OpenAPI or by hand, one command per endpoint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clak-wire.workspace = true
+clak-hub.workspace = true
+clak-platform.workspace = true
+clak-connectors.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+serde_json.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+url.workspace = true
+regex.workspace = true
+base64.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+sha2.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }

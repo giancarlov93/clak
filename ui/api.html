@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clak — REST API</title>
+  <link rel="stylesheet" href="clak.css">
+  <link rel="stylesheet" href="editors.css">
+</head>
+<!-- A REST API: on the left the service (from an OpenAPI or by hand, and how it signs in), on the
+     right its endpoints, to choose, change, add. -->
+<body class="ed-dialog tall">
+  <main class="ed-main">
+    <div class="ed-api">
+      <!-- ============================================ the service -->
+      <fieldset id="inputs" class="ed-left">
+        <h1 id="heading"></h1>
+        <p id="intro" class="ed-intro"></p>
+
+        <div id="mode-row" class="ed-segmented" role="radiogroup">
+          <button id="from-openapi" role="radio"></button>
+          <button id="manual" role="radio"></button>
+        </div>
+
+        <div id="source-panel">
+          <label class="ed-label first" for="source" title="The OpenAPI 3 or Swagger 2 document, JSON or YAML: an address or a file">OpenAPI document</label>
+          <div class="ed-source">
+            <input id="source" type="text" class="mono" maxlength="2048" spellcheck="false" placeholder="https://…/openapi.json">
+            <button id="browse" class="ed-browse" title="Open a file" aria-label="Open a file"></button>
+            <button id="load" title="Reads the document and fills in everything">Load</button>
+          </div>
+          <div id="source-result" class="quiet ed-hint ed-source-result"></div>
+        </div>
+
+        <label class="ed-label first" for="name">Name</label>
+        <input id="name" type="text" maxlength="40" spellcheck="false">
+
+        <label class="ed-label" for="command" title="What agents type: clak &lt;command&gt; &lt;endpoint&gt;. Empty: made from the name.">Command<span class="ed-optional">  ·  optional</span></label>
+        <div class="ed-prefix"><span>clak</span><input id="command" type="text" class="mono" maxlength="24" spellcheck="false"></div>
+
+        <label class="ed-label" for="url">Base URL</label>
+        <input id="url" type="text" class="mono" maxlength="2048" spellcheck="false" placeholder="https://api.example.com/v1">
+        <div id="insecure" class="ed-bar warn lock ed-gap hidden">
+          <span class="ed-bar-text">Unencrypted (http): the key travels in clear text</span>
+        </div>
+
+        <label class="ed-label first" for="auth">Authentication</label>
+        <select id="auth">
+          <option value="none">None</option>
+          <option value="bearer">Bearer token</option>
+          <option value="header">API key in a header</option>
+          <option value="query">API key in the query</option>
+          <option value="basic">Basic (user and password)</option>
+          <option value="oauth">OAuth, sign in in the browser</option>
+          <option value="oauth-app">OAuth, app only (client credentials)</option>
+        </select>
+
+        <div id="oauth-panel" class="hidden">
+          <div id="authorize-panel">
+            <label class="ed-label" for="authorize-url">Sign-in address</label>
+            <input id="authorize-url" type="text" class="mono" maxlength="2048" spellcheck="false" placeholder="https://…/oauth/authorize">
+          </div>
+          <label class="ed-label" for="token-url">Token address</label>
+          <input id="token-url" type="text" class="mono" maxlength="2048" spellcheck="false" placeholder="https://…/oauth/token">
+          <label class="ed-label" for="scope" title="Separated by spaces, as the service names them">Scopes<span class="ed-optional">  ·  optional</span></label>
+          <input id="scope" type="text" class="mono" maxlength="2048" spellcheck="false">
+          <label class="ed-label" for="client-id" title="Of the OAuth app you created in the service's developer settings">Client ID</label>
+          <input id="client-id" type="text" class="mono" maxlength="512" spellcheck="false">
+          <label id="client-secret-label" class="ed-label" for="client-secret"></label>
+          <input id="client-secret" type="password" autocomplete="off">
+          <div id="redirect" class="quiet ed-hint">Redirect URI <span class="mono">http://127.0.0.1/callback</span> (any port)</div>
+          <label id="reauth-row" class="ed-check hidden" title="Opens the sign-in page again: for another account, or after a revoked access">
+            <input id="reauth" type="checkbox"> Sign in again
+          </label>
+          <div id="status" class="ed-bar info ed-gap hidden"><span id="status-text" class="ed-bar-text"></span></div>
+        </div>
+
+        <div id="auth-name-panel" class="hidden">
+          <label id="auth-name-label" class="ed-label" for="auth-name"></label>
+          <input id="auth-name" type="text" class="mono" maxlength="128" spellcheck="false">
+        </div>
+        <div id="secret-panel" class="hidden">
+          <label id="secret-label" class="ed-label" for="secret"></label>
+          <input id="secret" type="password" autocomplete="off">
+          <div id="secret-note" class="quiet ed-hint"></div>
+          <label id="drop-row" class="ed-check hidden"><input id="drop" type="checkbox"> Remove the stored one</label>
+        </div>
+      </fieldset>
+
+      <div class="ed-divider"></div>
+
+      <!-- ============================================ the endpoints -->
+      <div class="ed-right">
+        <div class="ed-endpoints-head">
+          <h2 class="ed-section">Endpoints <span id="count" class="ed-count"></span></h2>
+          <button id="add-endpoint" aria-label="Add an endpoint"></button>
+        </div>
+        <div id="filter-row" class="ed-filter">
+          <input id="filter" type="text" placeholder="Filter" aria-label="Filter" spellcheck="false">
+          <button id="all" class="link" title="Check the ones shown">All</button>
+          <button id="none" class="link" title="Uncheck the ones shown">None</button>
+        </div>
+        <div id="list" class="ed-endpoint-list" role="listbox" aria-label="Endpoints"></div>
+        <div id="skipped" class="ed-bar info ed-skipped hidden"><span id="skipped-text" class="ed-bar-text"></span></div>
+      </div>
+    </div>
+  </main>
+  <footer class="ed-foot">
+    <div id="error" class="ed-bar err hidden"><span id="error-text" class="ed-bar-text"></span></div>
+    <div class="ed-buttons">
+      <button id="cancel">Cancel</button>
+      <button id="save" class="accent" disabled></button>
+    </div>
+  </footer>
+  <script src="clak.js"></script>
+  <script src="editors.js"></script>
+  <script src="api.js"></script>
+</body>
+</html>

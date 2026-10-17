@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- What Tauri adds to its Info.plist: the app lives in the menu bar, with no icon in the
+     Dock, and opens clak:// links (they arrive as RunEvent::Opened). -->
+<plist version="1.0">
+<dict>
+  <key>LSUIElement</key>
+  <true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>dev.clak.Clak.clak</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>clak</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

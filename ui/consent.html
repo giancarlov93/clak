@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clak — permission</title>
+  <link rel="stylesheet" href="clak.css">
+  <link rel="stylesheet" href="consent.css">
+</head>
+<body>
+  <main id="content">
+    <header>
+      <div class="badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 2.5 4 5.5v6c0 4.8 3.4 8.9 8 10 4.6-1.1 8-5.2 8-10v-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div>
+        <h1 id="heading"></h1>
+        <p id="question"></p>
+      </div>
+    </header>
+    <div id="warning" class="warning hidden"></div>
+    <h2 id="who-heading">Who's asking</h2>
+    <dl id="who" class="card lines"></dl>
+    <h2 id="what-heading">What</h2>
+    <dl id="what" class="card lines"></dl>
+    <h2 id="tools-heading">Commands</h2>
+    <div id="tools" class="card"></div>
+    <p id="note" class="quiet"></p>
+  </main>
+  <footer>
+    <span id="countdown" class="quiet"></span>
+    <div class="buttons">
+      <button id="deny" disabled>Deny</button>
+      <button id="allow" class="accent" disabled>Allow</button>
+    </div>
+  </footer>
+  <script src="clak.js"></script>
+  <script src="consent.js"></script>
+</body>
+</html>

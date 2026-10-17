@@ -1,0 +1,41 @@
+[package]
+name = "clak-app"
+description = "The Clak app: tray, notifications, consent windows and panel, with the hub inside"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+# Not "Clak": clak.exe sits next to it, and Windows is case-insensitive.
+name = "ClakApp"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+clak-wire.workspace = true
+clak-hub.workspace = true
+clak-host.workspace = true
+clak-setup.workspace = true
+clak-agent.workspace = true
+clak-connectors.workspace = true
+clak-apis.workspace = true
+clak-platform.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+base64.workspace = true
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(windows)'.dependencies]
+png = "0.17"
+windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi"] }

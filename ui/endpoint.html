@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clak — Endpoint</title>
+  <link rel="stylesheet" href="clak.css">
+  <link rel="stylesheet" href="editors.css">
+</head>
+<!-- An endpoint, written by hand or touched up after an OpenAPI: method, path, command
+     name, parameters and body. Modal over the APIs window. -->
+<body class="ed-dialog">
+  <main class="ed-main">
+    <h1 id="heading"></h1>
+
+    <div class="ed-line">
+      <div class="ed-method-col">
+        <label class="ed-label" for="method">Method</label>
+        <select id="method" class="mono"></select>
+      </div>
+      <div class="ed-grow">
+        <label class="ed-label" for="path" title="After the base URL. Parameters in braces: /users/{id}">Path</label>
+        <input id="path" type="text" class="mono" maxlength="1024" spellcheck="false" placeholder="/users/{id}">
+      </div>
+    </div>
+
+    <div class="ed-line wide">
+      <div class="ed-name-col">
+        <label class="ed-label" for="name" title="What agents type after the API's command. Empty: made from method and path.">Command<span class="ed-optional">  ·  optional</span></label>
+        <input id="name" type="text" class="mono" maxlength="64" spellcheck="false">
+      </div>
+      <div class="ed-grow">
+        <label class="ed-label" for="description" title="What agents read to decide when to use it">Description<span class="ed-optional">  ·  optional</span></label>
+        <input id="description" type="text" maxlength="1000">
+      </div>
+    </div>
+
+    <div class="ed-params-head">
+      <h2>Parameters</h2>
+      <button id="add" aria-label="Add a parameter"></button>
+    </div>
+    <div class="ed-group ed-params">
+      <div id="params-head" class="ed-param head">
+        <span>Name</span><span>In</span><span>Type</span><span>Required</span><span>Description</span><span></span>
+      </div>
+      <div id="params"></div>
+      <div id="no-params" class="quiet">None</div>
+    </div>
+
+    <div class="ed-body-row">
+      <div>
+        <label class="ed-label" for="body">Body</label>
+        <select id="body">
+          <option value="">None</option>
+          <option value="json">JSON</option>
+          <option value="form">Form</option>
+        </select>
+      </div>
+      <div>
+        <label id="body-required-row" class="ed-check"><input id="body-required" type="checkbox"> Required</label>
+        <div id="body-note" class="quiet ed-body-note"></div>
+      </div>
+    </div>
+
+    <div id="error" class="ed-bar err ed-error hidden"><span id="error-text" class="ed-bar-text"></span></div>
+  </main>
+  <footer class="ed-foot">
+    <div class="ed-buttons">
+      <button id="cancel">Cancel</button>
+      <button id="save" class="accent" disabled></button>
+    </div>
+  </footer>
+  <script src="clak.js"></script>
+  <script src="editors.js"></script>
+  <script src="endpoint.js"></script>
+</body>
+</html>

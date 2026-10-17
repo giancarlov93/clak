@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+/dist
+*.tmp
+crates/clak-app/binaries/
+crates/clak-app/THIRD-PARTY-NOTICES.txt

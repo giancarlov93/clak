@@ -1,0 +1,25 @@
+[package]
+name = "clak-settings"
+description = "The hub settings as a program: clak settings, every change confirmed by the user"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clak-wire.workspace = true
+clak-hub.workspace = true
+clak-connectors.workspace = true
+clak-apis.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", features = ["rt"] }
+
+[dev-dependencies]
+clak-platform.workspace = true
+reqwest.workspace = true
+url.workspace = true
+base64.workspace = true
+sha2.workspace = true
+futures-util.workspace = true
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "form"] }

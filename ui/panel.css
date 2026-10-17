@@ -1,0 +1,381 @@
+/* The panel: navigation on the left, pages on the right. On Windows like the WinUI 11
+   NavigationView (which below 760 px narrows to icons only), on the Mac like the sidebar and
+   the groups of System Settings. */
+html, body { height: 100%; overflow: hidden; }
+body { display: grid; grid-template-columns: 240px 1fr; }
+html.mac body { grid-template-columns: 210px 1fr; }
+
+:root {
+  --ok-bg: color-mix(in srgb, var(--ok) 16%, transparent);
+  --danger-bg: color-mix(in srgb, var(--danger) 14%, transparent);
+  --accent-bg: color-mix(in srgb, var(--accent) 14%, transparent);
+  --subtle: rgba(127, 127, 127, 0.10);
+  --inset: rgba(127, 127, 127, 0.06);
+}
+
+/* --- the navigation ---------------------------------------------------------------- */
+
+nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px; overflow-y: auto; overflow-x: hidden; }
+html.mac nav { padding: 44px 10px 10px; }
+nav .drag { height: 0; }
+html.mac nav .drag { position: fixed; top: 0; left: 0; right: 0; height: 36px; }
+nav .item {
+  display: flex; align-items: center; gap: 16px; flex: none;
+  background: none; border: none; box-shadow: none; text-align: left;
+  border-radius: var(--radius); padding: 0 12px; min-height: 36px; position: relative;
+}
+html.mac nav .item { gap: 8px; min-height: 30px; padding: 0 6px; border: none; box-shadow: none; background: none; }
+nav .item:hover { background: var(--control-hover); }
+nav .item.selected { background: var(--control); }
+html.win nav .item.selected::before {
+  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent);
+}
+html.mac nav .item.selected { background: var(--accent); color: #fff; }
+nav .icon { width: 16px; height: 16px; display: grid; place-items: center; flex: none; }
+html.mac nav .icon { width: 22px; height: 22px; }
+nav .icon svg { width: 16px; height: 16px; }
+nav .icon .tile { --size: 22px; border-radius: 6px; }
+nav .icon .tile svg { width: 14px; height: 14px; }
+nav .label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+nav .badge { font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 6px; display: grid; place-items: center; background: var(--control); border: 1px solid var(--stroke); }
+nav .badge.accent { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+html.mac nav .badge { background: none; border: none; color: var(--quiet); }
+html.mac nav .item.selected .badge { color: #fff; }
+
+/* At the bottom: whether the hub is there, and since when. */
+.hub-footer { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-inline: 4px; border-radius: 6px; background: var(--subtle); flex: none; }
+html.mac .hub-footer { border-radius: 10px; padding: 10px; margin: auto 0 0; }
+.hub-footer .lines { display: flex; flex-direction: column; min-width: 0; }
+.hub-footer .quiet { white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--danger); }
+.dot.ok { background: var(--ok); }
+html.mac .dot { box-shadow: 0 0 4px currentColor; }
+html.mac .dot.ok { color: var(--ok); }
+html.mac .dot.err { color: var(--danger); }
+
+/* The narrow NavigationView: icons only, the small count in a corner. */
+@media (max-width: 760px) {
+  html.win body { grid-template-columns: 48px 1fr; }
+  html.win nav .item { padding: 0; justify-content: center; }
+  html.win nav .label { display: none; }
+  html.win nav .badge { position: absolute; top: 2px; right: 2px; min-width: 14px; height: 14px; font-size: 9px; padding: 0 3px; }
+  html.win .hub-footer { justify-content: center; padding: 12px 0; }
+  html.win .hub-footer .lines { display: none; }
+  html.mac body { grid-template-columns: 180px 1fr; }
+}
+
+/* --- the pages ------------------------------------------------------------------------ */
+
+main { overflow: hidden; position: relative; }
+html.win main { background: var(--layer); border: 1px solid var(--stroke); border-right: none; border-bottom: none; border-top-left-radius: 8px; margin-top: 8px; }
+html.mac main { background: color-mix(in srgb, var(--solid) 92%, transparent); }
+.page { height: 100%; overflow-y: auto; padding: 24px 36px 32px; }
+html.mac .page { padding: 40px 28px 28px; }
+.page > * { max-width: 1000px; margin-left: auto; margin-right: auto; }
+.page > div > * { max-width: 1000px; }
+@media (max-width: 760px) { .page { padding: 20px 20px 28px; } }
+
+/* A page that fills to the bottom (Log): no scrolling of its own, the list scrolls. */
+.page.fill { display: flex; flex-direction: column; overflow: hidden; }
+.page.fill > * { width: 100%; }
+.page.fill > .card { flex: 1; min-height: 0; }
+
+.readonly { position: fixed; bottom: 12px; right: 16px; font-size: 12px; color: var(--quiet); background: var(--card); border: 1px solid var(--stroke); border-radius: var(--radius); padding: 4px 10px; }
+
+/* The page title, large as in WinUI; with what it needs on the right. */
+header.title { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; min-height: 40px; }
+header.title h1 { flex: 1; font-size: 28px; font-weight: 600; line-height: 1.25; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.mac header.title { min-height: 0; margin-bottom: 12px; }
+html.mac header.title h1 { font-size: 22px; font-weight: 700; }
+header.title h1.mono { font-family: var(--mono); }
+header.title .actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* The breadcrumbs: "Status › Revit — Project". */
+header.crumbs { gap: 0; }
+header.crumbs h1 { flex: 0 1 auto; }
+header.crumbs .crumb { flex: 0 100 auto; }
+header.crumbs .crumb:first-child { flex: none; }
+.crumb { font-size: 28px; font-weight: 600; line-height: 1.25; color: var(--quiet); background: none; border: none; box-shadow: none; padding: 0; min-height: 0; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.crumb:hover:not(:disabled) { background: none; color: var(--text); }
+header.crumbs .sep { font-size: 14px; margin: 6px 14px 0; color: var(--quiet); flex: none; }
+.back { display: inline-flex; align-items: center; gap: 4px; border: none; box-shadow: none; border-radius: 999px; padding: 3px 10px; min-height: 0; background: var(--subtle); color: var(--accent); font-weight: 500; margin-bottom: 8px; max-width: 100%; }
+.back span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.back .glyph svg { width: 11px; height: 11px; stroke-width: 2.2; }
+
+/* --- the pieces ----------------------------------------------------------------------- */
+
+.glyph { display: inline-grid; place-items: center; font: normal 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; flex: none; }
+.glyph svg { width: 16px; height: 16px; display: block; }
+.quiet { color: var(--quiet); font-size: 12px; }
+html.mac .quiet { font-size: 12px; }
+.quiet-text { color: var(--quiet); }
+.danger { color: var(--danger); }
+.strong { font-weight: 600; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lines { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
+.right { text-align: right; }
+
+/* The tile: in place of a program's icon. On Windows a faint background with the glyph
+   in the accent color; on the Mac a colored tile with the symbol in white. */
+.tile { --size: 32px; width: var(--size); height: var(--size); border-radius: 6px; display: inline-grid; place-items: center; flex: none; background: var(--subtle); color: var(--accent); }
+.tile .glyph { font-size: calc(var(--size) * 0.5); }
+.tile .glyph svg { width: calc(var(--size) * 0.55); height: calc(var(--size) * 0.55); }
+html.mac .tile { --tint: var(--accent); background: var(--tint); color: #fff; border-radius: calc(var(--size) * 0.24); }
+.tile.round { --size: 52px; border-radius: 50%; }
+.tile.ok { background: var(--ok-bg); color: var(--ok); }
+.tile.err { background: var(--danger-bg); color: var(--danger); }
+.tile.plain { color: var(--quiet); }
+.tile.image, html.mac .tile.image { background: none; border-radius: 0; }
+.tile.image img { display: block; width: var(--size); height: var(--size); }
+html.mac .tile.ok, html.mac .tile.err, html.mac .tile.plain { color: #fff; }
+html.mac .tile.ok { background: #34c759; }
+html.mac .tile.err { background: #ff3b30; }
+html.mac .tile.plain { background: #8e8e93; }
+
+.section { display: flex; align-items: flex-end; gap: 8px; margin: 22px 0 8px 1px; }
+.page > header + div > .section:first-child, .page > header + .section { margin-top: 0; }
+.section h2 { margin: 0; }
+.section .actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.count { font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px; display: inline-grid; place-items: center; background: var(--subtle); color: var(--quiet); margin-bottom: 1px; }
+html.mac .count { background: none; padding: 0; min-width: 0; height: auto; font-size: 11px; }
+
+.card { margin-bottom: 4px; padding: 12px 16px; border-radius: 6px; }
+html.mac .card { padding: 10px 14px; border-radius: var(--radius-card); margin-bottom: 8px; }
+.card.group { padding: 0; overflow: hidden; }
+.card.group > * + * { border-top: 1px solid var(--stroke); }
+/* On the Mac the divider starts after the icon, as in the System Settings groups. */
+html.mac .card.group > * + * { border-top: none; position: relative; }
+html.mac .card.group > * + *::before { content: ""; position: absolute; top: 0; left: 54px; right: 0; border-top: 1px solid var(--stroke); }
+html.mac .card.group.commands > * + *::before, html.mac .card.group > .parameter + .parameter::before { left: 14px; right: 14px; }
+
+.empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 16px; margin-bottom: 4px; border: 1px dashed var(--stroke); border-radius: 6px; color: var(--quiet); }
+.empty .glyph { font-size: 24px; color: var(--faint); }
+.empty .glyph svg { width: 24px; height: 24px; }
+html.mac .empty { border: none; background: var(--inset); border-radius: var(--radius-card); }
+
+.badge { display: inline-flex; align-items: center; font-size: 12px; padding: 1px 8px 2px; border-radius: 10px; background: var(--subtle); color: var(--quiet); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.badge.ok { background: var(--ok-bg); color: var(--ok); }
+.badge.warn { background: var(--caution-bg); color: var(--caution); }
+.badge.err { background: var(--danger-bg); color: var(--danger); }
+.badge.accent { background: var(--accent-bg); color: var(--accent); }
+
+.tag { display: inline-flex; align-items: center; font-size: 12px; padding: 1px 6px 2px; border-radius: 4px; background: var(--subtle); white-space: nowrap; }
+.tag.mono { font-family: var(--mono); }
+.tag.accent { background: var(--accent-bg); color: var(--accent); }
+.tag.caution { background: var(--caution-bg); color: var(--caution); }
+.tag.ok { background: var(--ok-bg); color: var(--ok); }
+.tags { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 4px; }
+
+.bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 6px; border: 1px solid var(--stroke); background: var(--card); }
+.bar > .glyph { align-self: flex-start; margin-top: 2px; }
+.bar .text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.bar.info > .glyph { color: var(--accent); }
+.bar.warn { background: var(--caution-bg); }
+.bar.warn > .glyph { color: var(--caution); }
+.bar.err { background: var(--danger-bg); }
+.bar.err > .glyph { color: var(--danger); }
+.bar.ok > .glyph { color: var(--ok); }
+html.mac .bar { border: none; border-radius: 8px; }
+html.mac .bar.info { background: var(--accent-bg); }
+
+button.small { min-height: 28px; padding: 3px 10px 4px; }
+html.mac button.small { min-height: 22px; padding: 1px 10px 2px; font-size: 12px; }
+button.small .glyph { font-size: 12px; margin-right: 6px; vertical-align: -1px; }
+button.small .glyph svg { width: 12px; height: 12px; }
+html.mac button.accent.caution { background: #ff9500; color: #fff; }
+.icon-button { background: none; border: none; box-shadow: none; min-height: 32px; min-width: 32px; padding: 0; display: inline-grid; place-items: center; color: var(--text); }
+html.mac .icon-button { min-height: 24px; min-width: 24px; }
+.icon-button .glyph { font-size: 14px; }
+.icon-button .glyph svg { width: 14px; height: 14px; }
+button.link { display: inline-flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius); }
+button.link:hover:not(:disabled) { background: var(--control-hover); }
+button.link .glyph { font-size: 13px; }
+button.link .glyph svg { width: 13px; height: 13px; }
+
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--subtle); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* A row that opens on click, with the arrow on the right. */
+.click-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: none; box-shadow: none; padding: 8px 8px 8px 12px; min-height: 0; border-radius: 4px; color: inherit; font: inherit; }
+.click-row:hover:not(:disabled) { background: var(--control-hover); }
+/* AppKit buttons have a shadow: these don't, they are rows and icons. */
+html.mac .click-row, html.mac .icon-button, html.mac button.link, html.mac .back, html.mac .crumb { box-shadow: none; border: none; }
+html.mac .click-row { padding: 8px 8px 8px 12px; min-height: 0; }
+html.mac button.link { padding: 3px 6px; min-height: 0; }
+.click-row > .chevron { font-size: 12px; color: var(--quiet); margin: 0 4px 0 16px; }
+.click-row > .chevron svg { width: 11px; height: 11px; }
+.row-body { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.row-body.top { align-items: flex-start; }
+.row-body > .lines strong { font-weight: 600; }
+
+/* --- Status --------------------------------------------------------------------------- */
+
+.hero { display: flex; align-items: center; gap: 16px; padding: 16px 20px; }
+html.mac .hero { padding: 14px; }
+.hero > div:not(.tile) { flex: 1; min-width: 0; }
+.hero .tile.round .glyph { font-size: 24px; }
+.subtitle { font-size: 20px; font-weight: 600; line-height: 1.3; }
+html.mac .subtitle { font-size: 17px; }
+.hero .quiet { font-size: 13px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px; margin-top: 4px; }
+html.mac .stats { gap: 10px; margin-top: 8px; }
+.stat { display: flex; align-items: center; gap: 14px; margin: 0 0 4px; }
+.stat > .tile { --size: 40px; }
+.stat > .tile .glyph { font-size: 18px; }
+.stat .value { font-size: 22px; font-weight: 600; line-height: 1.2; white-space: nowrap; }
+
+.agent .head { display: flex; align-items: flex-start; gap: 16px; }
+.agent .head > .tile { margin-top: 2px; }
+.agent .head > button { align-self: center; flex: none; }
+.agent .name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.agent .big { font-size: 15px; font-weight: 600; }
+.agent .folder { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.agent .folder .glyph { font-size: 12px; }
+.agent .folder .glyph svg { width: 12px; height: 12px; }
+.indent { margin: 10px 0 0 56px; }
+.inset { background: var(--inset); border: 1px solid var(--stroke); border-radius: 4px; }
+html.mac .inset { border: none; border-radius: 9px; }
+.inset > .grant + .grant { border-top: 1px solid var(--stroke); }
+.grant { display: flex; align-items: center; gap: 8px; padding-right: 10px; }
+.grant > .click-row { flex: 1; min-width: 0; }
+
+.programs { display: flex; flex-direction: column; }
+html.mac .programs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.card.click { padding: 4px; }
+html.mac .card.click { margin: 0; }
+.card.click .click-row { padding: 8px 12px; min-height: 56px; }
+.users { display: flex; align-items: flex-start; gap: 7px; margin-top: 5px; font-size: 13px; }
+.users.idle { color: var(--quiet); }
+.users .glyph { font-size: 13px; margin-top: 2px; }
+.users .glyph svg { width: 13px; height: 13px; }
+
+.commands .click-row { padding: 10px 8px 10px 16px; }
+.commands .cmd { min-width: 160px; margin-right: 20px; flex: none; }
+.description { white-space: pre-wrap; margin: 0 0 4px 1px; }
+.code { display: flex; align-items: flex-start; gap: 6px; padding: 10px 6px 10px 14px; }
+.code .mono { flex: 1; overflow-wrap: anywhere; align-self: center; }
+.parameter { padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.parameter .name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.parameter .name .mono { margin-right: 4px; }
+.expander { margin-top: 16px; border: 1px solid var(--stroke); border-radius: 6px; background: var(--card); }
+.expander summary { padding: 12px 16px; cursor: default; font-weight: 600; list-style: none; display: flex; align-items: center; }
+.expander summary::-webkit-details-marker { display: none; }
+.expander summary::after { content: ""; width: 7px; height: 7px; margin: 0 4px 0 auto; border: solid var(--quiet); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform .1s; }
+.expander[open] summary::after { transform: rotate(-135deg); }
+html.mac .expander summary::after { order: -1; margin: 0 8px 0 2px; transform: rotate(-45deg); }
+html.mac .expander[open] summary::after { transform: rotate(45deg); }
+html.mac .expander { border: none; background: none; }
+html.mac .expander summary { padding: 6px 0; }
+.expander > :not(summary) { padding: 0 16px 14px; margin: 0; }
+.expander pre { white-space: pre-wrap; font-size: 12px; overflow-wrap: anywhere; }
+.status { margin: 12px 0 0 1px; }
+
+.columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; }
+.usage { padding: 4px 0; }
+.usage .line { display: flex; gap: 12px; align-items: baseline; }
+.usage .line .mono { flex: 1; }
+.usage.failing .line .quiet { color: var(--danger); }
+.meter { height: 4px; border-radius: 2px; background: var(--subtle); margin-top: 6px; overflow: hidden; }
+html.mac .meter { height: 6px; border-radius: 3px; }
+.meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.usage.failing .meter span { background: var(--danger); }
+.no-errors { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.no-errors .glyph { color: var(--ok); }
+
+table.calls { width: 100%; border-collapse: collapse; }
+table.calls th { text-align: left; font-size: 12px; font-weight: 600; color: var(--quiet); padding: 10px 20px 8px 0; }
+table.calls td { padding: 7px 20px 7px 0; border-top: 1px solid var(--stroke); white-space: nowrap; }
+table.calls th:first-child, table.calls td:first-child { padding-left: 16px; padding-right: 12px; width: 1px; }
+table.calls td:last-child { white-space: normal; width: 100%; }
+table.calls .right { text-align: right; }
+table.calls .tone .glyph { font-size: 14px; }
+table.calls .tone .glyph svg { width: 14px; height: 14px; }
+.tone.ok { color: var(--ok); }
+.tone.warn { color: var(--caution); }
+.tone.err { color: var(--danger); }
+.tone.off { color: var(--faint); }
+
+/* --- Applications, Agents --------------------------------------------------------- */
+
+.allowed, .setup { display: flex; align-items: center; gap: 16px; }
+html.mac .row { padding: 10px 14px; gap: 12px; }
+.setup .name .tag, .setup .name .badge { white-space: normal; }
+.allowed .name, .setup .name { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.allowed > button { flex: none; margin-left: 12px; }
+.setup .actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.setup .actions > .icon-button { margin-left: -4px; }
+html.mac .setup { align-items: flex-start; }
+html.mac .setup > .tone { width: 28px; display: grid; place-items: center; }
+html.mac .setup > .tone .glyph svg { width: 20px; height: 20px; }
+html.mac .setup .actions { align-self: center; }
+.setup .state { font-size: 13px; }
+.setup .state.ok { color: var(--ok); }
+.setup .state.warn { color: var(--caution); }
+.setup .state.err { color: var(--danger); }
+.setup .state.off { color: var(--quiet); }
+.message { margin-top: 4px; font-size: 12px; overflow-wrap: anywhere; }
+html.mac .message { margin-top: 6px; }
+.shim { margin: 0 0 8px 1px; }
+html.mac .shim { margin: 4px 0 0 1px; color: var(--faint); }
+
+/* --- Log -------------------------------------------------------------------------------- */
+
+.search { display: flex; align-items: center; gap: 8px; width: 220px; background: var(--control); border: 1px solid var(--stroke); border-bottom-color: rgba(127, 127, 127, 0.45); border-radius: var(--radius); padding: 0 10px 0 12px; height: 32px; }
+.search:focus-within { border-bottom: 2px solid var(--accent); }
+html.mac .search { width: 180px; height: 26px; border: none; border-radius: 7px; background: var(--subtle); padding: 0 8px; }
+html.mac .search:focus-within { box-shadow: 0 0 0 3px var(--accent-bg); border: none; }
+.search .glyph { font-size: 13px; color: var(--quiet); }
+.search .glyph svg { width: 13px; height: 13px; }
+.search input { flex: 1; min-width: 0; border: none; outline: none; background: none; color: var(--text); font: inherit; user-select: text; -webkit-user-select: text; }
+.search input::placeholder { color: var(--faint); }
+
+.card.log { position: relative; display: flex; flex-direction: column; }
+.log-list { flex: 1; overflow-y: auto; padding: 4px; outline: none; }
+.log-row { display: flex; gap: 14px; padding: 3px 10px; border-radius: 4px; font-size: 12px; }
+.log-row .time { color: var(--faint); flex: none; }
+.log-row .text { overflow-wrap: anywhere; min-width: 0; }
+.log-row.err .text { color: var(--danger); }
+.log-row.warn .text { color: var(--caution); }
+html.win .log-row:hover { background: var(--control-hover); }
+html.win .log-row.selected { background: var(--subtle); }
+html.mac .log-list { padding: 0; }
+html.mac .log-row { border-radius: 0; padding: 4px 12px; font-size: 12px; }
+html.mac .log-row:nth-child(even of :not(.hidden)) { background: var(--inset); }
+.log-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--quiet); pointer-events: none; }
+
+/* --- Settings ---------------------------------------------------------------------- */
+
+.setting { display: flex; align-items: center; gap: 20px; padding: 12px 16px; min-height: 64px; }
+.card:not(.group) > .setting { padding: 0; min-height: 0; }
+.setting.top { align-items: flex-start; }
+.setting > .lead { font-size: 20px; margin: 0 0 0 4px; }
+.setting > .lead svg { width: 20px; height: 20px; }
+.setting .actions { flex: none; display: flex; align-items: center; margin-left: 16px; }
+.setting .lines > button.link { align-self: flex-start; margin: 2px 0 0 -8px; }
+.setting > button.link { margin-left: -8px; }
+html.mac .setting { gap: 12px; padding: 10px 14px; min-height: 0; }
+html.mac .card:not(.group) > .setting { padding: 0; }
+html.mac .card > .bar { margin: 8px 0 0; }
+
+/* The switch: "On"/"Off" and the WinUI track; on the Mac the AppKit one. */
+.switch { display: inline-flex; align-items: center; gap: 12px; position: relative; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; }
+.switch .state { min-width: 22px; text-align: right; }
+.switch .track { width: 40px; height: 20px; border-radius: 10px; border: 1px solid var(--quiet); position: relative; transition: background .1s; flex: none; }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--quiet); transition: left .1s, width .1s; }
+.switch:hover .track::after { width: 14px; height: 14px; top: 2px; left: 3px; }
+.switch input:checked + .track { background: var(--accent); border-color: transparent; }
+.switch input:checked + .track::after { left: 24px; background: var(--accent-text); }
+.switch:hover input:checked + .track::after { left: 22px; }
+.switch input:focus-visible + .track { outline: 2px solid var(--text); outline-offset: 2px; }
+.switch input:disabled + .track { opacity: .45; }
+html.mac .switch .state { display: none; }
+html.mac .switch .track { width: 32px; height: 19px; border: none; background: rgba(127, 127, 127, .3); }
+html.mac .switch input:checked + .track { background: var(--accent); }
+html.mac .switch .track::after, html.mac .switch:hover .track::after { top: 2px; left: 2px; width: 15px; height: 15px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
+html.mac .switch input:checked + .track::after, html.mac .switch:hover input:checked + .track::after { left: 15px; background: #fff; }
+
+.about { display: flex; align-items: center; gap: 16px; }
+.about .logo svg { width: 28px; height: 28px; display: block; }
+html.mac .about { gap: 10px; margin-top: 20px; }

@@ -1,0 +1,40 @@
+[package]
+name = "clak-connectors"
+description = "The connectors: the hub as a client of MCP servers over HTTP, with a token or OAuth, or over stdio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A fake MCP server over stdio, for the tests only (tests/stdio.rs).
+[[bin]]
+name = "clak-fake-stdio"
+path = "testbin/fake_stdio.rs"
+test = false
+doc = false
+
+[dependencies]
+clak-wire.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+url.workspace = true
+sha2.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+regex.workspace = true
+clak-hub.workspace = true
+clak-platform.workspace = true
+tokio-util = "0.7"
+thiserror.workspace = true
+anyhow.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query", "form"] }
+futures-util.workspace = true

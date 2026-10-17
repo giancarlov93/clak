@@ -1,0 +1,273 @@
+/* The MCP and APIs tabs and their dialogs. On Windows like WinUI 11 (card, ToggleSwitch,
+   MenuFlyout, ContentDialog, TextBox with the accent line), on the Mac like AppKit (switch,
+   menu, fields with the focus ring). The base variables are those of clak.css. */
+
+:root {
+  --ed-field: rgba(255, 255, 255, 0.7);
+  --ed-field-focus: #fff;
+  --ed-field-line: rgba(0, 0, 0, 0.45);
+  --ed-menu: #f9f9f9;
+  --ed-info: rgba(246, 246, 246, 0.9);
+  --ed-error-bg: #fde7e9;
+  --ed-hover: rgba(0, 0, 0, 0.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ed-field: rgba(255, 255, 255, 0.06);
+    --ed-field-focus: #1f1f1f;
+    --ed-field-line: rgba(255, 255, 255, 0.55);
+    --ed-menu: #2c2c2c;
+    --ed-info: rgba(255, 255, 255, 0.05);
+    --ed-error-bg: #442726;
+    --ed-hover: rgba(255, 255, 255, 0.06);
+  }
+}
+:root[data-theme="dark"] {
+  --ed-field: rgba(255, 255, 255, 0.06);
+  --ed-field-focus: #1f1f1f;
+  --ed-field-line: rgba(255, 255, 255, 0.55);
+  --ed-menu: #2c2c2c;
+  --ed-info: rgba(255, 255, 255, 0.05);
+  --ed-error-bg: #442726;
+  --ed-hover: rgba(255, 255, 255, 0.06);
+}
+
+.ed-glyph { display: inline-grid; place-items: center; flex: none; }
+.ed-glyph svg { display: block; }
+
+/* ============================================================ the tabs */
+/* The rest (cards, tiles, pills, bars, switches) belongs to panel.css. */
+
+.ed-card.off .tile { filter: grayscale(1); opacity: .6; }
+.ed-card .row-body { gap: 16px; }
+html.mac .ed-card .row-body { gap: 12px; }
+.ed-card .row-body > .tile { margin-top: 2px; }
+.ed-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.ed-name { font-weight: 600; margin-right: 2px; }
+html.mac .ed-name { font-size: 15px; }
+.ed-state { margin-top: 1px; }
+.ed-actions { display: flex; align-items: center; gap: 8px; align-self: center; flex: none; }
+.ed-bars { display: flex; flex-direction: column; gap: 8px; }
+.ed-bars > .bar { margin-bottom: 0; }
+.ed-button-glyph { font-size: 12px; margin-right: 8px; vertical-align: -1px; }
+.ed-button-glyph svg { width: 12px; height: 12px; display: inline-block; vertical-align: -1px; }
+
+/* The menu: WinUI MenuFlyout, NSMenu on the Mac. */
+.ed-menu {
+  position: fixed; z-index: 100; min-width: 160px; padding: 4px;
+  background: var(--ed-menu); border: 1px solid var(--stroke); border-radius: 8px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, .14);
+  display: flex; flex-direction: column;
+}
+html.mac .ed-menu { padding: 5px; border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); }
+.ed-item {
+  text-align: left; background: none; border: none; box-shadow: none; border-radius: 4px;
+  min-height: 32px; padding: 0 12px;
+}
+.ed-item:hover, .ed-item:focus-visible { background: var(--control-hover); outline: none; }
+html.mac .ed-item { min-height: 22px; padding: 0 10px; }
+html.mac .ed-item:hover, html.mac .ed-item:focus-visible { background: var(--accent); color: #fff; }
+.ed-sep { height: 1px; background: var(--stroke); margin: 4px 0; }
+
+/* The bars: WinUI InfoBar, AppKit callouts. */
+.ed-bar {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--stroke); border-radius: var(--radius); padding: 8px 12px; min-height: 40px;
+  background: var(--ed-info);
+}
+.ed-bar::before {
+  content: "i"; flex: none; width: 16px; height: 16px; border-radius: 8px; display: grid; place-items: center;
+  font: 700 11px/1 "Segoe UI", system-ui, sans-serif; color: #fff; background: var(--accent);
+}
+.ed-bar.warn { background: var(--caution-bg); }
+.ed-bar.warn::before { content: "!"; background: var(--caution); color: var(--solid); }
+.ed-bar.err { background: var(--ed-error-bg); }
+.ed-bar.err::before { content: "\00d7"; background: var(--danger); color: var(--solid); font-size: 13px; }
+.ed-bar.lock::before { content: "\1f513"; background: none; width: auto; font-size: 13px; }
+.ed-bar-text { flex: 1; overflow-wrap: anywhere; }
+.ed-bar button { flex: none; }
+
+/* ============================================================ the dialogs */
+
+body.ed-dialog { display: flex; flex-direction: column; }
+body.ed-dialog.tall { height: 100vh; overflow: hidden; }
+.ed-main {
+  background: var(--layer);
+  border-top: 1px solid var(--stroke); border-bottom: 1px solid var(--stroke);
+  padding: 20px 24px 22px;
+}
+html.mac .ed-main { padding-top: 36px; background: transparent; border: none; }
+.tall .ed-main { flex: 1; min-height: 0; }
+.ed-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 16px 24px 20px; }
+html.mac .ed-foot { padding: 4px 20px 20px; }
+.ed-foot .ed-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+.ed-foot .ed-buttons button { min-width: 126px; }
+html.mac .ed-foot .ed-buttons button { min-width: 90px; }
+.ed-foot .ed-bar { flex: 1; margin-right: 16px; }
+
+.ed-dialog h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-intro { color: var(--quiet); margin: 4px 0 0; }
+.ed-intro:empty { display: none; }
+.ed-label { display: block; margin: 14px 0 6px; }
+.ed-label.first { margin-top: 16px; }
+.ed-optional { color: var(--faint); }
+.ed-hint { margin-top: 6px; }
+.ed-hint:empty { display: none; }
+.ed-gap { margin-top: 14px; }
+fieldset { border: none; margin: 0; padding: 0; min-width: 0; }
+
+/* The fields: the WinUI TextBox (the bottom line, accent-colored with focus), NSTextField. */
+.ed-dialog textarea {
+  font: inherit; color: var(--text); width: 100%; min-width: 0; padding: 6px 10px; resize: vertical;
+  background: var(--ed-field); border: 1px solid var(--stroke); border-bottom-color: var(--ed-field-line);
+  border-radius: var(--radius); outline: none; user-select: text; -webkit-user-select: text;
+}
+.ed-dialog textarea.mono { font-family: var(--mono); font-size: 13px; }
+.ed-dialog textarea::placeholder { color: var(--faint); opacity: 1; }
+.ed-dialog textarea:focus { background: var(--ed-field-focus); border-bottom: 2px solid var(--accent); padding-bottom: 5px; }
+.ed-dialog textarea:disabled, fieldset:disabled textarea { opacity: .5; }
+html.mac .ed-dialog textarea {
+  padding: 4px 6px; border-radius: 5px; border: 0.5px solid rgba(0, 0, 0, .25);
+  background: var(--ed-field-focus); box-shadow: 0 0.5px 1px rgba(0, 0, 0, .08);
+}
+html.mac .ed-dialog textarea:focus {
+  border: 0.5px solid var(--accent); padding-bottom: 4px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.ed-kind { margin: 0 0 16px; }
+.ed-dialog input[type="text"], .ed-dialog input[type="password"], .ed-dialog input[type="url"], .ed-dialog select {
+  font: inherit; color: var(--text); width: 100%; min-width: 0; height: 32px; padding: 0 10px;
+  background: var(--ed-field); border: 1px solid var(--stroke); border-bottom-color: var(--ed-field-line);
+  border-radius: var(--radius); outline: none; user-select: text; -webkit-user-select: text;
+}
+.ed-dialog input.mono, .ed-dialog select.mono { font-family: var(--mono); font-size: 13px; }
+.ed-dialog input::placeholder { color: var(--faint); opacity: 1; }
+.ed-dialog input:focus, .ed-dialog select:focus {
+  background: var(--ed-field-focus); border-bottom: 2px solid var(--accent); padding-bottom: 0;
+}
+.ed-dialog input[readonly] { color: var(--quiet); }
+.ed-dialog input:disabled, .ed-dialog select:disabled, fieldset:disabled input, fieldset:disabled select { opacity: .5; }
+.ed-dialog select {
+  appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: default;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23888' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.ed-dialog select:focus { border-bottom: 1px solid var(--ed-field-line); }
+.ed-dialog select option { background: var(--ed-menu); color: var(--text); }
+html.mac .ed-dialog input[type="text"], html.mac .ed-dialog input[type="password"], html.mac .ed-dialog select {
+  height: 22px; padding: 0 6px; border-radius: 5px; border: 0.5px solid rgba(0, 0, 0, .25);
+  background: var(--ed-field-focus); box-shadow: 0 0.5px 1px rgba(0, 0, 0, .08);
+}
+@media (prefers-color-scheme: dark) {
+  html.mac:not([data-theme="light"]) .ed-dialog input[type="text"], html.mac:not([data-theme="light"]) .ed-dialog input[type="password"], html.mac:not([data-theme="light"]) .ed-dialog select { border-color: rgba(255, 255, 255, .14); }
+}
+html.mac .ed-dialog select { padding-right: 24px; background-position: right 6px center; }
+html.mac .ed-dialog input:focus, html.mac .ed-dialog select:focus {
+  border: 0.5px solid var(--accent); padding-bottom: 0;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.ed-dialog input[type="checkbox"]:not(.ed-switch), .ed-dialog input[type="radio"] {
+  accent-color: var(--accent); width: 18px; height: 18px; margin: 0; flex: none;
+}
+html.mac .ed-dialog input[type="checkbox"]:not(.ed-switch), html.mac .ed-dialog input[type="radio"] { width: 14px; height: 14px; }
+.ed-check { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.ed-check.first { margin-top: 0; }
+.ed-dialog button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.ed-dialog .ed-foot button { display: block; }
+
+button.ed-icon {
+  width: 32px; height: 32px; min-height: 0; padding: 0; display: inline-grid; place-items: center;
+  background: transparent; border-color: transparent; box-shadow: none;
+}
+button.ed-icon:hover:not(:disabled) { background: var(--control-hover); border-color: var(--stroke); }
+html.mac button.ed-icon { width: 24px; height: 24px; border-radius: 12px; }
+
+/* "clak" in front of the command. */
+.ed-prefix { display: flex; align-items: center; gap: 10px; }
+.ed-prefix > span { font-family: var(--mono); color: var(--quiet); }
+
+/* The sign-in choice: two rows in a card, like the RadioButtons in a GroupCard. */
+.ed-group { background: var(--card); border: 1px solid var(--stroke); border-radius: var(--radius-card); }
+.ed-group > section { padding: 12px 16px; }
+.ed-group > section + section { border-top: 1px solid var(--stroke); }
+.ed-group .ed-radio { display: flex; align-items: center; gap: 10px; }
+.ed-group .ed-sub { margin: 8px 0 0 28px; }
+html.mac .ed-group .ed-sub { margin-left: 24px; }
+details.ed-expander { border: 1px solid var(--stroke); border-radius: var(--radius); background: var(--control); }
+details.ed-expander > summary { padding: 8px 12px; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+details.ed-expander > summary::-webkit-details-marker { display: none; }
+details.ed-expander > summary::after { content: "\2304"; color: var(--quiet); line-height: .5; }
+details.ed-expander[open] > summary::after { transform: rotate(180deg); line-height: 1.2; }
+details.ed-expander > div { padding: 4px 12px 12px; border-top: 1px solid var(--stroke); }
+.ed-redirect { margin-top: 8px; }
+.ed-redirect .mono { font-size: 11px; }
+
+.ed-probe { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.ed-probe button { min-width: 96px; flex: none; }
+.ed-probe span { overflow-wrap: anywhere; }
+.ed-status, .ed-error { margin-top: 14px; }
+
+/* ============================================================ the APIs window */
+
+.ed-api { display: grid; grid-template-columns: 340px 1px 1fr; gap: 0 24px; height: 100%; min-height: 0; }
+.ed-api > .ed-divider { background: var(--stroke); }
+.ed-api > .ed-left { overflow-y: auto; padding-right: 8px; margin-right: -8px; min-height: 0; }
+.ed-api > .ed-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.ed-segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 16px; }
+.ed-segmented button.on { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+html.mac .ed-segmented { gap: 0; background: var(--control); border-radius: 6px; padding: 1px; border: 0.5px solid var(--stroke); }
+html.mac .ed-segmented button { border: none; box-shadow: none; background: transparent; }
+html.mac .ed-segmented button.on { background: var(--ed-field-focus); color: var(--text); box-shadow: 0 0.5px 1.5px rgba(0,0,0,.2); }
+.ed-source { display: flex; gap: 6px; }
+.ed-source button { flex: none; }
+.ed-source .ed-browse { width: 34px; padding: 0; }
+.ed-source-result.err { color: var(--danger); }
+
+.ed-endpoints-head { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 12px; }
+.ed-endpoints-head h2 { margin: 0; }
+.ed-count { font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px; display: inline-grid; place-items: center; background: var(--control); border: 1px solid var(--stroke); color: var(--quiet); }
+html.mac .ed-count { background: none; border: none; padding: 0; min-width: 0; }
+.ed-filter { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.ed-filter input { flex: 1; }
+.ed-endpoint-list { flex: 1; min-height: 0; overflow-y: auto; position: relative; }
+.ed-ep {
+  display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: var(--radius); outline: none;
+}
+.ed-ep:hover { background: var(--ed-hover); }
+.ed-ep:focus-visible, .ed-ep.selected { background: var(--control); box-shadow: inset 0 0 0 1px var(--stroke); }
+.ed-ep > input[type="checkbox"] { margin-right: 4px !important; }
+.ed-method {
+  flex: none; width: 62px; margin-right: 6px; text-align: center; font-family: var(--mono); font-size: 11px;
+  border: 1px solid var(--stroke); border-radius: 4px; padding: 1px 0; background: var(--control);
+}
+.ed-ep-text { flex: 1; min-width: 0; }
+.ed-ep-text > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-ep-path { font-family: var(--mono); font-size: 13px; }
+.ed-ep-name { font-family: var(--mono); }
+.ed-ep button.ed-icon { width: 28px; height: 28px; }
+.ed-none { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--faint); }
+.ed-none > div { font-weight: 600; color: var(--quiet); }
+.ed-skipped { margin-top: 10px; }
+
+/* ============================================================ the endpoint */
+
+.ed-line { display: flex; gap: 8px; margin-top: 16px; }
+.ed-line > div { min-width: 0; }
+.ed-line .ed-label { margin-top: 0; }
+.ed-line.wide { gap: 12px; margin-top: 14px; }
+.ed-line .ed-grow { flex: 1; }
+.ed-method-col { width: 120px; flex: none; }
+.ed-name-col { width: 300px; flex: none; }
+.ed-params-head { display: flex; align-items: center; justify-content: space-between; margin: 20px 0 8px; }
+.ed-params-head h2 { margin: 0; }
+.ed-params { padding: 8px 12px 10px; }
+.ed-param { display: grid; grid-template-columns: 160px 100px 108px 84px 1fr 32px; gap: 0 8px; align-items: center; margin: 2px 0; }
+html.mac .ed-param { grid-template-columns: 160px 96px 100px 70px 1fr 26px; }
+.ed-param.head { color: var(--quiet); font-size: 12px; margin: 0 0 6px; }
+.ed-param input[type="checkbox"] { justify-self: start; }
+.ed-param button.ed-icon { justify-self: end; }
+.ed-body-row { display: flex; align-items: flex-end; gap: 12px; margin-top: 16px; }
+.ed-body-row > div:first-child { width: 160px; flex: none; }
+.ed-body-row .ed-label { margin-top: 0; }
+.ed-body-row .ed-check { margin: 0 0 4px; }
+.ed-body-note { padding-bottom: 6px; }
