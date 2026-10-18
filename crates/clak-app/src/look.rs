@@ -1,5 +1,5 @@
 //! Each system's look: Mica on Windows 11, glass (vibrancy) on the Mac, the accent color
-//! chosen in the system's settings, the system sound when a question appears. The pages are transparent and let the material show through;
+//! chosen in the system's settings. The pages are transparent and let the material show through;
 //! where there is no material (Windows 10) the window is opaque and the page draws a solid
 //! background.
 
@@ -210,22 +210,6 @@ pub fn flyout<'a, R: Runtime, M: tauri::Manager<R>>(
     )
 }
 
-/// The sound of a new question: the one the system uses for information.
-pub fn announce() {
-    #[cfg(windows)]
-    unsafe {
-        windows_sys::Win32::System::Diagnostics::Debug::MessageBeep(
-            windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK,
-        );
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("/usr/bin/afplay")
-            .arg("/System/Library/Sounds/Glass.aiff")
-            .spawn();
-    }
-}
-
 /// Read the current native preference, so changing it doesn't require restarting Clak.
 pub fn reduced_motion() -> bool {
     #[cfg(target_os = "macos")]
@@ -255,21 +239,42 @@ pub fn reduced_motion() -> bool {
     }
 }
 
-/// Embedded connection sound: optional, separate from the consent sound. Main thread.
-pub fn connection_sound() {
-    #[cfg(any(windows, target_os = "macos"))]
-    const WAV: &[u8] = include_bytes!("../sounds/connect.wav");
+/// Clak's own sounds, embedded in the app. They come as a pair, so neither uses a system sound.
+#[derive(Clone, Copy)]
+pub enum Sound {
+    /// An agent connects. Optional, off by default.
+    Connection,
+    /// A question appears. On by default.
+    Consent,
+}
+
+impl Sound {
+    fn wav(self) -> &'static [u8] {
+        match self {
+            Sound::Connection => include_bytes!("../sounds/connect.wav"),
+            Sound::Consent => include_bytes!("../sounds/consent.wav"),
+        }
+    }
+}
+
+/// Main thread: the Mac keeps its sounds in thread-local storage.
+pub fn play(sound: Sound) {
     #[cfg(windows)]
     {
         use windows_sys::Win32::Media::Audio::{
             PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP, SND_SYSTEM,
         };
+        // A process plays one sound at a time: a question interrupts a connection, never the reverse.
+        let wait = match sound {
+            Sound::Connection => SND_NOSTOP,
+            Sound::Consent => 0,
+        };
         // SAFETY: SND_MEMORY interprets this as WAV bytes; static storage outlives async playback.
         unsafe {
             PlaySoundW(
-                WAV.as_ptr().cast(),
+                sound.wav().as_ptr().cast(),
                 std::ptr::null_mut(),
-                SND_MEMORY | SND_ASYNC | SND_NODEFAULT | SND_NOSTOP | SND_SYSTEM,
+                SND_MEMORY | SND_ASYNC | SND_NODEFAULT | SND_SYSTEM | wait,
             );
         }
     }
@@ -279,14 +284,25 @@ pub fn connection_sound() {
         use objc2::rc::Retained;
         use objc2_app_kit::NSSound;
         use objc2_foundation::NSData;
-        // Keep the sound alive through playback and reuse it on subsequent connections.
-        thread_local! {
-            static SOUND: Option<Retained<NSSound>> =
-                NSSound::initWithData(NSSound::alloc(), &NSData::with_bytes(WAV));
+        fn load(sound: Sound) -> Option<Retained<NSSound>> {
+            NSSound::initWithData(NSSound::alloc(), &NSData::with_bytes(sound.wav()))
         }
-        SOUND.with(|sound| {
-            if let Some(sound) = sound {
-                let _ = sound.play();
+        // Keep each sound alive through playback and reuse it the next time.
+        thread_local! {
+            static CONNECTION: Option<Retained<NSSound>> = load(Sound::Connection);
+            static CONSENT: Option<Retained<NSSound>> = load(Sound::Consent);
+        }
+        let player = match sound {
+            Sound::Connection => &CONNECTION,
+            Sound::Consent => &CONSENT,
+        };
+        player.with(|player| {
+            if let Some(player) = player {
+                // Like Windows: a new question starts its sound again, a new connection does not.
+                if matches!(sound, Sound::Consent) {
+                    player.stop();
+                }
+                let _ = player.play();
             }
         });
     }
@@ -294,6 +310,28 @@ pub fn connection_sound() {
 
 #[cfg(test)]
 mod tests {
+    use super::Sound;
+
+    /// Both systems play the bytes as they are: mono, 48 kHz, 16-bit PCM, with the samples at once.
+    #[test]
+    fn the_sounds_are_plain_pcm_wavs() {
+        for sound in [Sound::Connection, Sound::Consent] {
+            let wav = sound.wav();
+            let u16_at = |i: usize| u16::from_le_bytes([wav[i], wav[i + 1]]);
+            let u32_at = |i: usize| u32::from_le_bytes(wav[i..i + 4].try_into().unwrap());
+            assert_eq!(&wav[0..4], b"RIFF");
+            assert_eq!(u32_at(4) as usize, wav.len() - 8);
+            assert_eq!(&wav[8..16], b"WAVEfmt ");
+            assert_eq!(u32_at(16), 16, "fmt chunk size");
+            assert_eq!(u16_at(20), 1, "PCM");
+            assert_eq!(u16_at(22), 1, "mono");
+            assert_eq!(u32_at(24), 48_000);
+            assert_eq!(u16_at(34), 16);
+            assert_eq!(&wav[36..40], b"data");
+            assert_eq!(u32_at(40) as usize, wav.len() - 44);
+        }
+    }
+
     #[test]
     fn the_accent_takes_winui_s_shades() {
         let palette: [u8; 32] = [

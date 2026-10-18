@@ -34,6 +34,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - The consent window is shorter and easier to read: who asks with its real icon and who
   signed it, the commands as names to tap, the rest under Details. On the Mac it is no longer
   see-through.
+- A consent window plays Clak's own sound, of the same family as the connection sound, not
+  the system one. Sound for consent windows in Settings still turns it off.
 - Applications show who signed the program without "signed by".
 - The protocol's session diagram is a Mermaid diagram.
 

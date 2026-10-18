@@ -212,7 +212,9 @@ impl WindowPrompt {
         builder.build().map_err(|e| e.to_string())?;
         self.stack();
         if (self.sound)() {
-            crate::look::announce();
+            let _ = self
+                .app
+                .run_on_main_thread(|| crate::look::play(crate::look::Sound::Consent));
         }
         Ok(())
     }

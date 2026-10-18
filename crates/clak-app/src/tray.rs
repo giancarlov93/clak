@@ -86,7 +86,7 @@ pub fn connected(app: &AppHandle, sound: bool) {
             return;
         }
         if sound {
-            crate::look::connection_sound();
+            crate::look::play(crate::look::Sound::Connection);
         }
         if crate::look::reduced_motion() {
             return;
