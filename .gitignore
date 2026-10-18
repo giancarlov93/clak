@@ -7,3 +7,11 @@ crates/clak-app/THIRD-PARTY-NOTICES.txt
 
 # Signing and notarization: the App Store Connect API key and its settings (scripts/bundle.mjs).
 /.secrets/
+
+# Files of the operating systems and editors.
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
