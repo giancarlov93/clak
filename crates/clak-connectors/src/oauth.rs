@@ -1222,6 +1222,18 @@ mod tests {
     }
 
     #[test]
+    fn the_expiry_survives_the_trip_through_the_keychain_text() {
+        // Saved as text and read back: a float off by its last digit is a different grant.
+        let mut at = 1_792_000_000.123_456_7_f64;
+        for _ in 0..10_000 {
+            let text = serde_json::to_string(&wire::float(at)).unwrap();
+            let back = serde_json::from_str::<Value>(&text).unwrap().as_f64();
+            assert_eq!(back, Some(at), "{text}");
+            at += 0.000_731_9;
+        }
+    }
+
+    #[test]
     fn gli_indirizzi_noti_devono_essere_https() {
         let server = known(
             "https://auth.example/oauth/authorize",
