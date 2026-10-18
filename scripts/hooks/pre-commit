@@ -1,0 +1,21 @@
+#!/bin/sh
+# Before a commit: formatting and clippy, as CI checks them (.github/workflows/checks.yml).
+# Turn it on once per clone:
+#
+#     git config core.hooksPath scripts/hooks
+#
+# A commit that touches no Rust skips it. To skip it anyway: git commit --no-verify.
+set -e
+
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.rs$|(^|/)Cargo\.(toml|lock)$|^rust-toolchain\.toml$|^rustfmt\.toml$'; then
+  exit 0
+fi
+
+echo "pre-commit: cargo fmt --check"
+if ! cargo fmt --all --check >/dev/null; then
+  echo "pre-commit: the code isn't formatted. Run: cargo fmt --all" >&2
+  exit 1
+fi
+
+echo "pre-commit: cargo clippy"
+cargo clippy --workspace --all-targets --quiet -- -D warnings

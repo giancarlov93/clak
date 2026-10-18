@@ -43,6 +43,12 @@ written for the previous one would stop working, and the specification must be u
 
 ## Building
 
+The Rust version is fixed in `rust-toolchain.toml`: in this folder rustup uses it.
+
+```bash
+rustup toolchain install
+```
+
 ```bash
 cargo build
 ```
@@ -60,6 +66,23 @@ cargo build -p clak-app
 The Mac check can also be run from Windows: `cargo check --target aarch64-apple-darwin`.
 `clak-app` needs a C compiler for the Mac target; for `check` alone a fake one
 that writes empty files is enough (`CC_aarch64_apple_darwin`, `AR_aarch64_apple_darwin`).
+
+Before a pull request, the same checks as CI (`.github/workflows/checks.yml`): formatting and
+clippy without warnings.
+
+```bash
+cargo fmt --all
+```
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+A git hook runs them before every commit that touches Rust; turn it on once per clone:
+
+```bash
+git config core.hooksPath scripts/hooks
+```
 
 ## Trying it
 

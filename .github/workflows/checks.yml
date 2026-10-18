@@ -1,0 +1,49 @@
+# On every pull request, and on main: formatting, clippy and the tests, before review.
+# No secrets and no environment here: it runs the same for a fork.
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Rust
+        run: rustup toolchain install
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+  # clippy and the tests on both systems: much of the code is #[cfg(windows)] or macOS only.
+  # The whole workspace, the Tauri app included.
+  clippy-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Rust
+        shell: bash
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: cargo clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: cargo test
+        shell: bash
+        run: cargo test --workspace --locked
