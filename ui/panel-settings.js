@@ -82,6 +82,7 @@
       setting("bell", "#ff3b30", "Notifications", null, Kit.toggle(data.notifications, "Notifications", setPreference("notifications")),
         { help: "When a program connects, and when an agent starts or stops using one" }),
       setting("speaker", "#ff2d55", "Sound for consent windows", null, Kit.toggle(data.consent_sound, "Sound for consent windows", setPreference("consent_sound"))),
+      setting("speaker", "#ff2d55", "Sound when an agent connects", null, Kit.toggle(data.connection_sound, "Sound when an agent connects", setPreference("connection_sound"))),
       Clak.mac ? null : el("div", { class: "setting" }, Kit.icon("options", "lead"),
         Kit.link("Windows notification settings", null, () => open("notifications"), "If Windows notifications are off, tray alerts don't show")));
 

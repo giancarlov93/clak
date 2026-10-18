@@ -226,6 +226,72 @@ pub fn announce() {
     }
 }
 
+/// Read the current native preference, so changing it doesn't require restarting Clak.
+pub fn reduced_motion() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+        };
+        let mut enabled: i32 = 1;
+        // SAFETY: the output points to a writable BOOL for this SPI query.
+        let ok = unsafe {
+            SystemParametersInfoW(
+                SPI_GETCLIENTAREAANIMATION,
+                0,
+                (&mut enabled as *mut i32).cast(),
+                0,
+            )
+        };
+        ok != 0 && enabled == 0
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        true
+    }
+}
+
+/// Embedded connection sound: optional, separate from the consent sound. Main thread.
+pub fn connection_sound() {
+    #[cfg(any(windows, target_os = "macos"))]
+    const WAV: &[u8] = include_bytes!("../sounds/connect.wav");
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Media::Audio::{
+            PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT, SND_NOSTOP, SND_SYSTEM,
+        };
+        // SAFETY: SND_MEMORY interprets this as WAV bytes; static storage outlives async playback.
+        unsafe {
+            PlaySoundW(
+                WAV.as_ptr().cast(),
+                std::ptr::null_mut(),
+                SND_MEMORY | SND_ASYNC | SND_NODEFAULT | SND_NOSTOP | SND_SYSTEM,
+            );
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::AnyThread;
+        use objc2::rc::Retained;
+        use objc2_app_kit::NSSound;
+        use objc2_foundation::NSData;
+        // Keep the sound alive through playback and reuse it on subsequent connections.
+        thread_local! {
+            static SOUND: Option<Retained<NSSound>> =
+                NSSound::initWithData(NSSound::alloc(), &NSData::with_bytes(WAV));
+        }
+        SOUND.with(|sound| {
+            if let Some(sound) = sound {
+                let _ = sound.play();
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

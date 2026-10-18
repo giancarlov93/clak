@@ -10,6 +10,13 @@ pub struct Notice {
     pub text: String,
 }
 
+/// Connection feedback is independent of whether system notifications are enabled.
+#[derive(Default)]
+pub struct Changes {
+    pub notices: Vec<Notice>,
+    pub agent_connected: bool,
+}
+
 fn list<'a>(state: &'a Value, key: &str) -> &'a [Value] {
     state
         .get(key)
@@ -31,9 +38,18 @@ fn has(state: &Value, key: &str, id: &str) -> bool {
 }
 
 /// What happened between two snapshots. The first one reports nothing: it is just the start.
-pub fn between(before: Option<&Value>, after: &Value) -> Vec<Notice> {
-    let mut notices = Vec::new();
-    let Some(before) = before else { return notices };
+pub fn between(before: Option<&Value>, after: &Value) -> Changes {
+    let Some(before) = before else {
+        return Changes::default();
+    };
+    let mut changes = Changes {
+        agent_connected: after.get("offline").is_none()
+            && list(after, "sessions")
+                .iter()
+                .any(|s| !has(before, "sessions", text(s, "id"))),
+        ..Changes::default()
+    };
+    let notices = &mut changes.notices;
 
     for resource in list(after, "resources")
         .iter()
@@ -88,7 +104,7 @@ pub fn between(before: Option<&Value>, after: &Value) -> Vec<Notice> {
             ),
         });
     }
-    notices
+    changes
 }
 
 pub fn plural(n: usize, one: &str, many: &str) -> String {
@@ -193,6 +209,22 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn only_new_agent_sessions_trigger_connection_feedback() {
+        let empty = json!({"sessions": [], "resources": [], "grants": []});
+        let program = json!({"sessions": [], "resources": [{"id": "r1"}]});
+        let connected = json!({"sessions": [{"id": "s1"}, {"id": "s2"}]});
+        assert!(!between(None, &connected).agent_connected);
+        assert!(!between(Some(&empty), &program).agent_connected);
+        assert!(between(Some(&empty), &connected).agent_connected);
+        assert!(!between(Some(&connected), &connected).agent_connected);
+        assert!(!between(Some(&connected), &empty).agent_connected);
+        let replacement = json!({"sessions": [{"id": "s3"}, {"id": "s2"}]});
+        assert!(between(Some(&connected), &replacement).agent_connected);
+        let grant = json!({"sessions": connected["sessions"], "grants": [{"id": "g1"}]});
+        assert!(!between(Some(&connected), &grant).agent_connected);
+    }
+
+    #[test]
     fn le_notifiche_raccontano_i_cambiamenti() {
         let empty = json!({"resources": [], "grants": [], "sessions": []});
         let connected = json!({
@@ -200,8 +232,8 @@ mod tests {
             "sessions": [{"id": "s1", "label": "Claude Code · prova"}],
             "grants": [{"id": "g1", "resource_id": "r1", "session_id": "s1"}],
         });
-        assert!(between(None, &connected).is_empty());
-        let notices = between(Some(&empty), &connected);
+        assert!(between(None, &connected).notices.is_empty());
+        let notices = between(Some(&empty), &connected).notices;
         assert_eq!(notices[0].title, "Blocco connected");
         assert_eq!(notices[1].title, "“spesa.txt” in use");
         assert_eq!(notices[1].text, "Claude Code · prova can use Blocco.");
@@ -209,7 +241,7 @@ mod tests {
             Some(&connected),
             &json!({"resources": connected["resources"], "sessions": [], "grants": []}),
         );
-        assert_eq!(gone[0].title, "“spesa.txt” no longer in use");
+        assert_eq!(gone.notices[0].title, "“spesa.txt” no longer in use");
         assert_eq!(headline(&connected), "1 agent · 1 program · 1 permission");
     }
 

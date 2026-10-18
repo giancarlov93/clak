@@ -484,6 +484,7 @@ pub async fn settings_status(app: AppHandle) -> Result<Value, String> {
     let bridge = bridge::of(&app);
     let notifications = bridge.prefs.notifications();
     let consent_sound = bridge.prefs.consent_sound();
+    let connection_sound = bridge.prefs.connection_sound();
     let home = bridge.home().to_string_lossy().into_owned();
     let version = app.package_info().version.to_string();
     let autostart = blocking(|| {
@@ -502,6 +503,7 @@ pub async fn settings_status(app: AppHandle) -> Result<Value, String> {
         "autostart": autostart,
         "notifications": notifications,
         "consent_sound": consent_sound,
+        "connection_sound": connection_sound,
         "home": home,
         "version": version,
     }))

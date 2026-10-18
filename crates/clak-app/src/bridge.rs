@@ -249,6 +249,7 @@ impl Bridge {
 
     /// Every hub message: remembered, reported (tray, notifications) and sent to the pages.
     async fn deliver(self: Arc<Bridge>, mut receiver: mpsc::UnboundedReceiver<Value>) {
+        let mut connections = tray::Connections::default();
         while let Some(message) = receiver.recv().await {
             match message.get("type").and_then(Value::as_str) {
                 Some("state") => {
@@ -263,8 +264,9 @@ impl Bridge {
                         inner.state = message.clone();
                         (before, inner.mode)
                     };
+                    let changes = notices::between(before.as_ref(), &message);
                     if self.prefs.notifications() {
-                        for notice in notices::between(before.as_ref(), &message) {
+                        for notice in changes.notices {
                             let _ = self
                                 .app
                                 .notification()
@@ -275,6 +277,9 @@ impl Bridge {
                         }
                     }
                     tray::update(&self.app, &message, mode == Mode::Offline);
+                    if changes.agent_connected && connections.accept(std::time::Instant::now()) {
+                        tray::connected(&self.app, self.prefs.connection_sound());
+                    }
                 }
                 Some("log") => {
                     let mut inner = self.inner();

@@ -56,6 +56,15 @@ impl Preferences {
         self.write("consentSound", Some(value))
     }
 
+    /// The connection clack is opt-in, independently of consent sounds and notifications.
+    pub fn connection_sound(&self) -> bool {
+        self.read("connectionSound").unwrap_or(false)
+    }
+
+    pub fn set_connection_sound(&self, value: bool) -> Result<()> {
+        self.write("connectionSound", Some(value))
+    }
+
     /// Start with the system as the user chose it from the panel; `None` if they never
     /// touched it. The installer respects it: it turns it on only if nobody said no.
     pub fn autostart(&self) -> Option<bool> {

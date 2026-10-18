@@ -14,6 +14,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- A brief clack animation when an agent connects, with an optional connection sound in Settings
+  (off by default). The animation respects reduced motion and groups rapid connections.
 - On the Mac, the app follows the accent color chosen in System Settings, and changes with it.
 - The menu bar icon opens a box like the Windows one: each agent with the programs it may
   use under it, a Revoke button on each, and links into the panel. The right click opens it

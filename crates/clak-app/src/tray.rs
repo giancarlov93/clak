@@ -13,7 +13,8 @@ use crate::{app_icon, bridge, notices, windows};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -28,10 +29,80 @@ const ICON_PIXELS: u32 = 36;
 static SHOWN: Mutex<Option<(Kind, String, Vec<Agent>)>> = Mutex::new(None);
 /// Which of the states sent to the main thread is the last one.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+static CLICK: AtomicBool = AtomicBool::new(false);
 
-fn image(kind: Kind) -> Image<'static> {
-    let drawn = icon::current(kind);
-    Image::new_owned(drawn.rgba, drawn.size, drawn.size)
+/// A burst produces one effect; reconnect storms must become quiet before another.
+#[derive(Default)]
+pub struct Connections {
+    last: Option<Instant>,
+}
+
+impl Connections {
+    pub fn accept(&mut self, now: Instant) -> bool {
+        let previous = self.last.replace(now);
+        previous.is_none_or(|last| now.duration_since(last) >= Duration::from_secs(2))
+    }
+}
+
+/// Main thread only. Both state updates and the animation use the same rendering path.
+fn draw(tray: &TrayIcon, kind: Kind) {
+    let click =
+        kind != Kind::Offline && CLICK.load(Ordering::SeqCst) && !crate::look::reduced_motion();
+    let drawn = icon::current(kind, click);
+    let _ = tray.set_icon(Some(Image::new_owned(drawn.rgba, drawn.size, drawn.size)));
+    let _ = tray.set_icon_as_template(drawn.template);
+    #[cfg(target_os = "macos")]
+    if let Some((head, dot)) = icon::macos_layers(kind, 36, click) {
+        let _ = tray.with_inner_tray_icon(move |inner| {
+            if let Some(item) = inner.ns_status_item() {
+                crate::menubar::show(&item, &head, &dot);
+            }
+        });
+    }
+}
+
+fn redraw(app: &AppHandle) {
+    let kind = SHOWN
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|s| s.0)
+        .unwrap_or(Kind::Offline);
+    if let Some(tray) = app.tray_by_id(ID) {
+        draw(&tray, kind);
+    }
+}
+
+/// A one-shot effect, independent of system notifications. No cursor blink in the tray.
+pub fn connected(app: &AppHandle, sound: bool) {
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if SHOWN
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_none_or(|s| s.0 == Kind::Offline)
+        {
+            return;
+        }
+        if sound {
+            crate::look::connection_sound();
+        }
+        if crate::look::reduced_motion() {
+            return;
+        }
+        CLICK.store(true, Ordering::SeqCst);
+        redraw(&app2);
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let app3 = app2.clone();
+            let _ = app2.run_on_main_thread(move || {
+                CLICK.store(false, Ordering::SeqCst);
+                // Read the latest state, not the one at the start of the animation.
+                redraw(&app3);
+            });
+        });
+    });
 }
 
 /// The programs' icons, by executable, read before going to the main thread.
@@ -117,7 +188,7 @@ fn menu<R: Runtime>(
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon> {
-    let drawn = icon::current(Kind::Offline);
+    let drawn = icon::current(Kind::Offline, false);
     let template = drawn.template;
     let builder = TrayIconBuilder::with_id(ID)
         .icon(Image::new_owned(drawn.rgba, drawn.size, drawn.size))
@@ -234,19 +305,7 @@ pub fn update(app: &AppHandle, state: &Value, offline: bool) {
             let Some(tray) = app2.tray_by_id(ID) else {
                 return;
             };
-            let drawn = icon::current(kind);
-            let template = drawn.template;
-            let _ = tray.set_icon(Some(image(kind)));
-            let _ = tray.set_icon_as_template(template);
-            // On the Mac, with a dot, the image that follows the bar's color takes its place.
-            #[cfg(target_os = "macos")]
-            if let Some((head, dot)) = icon::macos_layers(kind, 36) {
-                let _ = tray.with_inner_tray_icon(move |inner| {
-                    if let Some(item) = inner.ns_status_item() {
-                        crate::menubar::show(&item, &head, &dot);
-                    }
-                });
-            }
+            draw(&tray, kind);
             let tip = if offline {
                 "Clak — not running".to_owned()
             } else {
@@ -258,4 +317,20 @@ pub fn update(app: &AppHandle, state: &Value, offline: bool) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connections_coalesce_until_the_burst_has_been_quiet() {
+        let mut connections = Connections::default();
+        let now = Instant::now();
+        assert!(connections.accept(now));
+        assert!(!connections.accept(now + Duration::from_millis(100)));
+        assert!(!connections.accept(now + Duration::from_millis(2000)));
+        assert!(!connections.accept(now + Duration::from_millis(3900)));
+        assert!(connections.accept(now + Duration::from_millis(5900)));
+    }
 }
