@@ -3,7 +3,7 @@
 
 use crate::bridge;
 use serde_json::{Map, Value, json};
-use tauri::{AppHandle, WebviewWindow};
+use tauri::{AppHandle, Emitter, WebviewWindow};
 
 /// How the app is connected, the hub state and the log backlog.
 #[tauri::command]
@@ -100,6 +100,7 @@ pub fn prefs_get(app: AppHandle) -> Value {
         "connection_sound": bridge.prefs.connection_sound(),
         "update_check": bridge.prefs.update_check(),
         "auto_update": bridge.prefs.auto_update(),
+        "server_icons": bridge.prefs.server_icons(),
         "autostart": crate::setup::autostart_on(),
     })
 }
@@ -113,6 +114,13 @@ pub fn prefs_set(app: AppHandle, name: String, value: bool) -> Result<(), String
         "connection_sound" => bridge.prefs.set_connection_sound(value).map_err(|e| e.0),
         "update_check" => bridge.prefs.set_update_check(value).map_err(|e| e.0),
         "auto_update" => bridge.prefs.set_auto_update(value).map_err(|e| e.0),
+        "server_icons" => {
+            bridge.prefs.set_server_icons(value).map_err(|e| e.0)?;
+            // Every page asks again for the icons it shows, and the tray menu is redrawn.
+            let _ = app.emit("server-icons", value);
+            crate::tray::refresh(&app);
+            Ok(())
+        }
         "autostart" => {
             crate::setup::set_autostart(value)?;
             bridge.prefs.set_autostart(Some(value)).map_err(|e| e.0)

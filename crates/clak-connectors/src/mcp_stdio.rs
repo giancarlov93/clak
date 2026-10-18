@@ -38,6 +38,7 @@ type Answer = oneshot::Sender<Result<Map<String, Value>, McpError>>;
 struct State {
     instructions: Option<String>,
     server_name: Option<String>,
+    icon: Option<String>,
     /// Why the program is gone, when it's gone.
     ended: Option<String>,
     stderr: VecDeque<String>,
@@ -188,6 +189,11 @@ impl McpStdio {
         self.shared.lock().server_name.clone()
     }
 
+    /// The icon the server declares (`serverInfo.icons`), if the app can show it.
+    pub fn icon(&self) -> Option<String> {
+        self.shared.lock().icon.clone()
+    }
+
     /// Arrives when the server says its commands have changed.
     pub async fn changed(&self) {
         self.shared.list_changed.notified().await;
@@ -226,6 +232,7 @@ impl McpStdio {
                 .map(str::to_owned);
             state.server_name =
                 wire::str(result.get("serverInfo").and_then(|s| s.get("name"))).map(str::to_owned);
+            state.icon = crate::mcp::declared_icon(result.get("serverInfo"));
         }
         self.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))
     }

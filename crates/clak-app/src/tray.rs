@@ -9,7 +9,7 @@ const NATIVE_MENU: bool = !cfg!(target_os = "macos");
 
 use crate::icon::{self, Kind};
 use crate::notices::Agent;
-use crate::{app_icon, bridge, notices, windows};
+use crate::{app_icon, bridge, notices, server_icon, windows};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -105,13 +105,13 @@ pub fn connected(app: &AppHandle, sound: bool) {
     });
 }
 
-/// The programs' icons, by executable, read before going to the main thread.
+/// The programs' icons, by executable or server address, read before going to the main thread.
 type Icons = HashMap<String, Vec<u8>>;
 
 /// The program's icon, or a transparent one of the same size: the programs stay indented
 /// under their agent even without an icon of their own.
-fn program_icon(icons: &Icons, exe: Option<&String>) -> Image<'static> {
-    exe.and_then(|exe| icons.get(exe))
+fn program_icon(icons: &Icons, key: Option<&String>) -> Image<'static> {
+    key.and_then(|key| icons.get(key))
         .and_then(|png| Image::from_bytes(png).ok())
         .map(|image| image.to_owned())
         .unwrap_or_else(|| {
@@ -178,7 +178,10 @@ fn menu<R: Runtime>(
                 true,
                 &[&revoke],
             )?;
-            submenu.set_icon(Some(program_icon(icons, program.exe.as_ref())))?;
+            submenu.set_icon(Some(program_icon(
+                icons,
+                program.exe.as_ref().or(program.icon.as_ref()),
+            )))?;
             menu.append(&submenu)?;
         }
     }
@@ -252,6 +255,13 @@ fn on_icon(tray: &TrayIcon, event: TrayIconEvent) {
     }
 }
 
+/// Draws the menu again with the same state: its icons have changed.
+pub fn refresh(app: &AppHandle) {
+    *SHOWN.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    let bridge = bridge::of(app);
+    update(app, &bridge.state(), bridge.mode() == bridge::Mode::Offline);
+}
+
 /// The icon, the tooltip and the menu after a new hub state.
 pub fn update(app: &AppHandle, state: &Value, offline: bool) {
     let kind = if offline {
@@ -291,8 +301,13 @@ pub fn update(app: &AppHandle, state: &Value, offline: bool) {
             agents
                 .iter()
                 .flat_map(|a| &a.programs)
-                .filter_map(|p| p.exe.as_ref())
-                .filter_map(|exe| Some((exe.clone(), app_icon::png(exe, ICON_PIXELS)?)))
+                .filter_map(|p| match (&p.exe, &p.icon) {
+                    (Some(exe), _) => Some((exe.clone(), app_icon::png(exe, ICON_PIXELS)?)),
+                    (None, Some(source)) => {
+                        Some((source.clone(), server_icon::png(&app, source, ICON_PIXELS)?))
+                    }
+                    (None, None) => None,
+                })
                 .collect()
         };
         let app2 = app.clone();

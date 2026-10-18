@@ -25,6 +25,7 @@ mod look;
 mod menubar;
 mod notices;
 mod prompt;
+mod server_icon;
 mod setup;
 mod tray;
 mod updates;
@@ -148,6 +149,7 @@ fn main() {
             commands::prefs_get,
             commands::prefs_set,
             app_icon::app_icon,
+            server_icon::server_icon,
             updates::update_status,
             updates::update_open,
             updates::update_install,

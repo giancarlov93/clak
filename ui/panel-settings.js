@@ -97,6 +97,9 @@
       rows.push(el("div", { class: "setting top" }, Kit.icon("status", "lead"),
         el("div", { class: "mono quiet selectable lines" }, el("div", null, `Programs: ws://127.0.0.1:${broker.ws_port}`), el("div", null, `Agents: ${broker.control ?? "?"}`))));
     }
+    rows.push(setting("api", "#34aadc", "Server icons", null,
+      Kit.toggle(data.server_icons, "Server icons", setPreference("server_icons")),
+      { help: "MCP servers and APIs: their icons come from their websites" }));
     return el("div", { class: "card group settings" }, rows);
   };
 

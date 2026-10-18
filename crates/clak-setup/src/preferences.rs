@@ -83,6 +83,16 @@ impl Preferences {
         self.write("autoUpdate", Some(value))
     }
 
+    /// The icons of the MCP servers and APIs, fetched from their websites. Opt-in: it tells
+    /// each site that Clak uses it.
+    pub fn server_icons(&self) -> bool {
+        self.read("serverIcons").unwrap_or(false)
+    }
+
+    pub fn set_server_icons(&self, value: bool) -> Result<()> {
+        self.write("serverIcons", Some(value))
+    }
+
     /// Start with the system as the user chose it from the panel; `None` if they never
     /// touched it. The installer respects it: it turns it on only if nobody said no.
     pub fn autostart(&self) -> Option<bool> {

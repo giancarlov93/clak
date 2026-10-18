@@ -35,8 +35,11 @@ tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 base64.workspace = true
 reqwest.workspace = true
+# The servers' icons: PNG and ICO in, PNG out (Tauri already has the crate, with PNG).
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+resvg = { version = "0.48.1", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

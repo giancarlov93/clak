@@ -135,6 +135,8 @@ pub struct Program {
     /// "groceries.txt (Notepad)", or just "Blender" when the title is the program's name.
     pub label: String,
     pub exe: Option<String>,
+    /// An MCP server or a REST API: `mcp:<id>` or `api:<id>`, for its icon (server_icon.rs).
+    pub icon: Option<String>,
 }
 
 fn since(value: &Value) -> f64 {
@@ -176,6 +178,11 @@ pub fn agents(state: &Value) -> Vec<Agent> {
                         grant: text(grant, "id").to_owned(),
                         label,
                         exe,
+                        icon: if resource.is_some_and(|r| text(&r["origin"], "kind") == "hub") {
+                            Some(crate::server_icon::CLAK.to_owned())
+                        } else {
+                            icon_source(state, text(grant, "resource_id"))
+                        },
                     }
                 })
                 .collect();
@@ -189,6 +196,18 @@ pub fn agents(state: &Value) -> Vec<Agent> {
             }
         })
         .collect()
+}
+
+/// The MCP server or REST API behind a resource, as `mcp:<id>` or `api:<id>`.
+pub fn icon_source(state: &Value, resource_id: &str) -> Option<String> {
+    [("connectors", "mcp"), ("apis", "api")]
+        .into_iter()
+        .find_map(|(key, kind)| {
+            list(state, key)
+                .iter()
+                .find(|e| !resource_id.is_empty() && text(e, "resource_id") == resource_id)
+                .map(|e| format!("{kind}:{}", text(e, "id")))
+        })
 }
 
 pub fn pending(state: &Value) -> usize {
@@ -274,8 +293,12 @@ mod tests {
         let state = json!({
             "resources": [
                 {"id": "r1", "resource": {"app": "Notepad", "title": "groceries.txt"}, "origin": {"exe": "/A/Notepad"}},
-                {"id": "r2", "resource": {"app": "Rhino", "title": "Rhino"}, "origin": {"kind": "connector", "exe": "/x"}},
+                {"id": "r2", "resource": {"app": "Rhino", "title": "Rhino"}, "origin": {"kind": "connector", "exe": "/x", "url": "https://mcp.rhino.test/mcp"}},
+                {"id": "r3", "resource": {"app": "Shop", "title": "Shop"}, "origin": {"kind": "connector", "protocol": "rest", "url": "https://api.shop.test"}},
+                {"id": "r4", "resource": {"app": "Clak", "title": "Clak — Settings"}, "origin": {"kind": "hub"}},
             ],
+            "connectors": [{"id": "cn_rhino", "resource_id": "r2"}, {"id": "cn_off", "resource_id": null}],
+            "apis": [{"id": "api_shop", "resource_id": "r3"}],
             "sessions": [
                 {"id": "s2", "label": "Codex", "since": 2.0},
                 {"id": "s1", "label": "Claude Code", "exe": "/C/claude", "since": 1.0},
@@ -283,6 +306,8 @@ mod tests {
             "grants": [
                 {"id": "g2", "resource_id": "r2", "session_id": "s1", "since": 4.0},
                 {"id": "g1", "resource_id": "r1", "session_id": "s1", "since": 3.0},
+                {"id": "g3", "resource_id": "r3", "session_id": "s1", "since": 5.0},
+                {"id": "g4", "resource_id": "r4", "session_id": "s1", "since": 6.0},
             ],
         });
         let agents = agents(&state);
@@ -294,13 +319,22 @@ mod tests {
         let programs: Vec<_> = agents[0]
             .programs
             .iter()
-            .map(|p| (p.grant.as_str(), p.label.as_str(), p.exe.as_deref()))
+            .map(|p| {
+                (
+                    p.grant.as_str(),
+                    p.label.as_str(),
+                    p.exe.as_deref(),
+                    p.icon.as_deref(),
+                )
+            })
             .collect();
         assert_eq!(
             programs,
             [
-                ("g1", "groceries.txt (Notepad)", Some("/A/Notepad")),
-                ("g2", "Rhino", None)
+                ("g1", "groceries.txt (Notepad)", Some("/A/Notepad"), None),
+                ("g2", "Rhino", None, Some("mcp:cn_rhino")),
+                ("g3", "Shop", None, Some("api:api_shop")),
+                ("g4", "Clak — Settings (Clak)", None, Some("clak"))
             ]
         );
         assert!(agents[1].programs.is_empty());

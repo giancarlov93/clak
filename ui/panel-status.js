@@ -43,8 +43,14 @@
     return "program";
   };
 
-  /// The executable of a program, for its icon: a connector or the hub has none.
-  const exeOf = (r) => (r?.origin?.kind ? null : r?.origin?.exe);
+  /// Where a program's icon comes from: its executable, the MCP server or API behind it, or
+  /// Clak itself for the hub's own.
+  const exeOf = (r) => {
+    const o = r?.origin;
+    if (o?.kind === "connector") return D.iconSource(state, r.id);
+    if (o?.kind === "hub") return "clak";
+    return o?.kind ? null : o?.exe;
+  };
 
   const users = (resourceId) => D.users(state, resourceId);
   const inUse = (resourceId) => (state.grants || []).some((g) => g.resource_id === resourceId);
