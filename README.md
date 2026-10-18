@@ -84,6 +84,10 @@ A git hook runs them before every commit that touches Rust; turn it on once per 
 git config core.hooksPath scripts/hooks
 ```
 
+`.gitignore` already leaves out the files of macOS, Windows and the common editors (`.DS_Store`,
+`.vscode/`…). Anything else of your own setup goes in your global ignore file
+(`git config --global core.excludesFile`).
+
 ## Trying it
 
 With a separate home, so as not to touch the real one:
