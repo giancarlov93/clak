@@ -40,7 +40,11 @@ jobs:
       - name: Rust
         shell: bash
         run: rustup toolchain install
+      # Saved only from main: a pull request starts from main's cache without adding its own.
+      # GitHub keeps 10 GB per repository, and a copy per pull request pushed out the others.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: cargo clippy
         shell: bash
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
