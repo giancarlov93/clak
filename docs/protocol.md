@@ -84,22 +84,53 @@ leaves the computer.
 
 ## 3. A session
 
-```text
-extension                                   hub
-    | -- register ---------------------------> |
-    | <-------------------------- waiting ---- |  only the first time: the user is asked
-    | <----------------------- registered ---- |  (or denied, and the hub closes)
-    |                                          |
-    | <-------------------------- granted ---- |  an agent may now use the resource
-    | <----------------------------- call ---- |
-    | -- result -----------------------------> |
-    | <----------------------------- call ---- |
-    | <--------------------------- cancel ---- |  the agent stopped waiting
-    | -- tools_changed ----------------------> |  the selection changed, so did the commands
-    | <-------------------------- revoked ---- |  the agent lost its permission
-    |                                          |
-    | -- close ------------------------------> |  the document was closed
+```mermaid
+%%{init: {"sequence": {"mirrorActors": false, "actorMargin": 220, "boxMargin": 8, "noteMargin": 8}}}%%
+sequenceDiagram
+    autonumber
+    participant E as Extension (the program)
+    participant H as Clak hub
+
+    rect rgba(47, 91, 234, 0.10)
+        Note over E,H: REGISTRATION
+        E->>H: register
+        opt the first time this program connects
+            H->>E: waiting
+            Note over E,H: the user is asked in a Clak window
+        end
+        alt allowed
+            H->>E: registered
+        else not allowed
+            H-xE: denied, then the hub closes
+        end
+    end
+
+    rect rgba(53, 199, 107, 0.10)
+        Note over E,H: AGENTS AT WORK
+        H->>E: granted
+        Note over E,H: an agent may now use the resource
+        loop each command
+            H->>E: call
+            E->>H: result
+        end
+        H->>E: call
+        H-->>E: cancel
+        Note over E,H: the agent stopped waiting
+        E->>H: tools_changed
+        Note over E,H: the selection changed, so did the commands
+        H-->>E: revoked
+        Note over E,H: the agent lost its permission
+    end
+
+    rect rgba(127, 127, 127, 0.12)
+        Note over E,H: THE END
+        E-xH: close
+        Note over E,H: the document was closed
+    end
 ```
+
+Solid arrows carry work, dashed ones withdraw it (an agent that no longer waits, a permission
+taken back), a cross ends the connection.
 
 ## 4. Messages from the extension
 
