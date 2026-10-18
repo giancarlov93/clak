@@ -67,11 +67,11 @@ impl FakePrompt {
         let question =
             tokio::time::timeout(Duration::from_secs(10), self.receiver.lock().await.recv())
                 .await
-                .expect("nessuna domanda")
-                .expect("canale chiuso");
+                .expect("no question")
+                .expect("channel closed");
         assert_eq!(
             question.request.kind, kind,
-            "domanda: {}",
+            "question: {}",
             question.request.title
         );
         question
@@ -133,11 +133,11 @@ impl Platform for FakePlatform {
                     pid: 20_000 + self.pids.fetch_add(1, Ordering::SeqCst),
                     started: 133_000_000_000_000_000,
                     started_at: Some(1_700_000_000.0),
-                    exe: Some(format!(r"C:\agenti\{name}.exe")),
+                    exe: Some(format!(r"C:\agents\{name}.exe")),
                     name: name.to_owned(),
                     chain: vec![format!("{name}.exe")],
                     signed: "valid".into(),
-                    signer: Some("Prove".into()),
+                    signer: Some("Tests".into()),
                 })
                 .clone(),
         )
@@ -148,7 +148,7 @@ impl Platform for FakePlatform {
     }
 
     fn attest_loopback(&self, _peer_port: u16, _local_port: u16) -> Value {
-        json!({ "exe": r"C:\prove\blocco.exe", "signed": "valid", "signer": "Prove", "pid": 4242 })
+        json!({ "exe": r"C:\tests\lock.exe", "signed": "valid", "signer": "Tests", "pid": 4242 })
     }
 
     fn executable_hash(&self, _path: &str) -> Option<String> {
@@ -251,7 +251,7 @@ impl TestHub {
             .unwrap_or_default();
         request.insert("type".into(), json!("request"));
         request.insert("op".into(), json!(op));
-        request.entry("cwd").or_insert(json!(r"C:\Progetti\prova"));
+        request.entry("cwd").or_insert(json!(r"C:\Projects\test"));
         request.insert("test_agent".into(), json!(agent));
         let mut stream = connect(self.hub().control()).await;
         stream
@@ -278,7 +278,7 @@ impl TestHub {
             }
         })
         .await
-        .expect("nessuna risposta")
+        .expect("no answer")
     }
 
     pub async fn call(

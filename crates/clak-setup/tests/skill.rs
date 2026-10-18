@@ -7,20 +7,20 @@ use common::{Sandbox, read};
 use std::collections::BTreeMap;
 
 #[cfg(windows)]
-const CLI: &str = r"C:\Programmi\Clak\clak.exe";
+const CLI: &str = r"C:\Program Files\Clak\clak.exe";
 #[cfg(windows)]
-const MOVED: &str = r"D:\Altrove\clak.exe";
+const MOVED: &str = r"D:\Elsewhere\clak.exe";
 #[cfg(not(windows))]
 const CLI: &str = "/Applications/Clak.app/Contents/MacOS/clak";
 #[cfg(not(windows))]
-const MOVED: &str = "/Users/utente/Applications/Clak.app/Contents/MacOS/clak";
+const MOVED: &str = "/Users/someone/Applications/Clak.app/Contents/MacOS/clak";
 
 fn skill(sandbox: &Sandbox, cli: &str) -> Skill {
     Skill::claude_code(&sandbox.places, cli)
 }
 
 #[test]
-fn senza_claude_code_non_c_e_dove_metterla() {
+fn without_claude_code_there_is_nowhere_to_put_it() {
     let sandbox = Sandbox::new();
     assert_eq!(
         skill(&sandbox, CLI).status().state,
@@ -29,7 +29,7 @@ fn senza_claude_code_non_c_e_dove_metterla() {
 }
 
 #[test]
-fn si_installa_si_riconosce_si_aggiorna_e_si_toglie() {
+fn it_installs_is_recognized_updates_and_is_removed() {
     let sandbox = Sandbox::new();
     sandbox.dir(&["home", ".claude"]);
     let ours = skill(&sandbox, CLI);
@@ -50,7 +50,7 @@ fn si_installa_si_riconosce_si_aggiorna_e_si_toglie() {
     let text = read(&ours.path());
     assert!(text.starts_with("---\nname: clak\ndescription: "));
     #[cfg(windows)]
-    assert!(text.contains("`\"C:/Programmi/Clak/clak.exe\"`")); // forward slashes: bash and PowerShell
+    assert!(text.contains("`\"C:/Program Files/Clak/clak.exe\"`")); // forward slashes: bash and PowerShell
     #[cfg(not(windows))]
     {
         // The full path, in quotes: the app's folder may have spaces.
@@ -83,33 +83,33 @@ fn si_installa_si_riconosce_si_aggiorna_e_si_toglie() {
 }
 
 #[test]
-fn una_skill_omonima_scritta_da_altri_non_si_tocca() {
+fn a_same_named_skill_written_by_others_is_left_alone() {
     let sandbox = Sandbox::new();
     let path = sandbox.write(
         "home/.claude/skills/clak/SKILL.md",
-        "---\nname: clak\ndescription: mia\n---\n",
+        "---\nname: clak\ndescription: mine\n---\n",
     );
     let ours = skill(&sandbox, CLI);
     assert_eq!(ours.status().state, SkillState::Foreign);
     assert!(ours.install().unwrap_err().0.contains("not from Clak"));
     ours.remove().unwrap();
-    assert_eq!(read(&path), "---\nname: clak\ndescription: mia\n---\n");
+    assert_eq!(read(&path), "---\nname: clak\ndescription: mine\n---\n");
 }
 
 #[test]
-fn togliendola_resta_cio_che_l_utente_ha_messo_accanto() {
+fn removing_it_keeps_what_the_user_put_beside_it() {
     let sandbox = Sandbox::new();
     sandbox.dir(&["home", ".claude"]);
     let ours = skill(&sandbox, CLI);
     ours.install().unwrap();
-    let mine = sandbox.write("home/.claude/skills/clak/appunti.md", "miei");
+    let mine = sandbox.write("home/.claude/skills/clak/notes.md", "mine");
     ours.remove().unwrap();
     assert!(!ours.path().exists());
-    assert_eq!(read(&mine), "miei");
+    assert_eq!(read(&mine), "mine");
 }
 
 #[test]
-fn claude_config_dir_sposta_le_skill() {
+fn claude_config_dir_moves_the_skills() {
     let sandbox = Sandbox::new();
     let config = sandbox.dir(&["config"]);
     let places = sandbox.places.with_environment(BTreeMap::from([(
@@ -183,7 +183,7 @@ fn every_coding_agent_on_this_computer_gets_its_own_copy() {
 }
 
 #[test]
-fn i_testi_dei_due_sistemi_differiscono_solo_dove_serve() {
+fn the_two_platform_texts_differ_only_where_needed() {
     let windows = skill::windows_text(r"C:\A B\clak.exe");
     let mac = skill::mac_text("/Applications/Clak.app/Contents/MacOS/clak");
     assert!(windows.contains("The command is `\"C:/A B/clak.exe\"` (in PowerShell `& \"C:/A B/clak.exe\"`); below, `clak`.\n"));

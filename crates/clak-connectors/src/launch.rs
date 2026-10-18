@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn la_riga_di_comando_si_divide_come_in_un_terminale() {
+    fn the_command_line_splits_as_in_a_terminal() {
         assert_eq!(
             words("agent-browser mcp --tools core,debug,mobile"),
             ["agent-browser", "mcp", "--tools", "core,debug,mobile"]
@@ -292,11 +292,11 @@ mod tests {
         assert_eq!(words(r#"srv """#), ["srv", ""]);
         assert!(Launch::parse("").is_err());
         assert!(Launch::parse("   ").is_err());
-        assert!(Launch::parse("srv \"aperta").is_err());
+        assert!(Launch::parse("srv \"open").is_err());
     }
 
     #[test]
-    fn la_riga_mostrata_si_rilegge_uguale() {
+    fn the_displayed_line_parses_back_the_same() {
         for line in [
             "agent-browser mcp --tools core",
             r#""C:\Program Files\x.exe" "a b" "" 'c'"#,
@@ -309,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn il_nome_breve_del_programma() {
+    fn the_short_name_of_the_program() {
         let short = |line: &str| Launch::parse(line).unwrap().short_name();
         assert_eq!(short("agent-browser mcp"), "agent-browser");
         assert_eq!(short(r#""C:\Program Files\x\srv.exe""#), "srv");
@@ -318,34 +318,34 @@ mod tests {
     }
 
     #[test]
-    fn un_programma_si_cerca_nel_path() {
+    fn a_program_is_looked_up_in_the_path() {
         let dir = std::env::temp_dir().join(format!("clak-launch-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         #[cfg(windows)]
-        let file = dir.join("finto-server.cmd");
+        let file = dir.join("fake-server.cmd");
         #[cfg(not(windows))]
-        let file = dir.join("finto-server");
+        let file = dir.join("fake-server");
         std::fs::write(&file, "").unwrap();
         #[cfg(not(windows))]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let path = std::env::join_paths([dir.join("non-c-e"), dir.clone()]).unwrap();
+        let path = std::env::join_paths([dir.join("missing"), dir.clone()]).unwrap();
         // On Windows the extension comes from PATHEXT, in upper case: for the disk it's the same file.
         let same = |found: Option<PathBuf>| {
             found.map(|f| f.to_string_lossy().to_lowercase())
                 == Some(file.to_string_lossy().to_lowercase())
         };
-        assert!(same(resolve("finto-server", &path)));
+        assert!(same(resolve("fake-server", &path)));
         assert!(same(resolve(file.to_str().unwrap(), &OsString::new())));
-        assert_eq!(resolve("altro-server", &path), None);
-        assert_eq!(resolve(dir.join("altro").to_str().unwrap(), &path), None);
+        assert_eq!(resolve("other-server", &path), None);
+        assert_eq!(resolve(dir.join("other").to_str().unwrap(), &path), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn i_path_si_uniscono_senza_doppioni() {
+    fn paths_merge_without_duplicates() {
         let a = std::env::join_paths(["/opt/homebrew/bin", "/usr/bin"]).unwrap();
         let b = std::env::join_paths(["/usr/bin", "/bin"]).unwrap();
         let all: Vec<PathBuf> = std::env::split_paths(&merged(&a, &b)).collect();

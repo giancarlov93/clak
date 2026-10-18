@@ -3,7 +3,7 @@
 //!
 //! - `echo` repeats `text`;
 //! - `env` tells the value of the environment variable `name`;
-//! - `grow` adds the command `nuovo` and announces that the list has changed;
+//! - `grow` adds the command `new` and announces that the list has changed;
 //! - `ask` asks the user for a confirmation (`elicitation/create`) and tells how it went;
 //! - `pid` tells its process number;
 //! - `quit` writes "bye" on stderr and exits with code 3.
@@ -46,17 +46,17 @@ fn main() {
             "tools/list" => {
                 let mut tools: Vec<Value> = ["echo", "env", "grow", "ask", "pid", "quit"]
                     .iter()
-                    .map(|name| json!({ "name": name, "description": format!("Il comando {name}."), "inputSchema": { "type": "object" } }))
+                    .map(|name| json!({ "name": name, "description": format!("The {name} command."), "inputSchema": { "type": "object" } }))
                     .collect();
                 if grown {
-                    tools.push(json!({ "name": "nuovo", "description": "Arrivato dopo.", "inputSchema": { "type": "object" } }));
+                    tools.push(json!({ "name": "new", "description": "Arrived later.", "inputSchema": { "type": "object" } }));
                 }
                 json!({ "tools": tools })
             }
             "tools/call" => {
                 let arguments = &params["arguments"];
                 let text = match params["name"].as_str().unwrap_or("") {
-                    "echo" => format!("eco: {}", arguments["text"].as_str().unwrap_or("")),
+                    "echo" => format!("echo: {}", arguments["text"].as_str().unwrap_or("")),
                     "env" => std::env::var(arguments["name"].as_str().unwrap_or(""))
                         .unwrap_or_else(|_| "(none)".into()),
                     "grow" => {
@@ -70,7 +70,7 @@ fn main() {
                         next_id += 1;
                         send(
                             &json!({ "jsonrpc": "2.0", "id": next_id, "method": "elicitation/create",
-                            "params": { "message": "Procedo?", "requestedSchema": { "type": "object", "properties": {} } } }),
+                            "params": { "message": "Proceed?", "requestedSchema": { "type": "object", "properties": {} } } }),
                         );
                         let mut action = String::from("(no answer)");
                         while let Some(Ok(line)) = lines.next() {

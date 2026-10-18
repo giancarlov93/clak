@@ -577,7 +577,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_firma_si_legge_sia_dal_file_sia_dal_catalogo_di_windows() {
+    fn the_signature_is_read_from_both_the_file_and_the_windows_catalog() {
         let system = system_directory().unwrap();
         // Catalog-only signature: there's nothing in the file, PowerShell knows.
         let notepad = system.join("notepad.exe");
@@ -590,12 +590,13 @@ mod tests {
         // No signature: this very test executable.
         let me = std::env::current_exe().unwrap();
         assert_eq!(signature(me.to_str().unwrap()), ("unsigned".into(), None));
-        let missing = std::env::temp_dir().join(format!("non-esiste-{}.exe", std::process::id()));
+        let missing =
+            std::env::temp_dir().join(format!("does-not-exist-{}.exe", std::process::id()));
         assert_eq!(signature(missing.to_str().unwrap()), unknown());
     }
 
     #[test]
-    fn la_firma_di_dotnet_e_di_dotnet() {
+    fn the_dotnet_signature_is_dotnet() {
         // A .NET runtime DLL, if present: the Microsoft signature says ".NET".
         let Ok(versions) =
             std::fs::read_dir(r"C:\Program Files\dotnet\shared\Microsoft.NETCore.App")
@@ -616,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn la_firma_incorporata_si_verifica_in_casa() {
+    fn the_embedded_signature_is_verified_in_house() {
         // An executable with the signature inside the file: the first one found among the usual ones.
         let candidates = [
             r"C:\Program Files\PowerShell\7\pwsh.exe",
@@ -638,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn la_tabella_tcp_trova_chi_tiene_una_connessione() {
+    fn the_tcp_table_finds_who_holds_a_connection() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let hub = listener.local_addr().unwrap().port();
         let client = std::net::TcpStream::connect(("127.0.0.1", hub)).unwrap();
@@ -665,21 +666,21 @@ mod tests {
     }
 
     #[test]
-    fn i_blob_dpapi_sono_quelli_di_protecteddata() {
+    fn dpapi_blobs_are_protecteddata_ones() {
         use base64::Engine as _;
         let base64 = base64::engine::general_purpose::STANDARD;
         // Encrypted by ProtectedData with the same entropy: it decrypts here.
         let sealed = powershell(
             "Add-Type -AssemblyName System.Security; \
              $e = [Text.Encoding]::UTF8.GetBytes('clak/connectors'); \
-             $b = [Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes('token-da-dotnet'), $e, 'CurrentUser'); \
+             $b = [Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes('token-from-dotnet'), $e, 'CurrentUser'); \
              [Convert]::ToBase64String($b)",
             &[],
         );
         let plain = dpapi(&base64.decode(&sealed).unwrap(), false).unwrap();
-        assert_eq!(plain, b"token-da-dotnet");
+        assert_eq!(plain, b"token-from-dotnet");
         // And vice versa: a blob encrypted here is decrypted by ProtectedData.
-        let sealed = base64.encode(dpapi(b"token-da-rust", true).unwrap());
+        let sealed = base64.encode(dpapi(b"token-from-rust", true).unwrap());
         let plain = powershell(
             "Add-Type -AssemblyName System.Security; \
              $e = [Text.Encoding]::UTF8.GetBytes('clak/connectors'); \
@@ -687,11 +688,11 @@ mod tests {
              [Text.Encoding]::UTF8.GetString($b)",
             &[("CLAK_BLOB", &sealed)],
         );
-        assert_eq!(plain, "token-da-rust");
+        assert_eq!(plain, "token-from-rust");
     }
 
     #[test]
-    fn la_riga_di_comando_e_il_percorso_di_questo_processo() {
+    fn the_command_line_and_path_of_this_process() {
         let me = std::process::id();
         let exe = exe_of(me).unwrap();
         // Only the name: inside an MSIX package the path seen from here is the virtualized one.

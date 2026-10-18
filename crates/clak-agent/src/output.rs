@@ -176,16 +176,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_busta_di_json_e_sempre_la_stessa_e_un_risultato_json_resta_json() {
-        let ok = clak_wire::json::parse_str(&success(Some(json!({"muri": 3})))).unwrap();
+    fn the_json_envelope_is_always_the_same_and_a_json_result_stays_json() {
+        let ok = clak_wire::json::parse_str(&success(Some(json!({"walls": 3})))).unwrap();
         assert_eq!(
             clak_wire::json::text(&ok),
-            r#"{"ok":true,"exit":0,"result":{"muri":3}}"#
+            r#"{"ok":true,"exit":0,"result":{"walls":3}}"#
         );
-        let ko = clak_wire::json::parse_str(&failure(7, Some("no_answer"), "nessuno")).unwrap();
+        let ko = clak_wire::json::parse_str(&failure(7, Some("no_answer"), "nobody")).unwrap();
         assert_eq!(
             clak_wire::json::text(&ko),
-            r#"{"ok":false,"exit":7,"code":"no_answer","error":"nessuno"}"#
+            r#"{"ok":false,"exit":7,"code":"no_answer","error":"nobody"}"#
         );
         // Indented by two spaces.
         assert_eq!(
@@ -195,13 +195,13 @@ mod tests {
 
         // A text that is JSON becomes JSON; other text stays text; a value that isn't blocks stays as is.
         let blocks =
-            clak_wire::json::parse_str(r#"[{"type":"text","text":"{\"muri\": 3}"}]"#).unwrap();
+            clak_wire::json::parse_str(r#"[{"type":"text","text":"{\"walls\": 3}"}]"#).unwrap();
         assert_eq!(
-            clak_wire::json::text(&value(Some(&blocks), r#"{"muri": 3}"#)),
-            r#"{"muri":3}"#
+            clak_wire::json::text(&value(Some(&blocks), r#"{"walls": 3}"#)),
+            r#"{"walls":3}"#
         );
-        assert_eq!(value(Some(&json!("ciao")), "ciao"), json!("ciao"));
-        assert_eq!(value(None, "{non è JSON"), json!("{non è JSON"));
+        assert_eq!(value(Some(&json!("hello")), "hello"), json!("hello"));
+        assert_eq!(value(None, "{not JSON"), json!("{not JSON"));
         assert_eq!(
             clak_wire::json::text(&value(Some(&json!({"a": 1})), "")),
             r#"{"a":1}"#
@@ -209,18 +209,18 @@ mod tests {
     }
 
     #[test]
-    fn un_risultato_troppo_lungo_va_in_un_file_e_si_dice_dove() {
+    fn a_result_too_long_goes_to_a_file_and_says_where() {
         let invocation = Invocation::call("revit", "run_python");
-        assert_eq!(fit("corto", &invocation, ".txt"), "corto");
+        assert_eq!(fit("short", &invocation, ".txt"), "short");
 
         let text = (0..5000)
-            .map(|i| format!("riga {i}"))
+            .map(|i| format!("line {i}"))
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.len() > LIMIT);
         let notice = fit(&text, &invocation, ".txt");
         assert!(notice.starts_with(&format!("The result is long ({} characters", text.len())));
-        assert!(notice.contains("It starts like this:\nriga 0\nriga 1\n"));
+        assert!(notice.contains("It starts like this:\nline 0\nline 1\n"));
         assert!(notice.chars().count() < 2_000);
         let start = notice.find("It is in ").unwrap() + 9;
         let end = notice.find(": read it from there").unwrap();
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn ogni_errore_ha_il_codice_di_uscita_di_cio_che_l_agente_deve_fare_dopo() {
+    fn every_error_has_the_exit_code_for_what_the_agent_does_next() {
         assert_eq!(Exit::of(Some("denied")), Exit::REFUSED);
         assert_eq!(Exit::of(Some("no_answer")), Exit::NO_ANSWER);
         assert_eq!(Exit::NO_ANSWER, 7);
@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn l_aiuto_dice_comandi_uscite_e_dove_finiscono_i_file() {
+    fn the_help_lists_commands_exit_codes_and_where_files_go() {
         let help = help();
         assert!(help.starts_with(
             "clak — use the programs open on the user's computer that are connected to Clak.\n\n"

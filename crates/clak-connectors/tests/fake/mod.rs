@@ -351,7 +351,7 @@ async fn authorize(
     }
     let state = urlencode(&get("state"));
     let iss = urlencode(if s.wrong_issuer {
-        "https://altro.example"
+        "https://other.example"
     } else {
         &s.origin
     });
@@ -577,10 +577,7 @@ async fn handle(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Byt
             (first, Some(outs))
         }
         _ => (
-            Out::Final(reply(Err((
-                -32601,
-                format!("metodo sconosciuto: {method}"),
-            )))),
+            Out::Final(reply(Err((-32601, format!("unknown method: {method}"))))),
             None,
         ),
     };
@@ -634,7 +631,7 @@ fn initialize(shared: &Shared, parameters: &Map<String, Value>) -> Value {
     let mut result = json!({
         "protocolVersion": "2025-06-18",
         "capabilities": {"tools": {}},
-        "serverInfo": {"name": "finto", "version": "1.0"},
+        "serverInfo": {"name": "fake", "version": "1.0"},
     });
     if let Some(instructions) = &s.instructions {
         result["instructions"] = json!(instructions);
@@ -676,7 +673,7 @@ async fn call(
         .to_owned();
     let tool = shared.lock().tools.iter().find(|t| t.name == name).cloned();
     let Some(tool) = tool else {
-        return Err((-32602, format!("comando sconosciuto: {name}")));
+        return Err((-32602, format!("unknown tool: {name}")));
     };
     let asker = shared.clone();
     let ask: Ask = Arc::new(move |message, schema| {

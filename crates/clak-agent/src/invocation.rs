@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn i_verbi_dell_hub() {
+    fn the_hub_verbs() {
         assert_eq!(p("").op, "help");
         assert!(p("-h").help);
         assert_eq!(p("list").op, "list");
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn i_comandi_di_un_programma_e_la_ricerca() {
+    fn a_programs_commands_and_search() {
         let word = p("word");
         assert_eq!(
             (
@@ -402,22 +402,22 @@ mod tests {
             (call_help.op.as_str(), call_help.command.as_deref()),
             ("call", Some("help"))
         );
-        assert!(error(&["word", "help", "altro"]).contains("nothing after it"));
-        let search = p("word search testo grassetto");
+        assert!(error(&["word", "help", "other"]).contains("nothing after it"));
+        let search = p("word search bold text");
         assert_eq!(
             (
                 search.op.as_str(),
                 search.program.as_deref(),
                 search.query.as_deref()
             ),
-            ("tools", Some("word"), Some("testo grassetto"))
+            ("tools", Some("word"), Some("bold text"))
         );
         assert!(error(&["word", "search"]).contains("search for"));
     }
 
     #[test]
-    fn un_comando_con_parametri_con_nome_e_senza() {
-        let call = p("word append_text --text ciao --times=3 --force libero");
+    fn a_command_with_named_and_unnamed_parameters() {
+        let call = p("word append_text --text hello --times=3 --force free");
         assert_eq!(
             (
                 call.op.as_str(),
@@ -428,20 +428,20 @@ mod tests {
         );
         assert_eq!(
             flags(&call),
-            r#"[{"name":"text","value":"ciao"},{"name":"times","value":"3"},{"name":"force","value":"libero"}]"#
+            r#"[{"name":"text","value":"hello"},{"name":"times","value":"3"},{"name":"force","value":"free"}]"#
         );
 
         // Explicit "call", values without a name, and a switch at the end.
-        let positional = p("word call append_text uno due --force");
+        let positional = p("word call append_text one two --force");
         assert_eq!(positional.command.as_deref(), Some("append_text"));
         assert_eq!(
             flags(&positional),
-            r#"[{"name":"force","value":null},{"name":null,"value":"uno"},{"name":null,"value":"due"}]"#
+            r#"[{"name":"force","value":null},{"name":null,"value":"one"},{"name":null,"value":"two"}]"#
         );
     }
 
     #[test]
-    fn le_opzioni_di_clak_valgono_ovunque_e_non_diventano_parametri() {
+    fn clak_options_apply_anywhere_and_do_not_become_parameters() {
         let call = p("word get_text --json -o out.txt --wait 30");
         assert!(call.json);
         assert_eq!(call.output.as_deref(), Some("out.txt"));
@@ -457,11 +457,11 @@ mod tests {
     }
 
     #[test]
-    fn il_testo_lungo_arriva_da_stdin_una_volta_sola() {
-        let call = parse("word append_text --text -", "riga uno\nriga due");
+    fn long_text_comes_from_stdin_only_once() {
+        let call = parse("word append_text --text -", "line one\nline two");
         assert_eq!(
             flags(&call),
-            r#"[{"name":"text","value":"riga uno\nriga due"}]"#
+            r#"[{"name":"text","value":"line one\nline two"}]"#
         );
         assert!(
             error_with(Some("x"), &["word", "t", "--a", "-", "--b", "-"]).contains("only once")
@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn lo_standard_input_vuoto_o_che_non_c_e_lo_dice_con_il_rimedio() {
+    fn empty_or_missing_standard_input_is_reported_with_the_fix() {
         // Not redirected: no waiting for the keyboard, an error right away.
         let missing = error_with(None, &["word", "t", "--text", "-"]);
         assert!(missing.contains("not coming from a pipe"));
@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn un_valore_da_un_file_arriva_intero_anche_con_le_lettere_accentate() {
+    fn a_value_from_a_file_arrives_whole_even_with_accented_letters() {
         let folder =
             std::env::temp_dir().join(format!("clak-at-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
@@ -495,18 +495,18 @@ mod tests {
             std::fs::write(&path, bytes).unwrap();
             path.to_string_lossy().into_owned()
         };
-        let script = file("script.py", "print(\"perché è così\")\n".as_bytes());
+        let script = file("script.py", "print(\"naïve café\")\n".as_bytes());
         let bom = file(
             "bom.txt",
-            &[&[0xEF, 0xBB, 0xBF][..], "città".as_bytes()].concat(),
+            &[&[0xEF, 0xBB, 0xBF][..], "résumé".as_bytes()].concat(),
         );
         let utf16le: Vec<u8> = [0xFF, 0xFE]
             .into_iter()
-            .chain("più".encode_utf16().flat_map(u16::to_le_bytes))
+            .chain("déjà vu".encode_utf16().flat_map(u16::to_le_bytes))
             .collect();
         let utf16 = file("ps.txt", &utf16le); // ">" in PowerShell 5.1
-        let ansi = file("ansi.txt", &[0x63, 0x69, 0x74, 0x74, 0xE0]); // "città" in Windows-1252
-        let json = file("args.json", r#"{"code":"è"}"#.as_bytes());
+        let ansi = file("ansi.txt", &[0x63, 0x61, 0x66, 0xE9]); // "café" in Windows-1252
+        let json = file("args.json", r#"{"code":"é"}"#.as_bytes());
 
         let call = parse_args(&[
             "revit",
@@ -519,26 +519,26 @@ mod tests {
         ]);
         assert_eq!(
             flags(&call),
-            r#"[{"name":"code","value":"print(\"perché è così\")\n"},{"name":"a","value":"città"},{"name":"b","value":"più"}]"#
+            r#"[{"name":"code","value":"print(\"naïve café\")\n"},{"name":"a","value":"résumé"},{"name":"b","value":"déjà vu"}]"#
         );
         let arguments = parse_args(&["revit", "run_python", "--args", &format!("@{json}")])
             .arguments
             .unwrap();
-        assert_eq!(arguments["code"], "è");
+        assert_eq!(arguments["code"], "é");
 
         // @@ is a real @; a lone @ is just an @.
         assert_eq!(
             flags(&parse_args(&[
-                "chat", "send", "--to", "@@giulia", "--x", "@"
+                "chat", "send", "--to", "@@alice", "--x", "@"
             ])),
-            r#"[{"name":"to","value":"@giulia"},{"name":"x","value":"@"}]"#
+            r#"[{"name":"to","value":"@alice"},{"name":"x","value":"@"}]"#
         );
 
         let absent = error(&[
             "revit",
             "run_python",
             "--code",
-            &format!("@{}", folder.join("manca.py").display()),
+            &format!("@{}", folder.join("missing.py").display()),
         ]);
         assert!(absent.contains("file not found"));
         assert!(absent.contains("@@"));
@@ -547,7 +547,7 @@ mod tests {
                 "revit",
                 "run_python",
                 "--args",
-                &format!("@{}", folder.join("manca.json").display())
+                &format!("@{}", folder.join("missing.json").display())
             ])
             .contains("file not found")
         );
@@ -559,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn le_trappole_di_git_bash_e_di_powershell_si_dicono_quando_scattano() {
+    fn git_bash_and_powershell_pitfalls_are_reported_when_they_trigger() {
         let git = Shell::new(true, Some("C:/Program Files/Git".into()), || false);
         let call = Invocation::parse(
             &[
@@ -591,7 +591,7 @@ mod tests {
         let powershell = Shell::new(false, None, || true);
         let mangled = Invocation::parse(
             &["word", "t", "--text", "-"],
-            || Some("perch? ? cos?".into()),
+            || Some("na?ve caf??".into()),
             &powershell,
         )
         .unwrap();
@@ -599,14 +599,14 @@ mod tests {
         assert!(mangled.warnings[0].contains("Windows PowerShell 5.1"));
         let accented = Invocation::parse(
             &["word", "t", "--text", "-"],
-            || Some("perché? è così".into()),
+            || Some("naïve café?".into()),
             &powershell,
         )
         .unwrap();
         assert!(accented.warnings.is_empty());
         let plain = Invocation::parse(
             &["word", "t", "--text", "-"],
-            || Some("come stai?".into()),
+            || Some("how are you?".into()),
             &Shell::none(),
         )
         .unwrap();
@@ -614,11 +614,11 @@ mod tests {
     }
 
     #[test]
-    fn gli_argomenti_json_interi() {
-        let call = p(r#"word append_text --args {"text":"ciao"}"#);
+    fn whole_json_arguments() {
+        let call = p(r#"word append_text --args {"text":"hello"}"#);
         assert_eq!(
             clak_wire::json::text(&Value::Object(call.arguments.unwrap())),
-            r#"{"text":"ciao"}"#
+            r#"{"text":"hello"}"#
         );
         let piped = parse("word t --args -", r#"{"n":1}"#);
         assert_eq!(
@@ -629,10 +629,10 @@ mod tests {
     }
 
     #[test]
-    fn gli_errori_di_uso_si_dicono_prima_di_disturbare_l_hub() {
-        assert!(error(&["list", "altro"]).contains("list"));
+    fn usage_errors_are_reported_before_bothering_the_hub() {
+        assert!(error(&["list", "other"]).contains("list"));
         assert!(error(&["status", "--x", "1"]).contains("parameters"));
-        assert!(error(&["list", "--wait", "mai"]).contains("seconds"));
+        assert!(error(&["list", "--wait", "never"]).contains("seconds"));
         assert!(error(&["list", "--wait", "inf"]).contains("seconds"));
         assert!(error(&["list", "--wait", "0"]).contains("seconds"));
         assert!(error(&["list", "-o"]).contains("file"));

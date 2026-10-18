@@ -17,14 +17,14 @@ use url::Url;
 
 fn tools(server: &FakeMcp) {
     server
-        .add_fn("echo", "Ripete il testo.", |a| {
+        .add_fn("echo", "Repeats the text.", |a| {
             format!(
-                "eco: {}",
+                "echo: {}",
                 a.get("text").and_then(Value::as_str).unwrap_or("")
             )
         })
-        .add_fn("ora", "Che ore sono.", |_| "mezzogiorno".into())
-        .add_fn("somma", "Somma due numeri.", |a| {
+        .add_fn("time", "What time it is.", |_| "noon".into())
+        .add_fn("sum", "Adds two numbers.", |a| {
             format!(
                 "{}",
                 a["a"].as_i64().unwrap_or(0) + a["b"].as_i64().unwrap_or(0)
@@ -57,13 +57,13 @@ fn args(value: Value) -> Map<String, Value> {
     value.as_object().unwrap().clone()
 }
 
-async fn porta_tutti_i_comandi_e_le_istruzioni(sse: bool) {
+async fn brings_all_commands_and_instructions(sse: bool) {
     let server = FakeMcp::start().await;
     tools(&server);
     server.with(|s| {
         s.page_size = 2;
         s.sse = sse;
-        s.instructions = Some("Chiama prima «ora».".into());
+        s.instructions = Some("Call «time» first.".into());
     });
     let mcp = client(&server, None, false);
     mcp.initialize().await.unwrap();
@@ -74,21 +74,21 @@ async fn porta_tutti_i_comandi_e_le_istruzioni(sse: bool) {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(names, ["echo", "ora", "somma"]);
+    assert_eq!(names, ["echo", "time", "sum"]);
     assert_eq!(server.lists(), 2); // two pages
-    assert_eq!(mcp.instructions().as_deref(), Some("Chiama prima «ora»."));
-    assert_eq!(mcp.server_name().as_deref(), Some("finto"));
+    assert_eq!(mcp.instructions().as_deref(), Some("Call «time» first."));
+    assert_eq!(mcp.server_name().as_deref(), Some("fake"));
     assert_eq!(
         content(
-            &mcp.call_tool("echo", &args(json!({"text": "ciao"})), None)
+            &mcp.call_tool("echo", &args(json!({"text": "hello"})), None)
                 .await
                 .unwrap()
         ),
-        "eco: ciao"
+        "echo: hello"
     );
     assert_eq!(
         content(
-            &mcp.call_tool("somma", &args(json!({"a": 2, "b": 3})), None)
+            &mcp.call_tool("sum", &args(json!({"a": 2, "b": 3})), None)
                 .await
                 .unwrap()
         ),
@@ -97,43 +97,43 @@ async fn porta_tutti_i_comandi_e_le_istruzioni(sse: bool) {
 }
 
 #[tokio::test]
-async fn un_connettore_porta_tutti_i_comandi_e_le_istruzioni_del_server_in_json() {
-    porta_tutti_i_comandi_e_le_istruzioni(false).await;
+async fn a_connector_brings_all_the_server_commands_and_instructions_in_json() {
+    brings_all_commands_and_instructions(false).await;
 }
 
 #[tokio::test]
-async fn un_connettore_porta_tutti_i_comandi_e_le_istruzioni_del_server_in_sse() {
-    porta_tutti_i_comandi_e_le_istruzioni(true).await;
+async fn a_connector_brings_all_the_server_commands_and_instructions_in_sse() {
+    brings_all_commands_and_instructions(true).await;
 }
 
 #[tokio::test]
-async fn una_sessione_scaduta_si_dice_e_se_ne_apre_un_altra() {
+async fn an_expired_session_is_reported_and_another_is_opened() {
     let server = FakeMcp::start().await;
     tools(&server);
     let mcp = client(&server, None, false);
     mcp.initialize().await.unwrap();
     assert_eq!(
-        content(&mcp.call_tool("ora", &Map::new(), None).await.unwrap()),
-        "mezzogiorno"
+        content(&mcp.call_tool("time", &Map::new(), None).await.unwrap()),
+        "noon"
     );
 
     server.expire_session();
-    let expired = mcp.call_tool("ora", &Map::new(), None).await.unwrap_err();
+    let expired = mcp.call_tool("time", &Map::new(), None).await.unwrap_err();
     assert!(matches!(expired, McpError::SessionLost));
     assert_eq!(expired.to_string(), "session expired");
     mcp.initialize().await.unwrap();
     assert_eq!(
-        content(&mcp.call_tool("ora", &Map::new(), None).await.unwrap()),
-        "mezzogiorno"
+        content(&mcp.call_tool("time", &Map::new(), None).await.unwrap()),
+        "noon"
     );
 }
 
 #[tokio::test]
-async fn un_token_rifiutato_non_si_riprova() {
+async fn a_rejected_token_is_not_retried() {
     let server = FakeMcp::start().await;
     tools(&server);
-    server.with(|s| s.token = Some("giusto".into()));
-    let error = client(&server, Some("sbagliato"), false)
+    server.with(|s| s.token = Some("right".into()));
+    let error = client(&server, Some("wrong"), false)
         .initialize()
         .await
         .unwrap_err();
@@ -150,52 +150,52 @@ async fn un_token_rifiutato_non_si_riprova() {
     assert!(!sign_in);
     assert_eq!(server.requests(), 1); // a pasted token doesn't refresh: no second attempt
 
-    let mcp = client(&server, Some("giusto"), false);
+    let mcp = client(&server, Some("right"), false);
     mcp.initialize().await.unwrap();
-    assert!(server.with(|s| s.authorizations.contains(&"Bearer giusto".to_owned())));
+    assert!(server.with(|s| s.authorizations.contains(&"Bearer right".to_owned())));
     assert_eq!(
         server.with(|s| s.authorizations.last().cloned()).as_deref(),
-        Some("Bearer giusto")
+        Some("Bearer right")
     );
 }
 
 #[tokio::test]
-async fn un_server_che_cade_e_un_guasto_di_trasporto() {
+async fn a_server_going_down_is_a_transport_failure() {
     let server = FakeMcp::start().await;
     tools(&server);
     let mcp = client(&server, None, false);
     mcp.initialize().await.unwrap();
     server.with(|s| s.down = true);
-    let error = mcp.call_tool("ora", &Map::new(), None).await.unwrap_err();
+    let error = mcp.call_tool("time", &Map::new(), None).await.unwrap_err();
     assert!(
         matches!(&error, McpError::Transport(m) if m == "HTTP 503 Service Unavailable"),
         "{error:?}"
     );
     server.with(|s| s.down = false);
     assert_eq!(
-        content(&mcp.call_tool("ora", &Map::new(), None).await.unwrap()),
-        "mezzogiorno"
+        content(&mcp.call_tool("time", &Map::new(), None).await.unwrap()),
+        "noon"
     );
 }
 
 #[tokio::test]
-async fn un_comando_che_il_server_non_conosce_e_un_errore_rpc() {
+async fn a_command_the_server_does_not_know_is_an_rpc_error() {
     let server = FakeMcp::start().await;
     tools(&server);
     let mcp = client(&server, None, false);
     mcp.initialize().await.unwrap();
     let error = mcp
-        .call_tool("nessuno", &Map::new(), None)
+        .call_tool("nonexistent", &Map::new(), None)
         .await
         .unwrap_err();
     assert!(
-        matches!(&error, McpError::Rpc { code: -32602, message } if message == "comando sconosciuto: nessuno"),
+        matches!(&error, McpError::Rpc { code: -32602, message } if message == "unknown tool: nonexistent"),
         "{error:?}"
     );
 }
 
 #[tokio::test]
-async fn un_redirect_non_si_segue() {
+async fn a_redirect_is_not_followed() {
     let server = FakeMcp::start().await;
     tools(&server);
     let mcp = McpHttp::new(
@@ -212,14 +212,14 @@ async fn un_redirect_non_si_segue() {
     assert_eq!(server.requests(), 0);
 }
 
-fn svuota(server: &FakeMcp) {
+fn empty_trash(server: &FakeMcp) {
     server.add(
-        "svuota",
-        "Svuota il cestino.",
+        "empty_trash",
+        "Empties the trash.",
         Arc::new(|_, ask| {
             Box::pin(async move {
-                let schema = json!({"type":"object","properties":{"conferma":{"type":"boolean"},"modo":{"type":"string","enum":["tutto"]},"nota":{"type":"string"}}});
-                let answer = ask("Svuoto il cestino? Sono 12 file.".into(), schema).await;
+                let schema = json!({"type":"object","properties":{"confirm":{"type":"boolean"},"mode":{"type":"string","enum":["all"]},"note":{"type":"string"}}});
+                let answer = ask("Empty the trash? It holds 12 files.".into(), schema).await;
                 format!(
                     "{} {}",
                     answer.get("action").and_then(Value::as_str).unwrap_or(""),
@@ -232,10 +232,10 @@ fn svuota(server: &FakeMcp) {
 }
 
 #[tokio::test]
-async fn una_conferma_chiesta_dal_server_arriva_al_client_comando_per_comando() {
+async fn a_confirmation_asked_by_the_server_reaches_the_client_command_by_command() {
     let server = FakeMcp::start().await;
     tools(&server);
-    svuota(&server);
+    empty_trash(&server);
     let mcp = client(&server, None, true);
     mcp.initialize().await.unwrap();
     assert!(
@@ -256,20 +256,20 @@ async fn una_conferma_chiesta_dal_server_arriva_al_client_comando_per_comando() 
         Box::pin(async move { args(json!({"action": "accept", "content": content})) })
     });
     let answer = mcp
-        .call_tool("svuota", &Map::new(), Some(&yes))
+        .call_tool("empty_trash", &Map::new(), Some(&yes))
         .await
         .unwrap();
+    assert_eq!(content(&answer), r#"accept {"confirm":true,"mode":"all"}"#);
     assert_eq!(
-        content(&answer),
-        r#"accept {"conferma":true,"modo":"tutto"}"#
+        *asked.lock().unwrap(),
+        ["Empty the trash? It holds 12 files."]
     );
-    assert_eq!(*asked.lock().unwrap(), ["Svuoto il cestino? Sono 12 file."]);
 
     // The answer isn't remembered: the next time it's asked again, and a no is a no.
     let no: Elicit = Arc::new(|_| Box::pin(async { args(json!({"action": "decline"})) }));
     assert_eq!(
         content(
-            &mcp.call_tool("svuota", &Map::new(), Some(&no))
+            &mcp.call_tool("empty_trash", &Map::new(), Some(&no))
                 .await
                 .unwrap()
         ),
@@ -278,13 +278,17 @@ async fn una_conferma_chiesta_dal_server_arriva_al_client_comando_per_comando() 
 
     // With nobody to answer, the client tells the server it can't do it.
     assert_eq!(
-        content(&mcp.call_tool("svuota", &Map::new(), None).await.unwrap()),
+        content(
+            &mcp.call_tool("empty_trash", &Map::new(), None)
+                .await
+                .unwrap()
+        ),
         "error "
     );
 }
 
 #[tokio::test]
-async fn senza_interfaccia_il_client_non_promette_conferme() {
+async fn without_an_interface_the_client_does_not_promise_confirmations() {
     let server = FakeMcp::start().await;
     tools(&server);
     client(&server, None, false).initialize().await.unwrap();
@@ -293,20 +297,20 @@ async fn senza_interfaccia_il_client_non_promette_conferme() {
 }
 
 #[tokio::test]
-async fn la_prova_dice_se_il_server_c_e_e_che_cosa_offre() {
+async fn the_probe_tells_whether_the_server_is_there_and_what_it_offers() {
     let server = FakeMcp::start().await;
     tools(&server);
-    server.with(|s| s.instructions = Some("Sii gentile.".into()));
+    server.with(|s| s.instructions = Some("Be kind.".into()));
     let found = probe(&server.url, None).await;
     assert!(found.ok);
     assert_eq!(found.tools, 3);
-    assert_eq!(found.server.as_deref(), Some("finto"));
+    assert_eq!(found.server.as_deref(), Some("fake"));
     assert_eq!(
         found.message,
-        "Reached (finto): 3 commands, with its instructions."
+        "Reached (fake): 3 commands, with its instructions."
     );
 
-    server.with(|s| s.token = Some("giusto".into()));
+    server.with(|s| s.token = Some("right".into()));
     assert_eq!(
         probe(&server.url, None).await.message,
         "The server asks for a token."
@@ -317,7 +321,7 @@ async fn la_prova_dice_se_il_server_c_e_e_che_cosa_offre() {
             .message
             .starts_with("The server rejected the token")
     );
-    assert!(probe(&server.url, Some("giusto")).await.ok);
+    assert!(probe(&server.url, Some("right")).await.ok);
 
     let url = server.url.clone();
     server.stop();
@@ -332,15 +336,15 @@ async fn la_prova_dice_se_il_server_c_e_e_che_cosa_offre() {
 }
 
 #[test]
-fn il_comando_automatico_viene_dal_nome() {
+fn the_automatic_command_comes_from_the_name() {
     let cases = [
-        ("Notion (lavoro)", "notion-lavoro"),
-        ("Città · Àgenda", "citta-agenda"),
+        ("Notion (work)", "notion-work"),
+        ("Café · Résumé", "cafe-resume"),
         ("list", "app-list"),
         ("!!!", "app"),
         (
-            "Un nome davvero molto più lungo del dovuto",
-            "un-nome-davvero-molto-pi",
+            "A name that is truly much longer than needed",
+            "a-name-that-is-truly-muc",
         ),
     ];
     for (name, command) in cases {
@@ -349,7 +353,7 @@ fn il_comando_automatico_viene_dal_nome() {
 }
 
 #[test]
-fn un_comando_scelto_a_mano_segue_le_stesse_regole() {
+fn a_hand_picked_command_follows_the_same_rules() {
     let cases = [
         (None, true),
         (Some(""), true),
@@ -372,25 +376,25 @@ fn temporary_home() -> PathBuf {
 }
 
 #[test]
-fn il_registro_tiene_il_token_a_parte_e_cifrato() {
+fn the_registry_keeps_the_token_separate_and_encrypted() {
     let home = temporary_home();
     let store = ConnectorStore::new(&home, fake::test_box(&home));
     let entry = store
         .add(
             "Linear",
             "https://mcp.linear.app/mcp",
-            Some("abc-segreto"),
+            Some("abc-secret"),
             None,
         )
         .unwrap();
     assert!(entry.id.starts_with("cn_"));
-    assert_eq!(store.token(&entry.id).as_deref(), Some("abc-segreto"));
+    assert_eq!(store.token(&entry.id).as_deref(), Some("abc-secret"));
     let list = std::fs::read_to_string(home.join("connectors.json")).unwrap();
-    assert!(!list.contains("abc-segreto"));
+    assert!(!list.contains("abc-secret"));
     assert!(
         !std::fs::read_to_string(home.join("connectors.secrets"))
             .unwrap()
-            .contains("abc-segreto")
+            .contains("abc-secret")
     );
 
     // The file's shape.
@@ -423,13 +427,13 @@ fn il_registro_tiene_il_token_a_parte_e_cifrato() {
 }
 
 #[test]
-fn il_registro_legge_un_file_ritoccato_a_mano() {
+fn the_registry_reads_a_hand_edited_file() {
     let home = temporary_home();
     std::fs::create_dir_all(&home).unwrap();
     // With the BOM, an invalid command (ignored), an unknown authentication (token).
     std::fs::write(
         home.join("connectors.json"),
-        "\u{FEFF}{\r\n  \"connectors\": [\r\n    {\"id\": \"cn_1\", \"name\": \"Notion\", \"url\": \"https://mcp.notion.com/mcp\", \"enabled\": false, \"since\": 1760000000.25, \"auth\": \"oauth\", \"command\": \"notion-work\"},\r\n    {\"id\": \"cn_2\", \"name\": \"Altro\", \"url\": \"https://x.it\", \"auth\": \"boh\", \"command\": \"Non Valido\"},\r\n    {\"name\": \"senza id\", \"url\": \"https://y.it\"}\r\n  ]\r\n}",
+        "\u{FEFF}{\r\n  \"connectors\": [\r\n    {\"id\": \"cn_1\", \"name\": \"Notion\", \"url\": \"https://mcp.notion.com/mcp\", \"enabled\": false, \"since\": 1760000000.25, \"auth\": \"oauth\", \"command\": \"notion-work\"},\r\n    {\"id\": \"cn_2\", \"name\": \"Other\", \"url\": \"https://x.it\", \"auth\": \"bogus\", \"command\": \"Not Valid\"},\r\n    {\"name\": \"no id\", \"url\": \"https://y.it\"}\r\n  ]\r\n}",
     )
     .unwrap();
     let store = ConnectorStore::new(&home, fake::test_box(&home));

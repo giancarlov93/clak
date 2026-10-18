@@ -408,21 +408,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn conserva_ordine_e_numeri() {
-        let value = parse("{\"b\": 1.50, \"a\": [1e5, -0, true, null, \"Città\\n\"]}").unwrap();
+    fn keeps_order_and_numbers() {
+        let value = parse("{\"b\": 1.50, \"a\": [1e5, -0, true, null, \"Café\\n\"]}").unwrap();
         assert_eq!(value.as_object().unwrap().keys(), ["b", "a"]);
         assert_eq!(
             value.text(),
-            "{\"b\":1.50,\"a\":[1e5,-0,true,null,\"Città\\n\"]}"
+            "{\"b\":1.50,\"a\":[1e5,-0,true,null,\"Café\\n\"]}"
         );
         assert_eq!(
             value.pretty("  ", "\n"),
-            "{\n  \"b\": 1.50,\n  \"a\": [\n    1e5,\n    -0,\n    true,\n    null,\n    \"Città\\n\"\n  ]\n}"
+            "{\n  \"b\": 1.50,\n  \"a\": [\n    1e5,\n    -0,\n    true,\n    null,\n    \"Café\\n\"\n  ]\n}"
         );
     }
 
     #[test]
-    fn rifiuta_commenti_virgole_e_chiavi_doppie() {
+    fn rejects_comments_trailing_commas_and_duplicate_keys() {
         assert_eq!(parse("{\n  // no\n}"), Err(JsonError::Syntax { line: 2 }));
         assert_eq!(parse("{\"a\": 1,}"), Err(JsonError::Syntax { line: 1 }));
         assert_eq!(

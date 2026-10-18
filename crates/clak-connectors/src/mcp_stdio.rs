@@ -629,8 +629,8 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn le_righe_si_leggono_intere_e_senza_a_capo() {
-        let data: &[u8] = b"{\"a\":1}\r\n\nultima";
+    async fn lines_are_read_whole_and_without_line_breaks() {
+        let data: &[u8] = b"{\"a\":1}\r\n\nlast";
         let mut reader = BufReader::new(data);
         let mut line = Vec::new();
         assert!(read_line(&mut reader, &mut line).await.unwrap());
@@ -640,14 +640,14 @@ mod tests {
         assert!(line.is_empty());
         line.clear();
         assert!(read_line(&mut reader, &mut line).await.unwrap());
-        assert_eq!(line, b"ultima");
+        assert_eq!(line, b"last");
         line.clear();
         assert!(!read_line(&mut reader, &mut line).await.unwrap());
     }
 
     #[test]
-    fn un_programma_che_non_c_e_lo_dice() {
-        let launch = Launch::parse("clak-programma-che-non-esiste --x").unwrap();
+    fn a_missing_program_says_so() {
+        let launch = Launch::parse("clak-program-that-does-not-exist --x").unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

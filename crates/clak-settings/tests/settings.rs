@@ -42,9 +42,9 @@ async fn allow_settings(hub: &TestHub) {
 
 async fn echo_server() -> FakeMcp {
     let server = FakeMcp::start().await;
-    server.add_fn("echo", "Ripete il testo.", |a| {
+    server.add_fn("echo", "Repeats the text.", |a| {
         format!(
-            "eco: {}",
+            "echo: {}",
             a.get("text").and_then(Value::as_str).unwrap_or("")
         )
     });
@@ -60,19 +60,19 @@ fn names(list: &Value) -> Vec<String> {
 }
 
 #[test]
-fn settings_e_una_parola_riservata() {
+fn settings_is_a_reserved_word() {
     assert_eq!(cli_names::from("Settings"), "app-settings");
     assert!(cli_names::problem(Some("settings")).is_some());
     assert!(cli_names::problem(Some("settings-2")).is_none());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn nessun_connettore_prende_il_nome_delle_impostazioni() {
+async fn no_connector_takes_the_settings_name() {
     let server = echo_server().await;
     let hub = TestHub::start().await;
     assert!(
         hub.connectors
-            .add("Finto", &server.url, None, Some("settings"))
+            .add("Fake", &server.url, None, Some("settings"))
             .is_err()
     );
     let entry = hub
@@ -106,7 +106,7 @@ async fn nessun_connettore_prende_il_nome_delle_impostazioni() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_agente_aggiunge_un_server_mcp_e_l_utente_lo_conferma() {
+async fn an_agent_adds_an_mcp_server_and_the_user_confirms_it() {
     let server = echo_server().await;
     server.with(|s| s.token = Some("t0k".into()));
     let hub = TestHub::start().await;
@@ -116,18 +116,18 @@ async fn un_agente_aggiunge_un_server_mcp_e_l_utente_lo_conferma() {
             "claude",
             "settings",
             "add-server",
-            &[("name", "Finto"), ("url", &server.url), ("token", "t0k")]
+            &[("name", "Fake"), ("url", &server.url), ("token", "t0k")]
         ),
         async {
             allow_settings(&hub).await;
             let change = hub.prompt.next(ConsentKind::Change).await;
-            assert_eq!(change.request.title, "Add the MCP server “Finto”");
+            assert_eq!(change.request.title, "Add the MCP server “Fake”");
             assert_eq!(
                 change.request.question,
                 "Allow claude to add this MCP server?"
             );
             assert_eq!(change.what("Address"), Some(server.url.as_str()));
-            assert_eq!(change.what("Command"), Some("clak finto"));
+            assert_eq!(change.what("Command"), Some("clak fake"));
             assert_eq!(change.what("Access"), Some("a token, given by the agent"));
             assert_eq!(change.who("Agent"), Some("claude"));
             assert!(change.request.what.iter().all(|l| !l.value.contains("t0k")));
@@ -139,7 +139,7 @@ async fn un_agente_aggiunge_un_server_mcp_e_l_utente_lo_conferma() {
 
     let added = result(&answer);
     assert_eq!(added["state"], "active");
-    assert_eq!(added["command"], "finto");
+    assert_eq!(added["command"], "fake");
     assert_eq!(added["access"], "token");
     assert!(added["next"].as_str().unwrap().starts_with("Ready"));
     assert!(!content(&answer).contains("t0k"));
@@ -156,21 +156,21 @@ async fn un_agente_aggiunge_un_server_mcp_e_l_utente_lo_conferma() {
 
     // Reading asks nothing more: permission to use "settings" is enough.
     let servers = result(&hub.call("claude", "settings", "servers", json!({})).await);
-    assert_eq!(names(&servers), ["Finto"]);
+    assert_eq!(names(&servers), ["Fake"]);
     assert!(!servers.to_string().contains("t0k"));
     hub.prompt.quiet(100).await;
     hub.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_no_lascia_tutto_com_era() {
+async fn a_no_leaves_everything_as_it_was() {
     let hub = TestHub::start().await;
     let (answer, ()) = tokio::join!(
         hub.call(
             "claude",
             "settings",
             "add-server",
-            json!({ "name": "Altro", "url": "https://mcp.example.com/mcp" })
+            json!({ "name": "Other", "url": "https://mcp.example.com/mcp" })
         ),
         async {
             allow_settings(&hub).await;
@@ -191,7 +191,7 @@ async fn un_no_lascia_tutto_com_era() {
             "claude",
             "settings",
             "add-server",
-            json!({ "name": "Altro", "url": "ftp://x" }),
+            json!({ "name": "Other", "url": "ftp://x" }),
         )
         .await;
     assert!(is_error(&answer));
@@ -201,7 +201,7 @@ async fn un_no_lascia_tutto_com_era() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_api_a_mano_con_i_suoi_endpoint_e_i_segreti_che_non_escono() {
+async fn a_manual_api_keeps_its_endpoints_and_its_secrets_do_not_leak() {
     let rest = FakeRest::start().await;
     let hub = TestHub::start().await;
     let endpoints = r#"[ { "name": "orders", "method": "get", "path": "/orders", "parameters": [ { "name": "limit", "in": "query", "type": "integer" } ] } ]"#;
@@ -354,7 +354,7 @@ async fn un_api_a_mano_con_i_suoi_endpoint_e_i_segreti_che_non_escono() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn da_un_openapi_solo_gli_endpoint_scelti() {
+async fn from_an_openapi_only_the_chosen_endpoints() {
     let rest = FakeRest::start().await;
     rest.set_document(PETS);
     let hub = TestHub::start().await;
@@ -432,7 +432,7 @@ async fn da_un_openapi_solo_gli_endpoint_scelti() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
+async fn a_change_applies_to_what_the_user_saw() {
     let rest = FakeRest::start().await;
     let hub = TestHub::start().await;
     let entry = hub
@@ -451,18 +451,18 @@ async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
             "claude",
             "settings",
             "edit-api",
-            json!({ "api": "shop", "name": "Negozio" })
+            json!({ "api": "shop", "name": "Store" })
         ),
         async {
             allow_settings(&hub).await;
             let change: Question = hub.prompt.next(ConsentKind::Change).await;
-            assert_eq!(change.what("Name"), Some("Shop → Negozio"));
+            assert_eq!(change.what("Name"), Some("Shop → Store"));
             // While the user decides, the panel changes it: the agent's change doesn't overwrite it.
             hub.apis
                 .edit(
                     &entry.id,
                     ApiDraft {
-                        name: "Bottega".into(),
+                        name: "Workshop".into(),
                         base_url: rest.origin.clone(),
                         endpoints: entry.endpoints.clone(),
                         ..ApiDraft::default()
@@ -479,7 +479,7 @@ async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
         "{}",
         content(&answer)
     );
-    assert_eq!(hub.apis.get(&entry.id).unwrap().name, "Bottega");
+    assert_eq!(hub.apis.get(&entry.id).unwrap().name, "Workshop");
 
     // Turned off and on again, by the agent.
     hub.prompt.set_allow_all(true);
@@ -488,7 +488,7 @@ async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
             "claude",
             "settings",
             "edit-api",
-            json!({ "api": "bottega", "enabled": false }),
+            json!({ "api": "workshop", "enabled": false }),
         )
         .await,
     );
@@ -500,7 +500,7 @@ async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
             "claude",
             "settings",
             "edit-api",
-            json!({ "api": "bottega", "enabled": false }),
+            json!({ "api": "workshop", "enabled": false }),
         )
         .await;
     assert!(
@@ -513,7 +513,7 @@ async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
             "claude",
             "settings",
             "edit-api",
-            json!({ "api": "bottega", "enabled": true }),
+            json!({ "api": "workshop", "enabled": true }),
         )
         .await,
     );
@@ -527,13 +527,13 @@ async fn una_modifica_vale_per_quello_che_l_utente_ha_visto() {
 // =========================================================================
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
+async fn a_server_is_edited_and_the_token_does_not_follow_another_host() {
     let server = echo_server().await;
     server.with(|s| s.token = Some("t0k".into()));
     let hub = TestHub::start().await;
     let entry = hub
         .connectors
-        .add("Finto", &server.url, Some("t0k"), None)
+        .add("Fake", &server.url, Some("t0k"), None)
         .unwrap();
     hub.connector(&entry.id, "active").await;
 
@@ -544,15 +544,15 @@ async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
             "claude",
             "settings",
             "edit-server",
-            json!({ "server": "finto", "url": moved, "command": "altro" })
+            json!({ "server": "fake", "url": moved, "command": "other" })
         ),
         async {
             allow_settings(&hub).await;
             let change = hub.prompt.next(ConsentKind::Change).await;
-            assert_eq!(change.request.title, "Change the MCP server “Finto”");
+            assert_eq!(change.request.title, "Change the MCP server “Fake”");
             assert_eq!(change.request.question, "Allow claude to make this change?");
-            assert_eq!(change.what("Server"), Some("Finto (clak finto)"));
-            assert_eq!(change.what("Command"), Some("clak finto → clak altro"));
+            assert_eq!(change.what("Server"), Some("Fake (clak fake)"));
+            assert_eq!(change.what("Command"), Some("clak fake → clak other"));
             assert_eq!(
                 change.what("Access"),
                 Some("the saved token or sign-in stays behind: it isn't sent to the new host")
@@ -561,7 +561,7 @@ async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
         }
     );
     let edited = result(&answer);
-    assert_eq!(edited["command"], "altro");
+    assert_eq!(edited["command"], "other");
     assert_eq!(edited["access"], "none");
     assert_eq!(edited["state"], "token rejected");
     assert!(
@@ -580,7 +580,7 @@ async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
             "claude",
             "settings",
             "edit-server",
-            json!({ "server": "altro", "token": "t0k" }),
+            json!({ "server": "other", "token": "t0k" }),
         )
         .await,
     );
@@ -594,7 +594,7 @@ async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
             "claude",
             "settings",
             "edit-server",
-            json!({ "server": entry.id, "name": "Finto" }),
+            json!({ "server": entry.id, "name": "Fake" }),
         )
         .await;
     assert!(
@@ -607,7 +607,7 @@ async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
             "claude",
             "settings",
             "edit-server",
-            json!({ "server": "altro", "token": "x", "remove_token": true }),
+            json!({ "server": "other", "token": "x", "remove_token": true }),
         )
         .await;
     assert!(content(&both).contains("choose one"), "{}", content(&both));
@@ -618,17 +618,17 @@ async fn un_server_si_cambia_e_il_token_non_segue_un_altro_host() {
             "claude",
             "settings",
             "remove-server",
-            json!({ "server": "Finto" }),
+            json!({ "server": "Fake" }),
         )
         .await,
     );
-    assert_eq!(removed["removed"], "Finto");
+    assert_eq!(removed["removed"], "Fake");
     assert!(hub.connectors.entries().is_empty());
     hub.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn argomenti_sbagliati_e_nomi_che_non_ci_sono() {
+async fn wrong_arguments_and_names_that_do_not_exist() {
     let hub = TestHub::start().await;
     hub.prompt.set_allow_all(true);
     let missing = hub
@@ -636,13 +636,13 @@ async fn argomenti_sbagliati_e_nomi_che_non_ci_sono() {
             "claude",
             "settings",
             "show-api",
-            json!({ "api": "nessuna" }),
+            json!({ "api": "missing" }),
         )
         .await;
     assert!(is_error(&missing));
     assert_eq!(
         content(&missing),
-        "No REST API is called “nessuna”: `clak settings apis` lists them."
+        "No REST API is called “missing”: `clak settings apis` lists them."
     );
     let typed = hub
         .call(
@@ -725,14 +725,14 @@ async fn argomenti_sbagliati_e_nomi_che_non_ci_sono() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn senza_interfaccia_nessuna_modifica() {
+async fn without_an_interface_no_change() {
     let hub = TestHub::start_with(Setup { no_prompt: true }).await;
     let answer = hub
         .call(
             "claude",
             "settings",
             "add-server",
-            json!({ "name": "Altro", "url": "https://mcp.example.com/mcp" }),
+            json!({ "name": "Other", "url": "https://mcp.example.com/mcp" }),
         )
         .await;
     // With nobody to ask, the core doesn't even allow using "settings".
@@ -742,13 +742,13 @@ async fn senza_interfaccia_nessuna_modifica() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_comando_annullato_non_cambia_niente() {
+async fn a_cancelled_command_changes_nothing() {
     let hub = TestHub::start().await;
     let call = hub.call(
         "claude",
         "settings",
         "add-server",
-        json!({ "name": "Altro", "url": "https://mcp.example.com/mcp" }),
+        json!({ "name": "Other", "url": "https://mcp.example.com/mcp" }),
     );
     // The agent leaves while the user decides: the question closes by itself.
     let asked = async {
@@ -770,7 +770,7 @@ async fn un_comando_annullato_non_cambia_niente() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn fermate_le_impostazioni_spariscono() {
+async fn stopped_settings_disappear() {
     let hub = TestHub::start().await;
     assert!(hub.settings.conn_id().is_some());
     hub.settings.stop("hub closed").await;
@@ -790,8 +790,8 @@ fn this_program() -> String {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_agente_aggiunge_un_programma_stdio_e_le_variabili_non_escono() {
-    let secret = "chiave-segretissima-4711";
+async fn an_agent_adds_a_stdio_program_and_the_variables_do_not_leak() {
+    let secret = "top-secret-key-4711";
     let hub = TestHub::start().await;
     let line = this_program();
     let env = format!(r#"{{"API_KEY": "{secret}", "DEBUG": 1}}"#);
@@ -852,7 +852,7 @@ async fn un_agente_aggiunge_un_programma_stdio_e_le_variabili_non_escono() {
             "claude",
             "settings",
             "edit-server",
-            json!({ "server": "browser", "env": { "API_KEY": "nuova" } })
+            json!({ "server": "browser", "env": { "API_KEY": "new" } })
         ),
         async {
             let change = hub.prompt.next(ConsentKind::Change).await;
@@ -904,7 +904,7 @@ async fn un_agente_aggiunge_un_programma_stdio_e_le_variabili_non_escono() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_programma_sbagliato_non_disturba_l_utente() {
+async fn a_wrong_program_does_not_bother_the_user() {
     let hub = TestHub::start().await;
     hub.prompt.set_allow_all(true);
     let cases = [
@@ -917,9 +917,9 @@ async fn un_programma_sbagliato_non_disturba_l_utente() {
             json!({ "name": "B", "url": "https://x.example.com", "env": { "A": "1" } }),
             "--env is for a program",
         ),
-        (json!({ "name": "B", "stdio": "\"non chiuso" }), "quote"),
+        (json!({ "name": "B", "stdio": "\"unclosed" }), "quote"),
         (
-            json!({ "name": "B", "stdio": "clak-programma-che-non-esiste" }),
+            json!({ "name": "B", "stdio": "clak-program-that-does-not-exist" }),
             "was not found on this computer",
         ),
         (

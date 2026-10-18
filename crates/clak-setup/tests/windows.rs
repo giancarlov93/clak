@@ -50,17 +50,13 @@ fn set(key: &str, name: Option<&str>, value: &str) {
 }
 
 #[test]
-fn il_path_si_aggiunge_una_volta_e_si_toglie_lasciando_il_resto_com_era() {
+fn path_is_added_once_and_removed_leaving_the_rest_as_it_was() {
     let key = TestKey::new("Env");
     registry::create(&key.0)
         .unwrap()
-        .set_string(
-            Some("Path"),
-            r"%USERPROFILE%\bin;C:\Strumenti;",
-            EXPAND_STRING,
-        )
+        .set_string(Some("Path"), r"%USERPROFILE%\bin;C:\Tools;", EXPAND_STRING)
         .unwrap();
-    let path = UserPath::with_key(r"C:\Programmi\Clak", &key.0, false);
+    let path = UserPath::with_key(r"C:\Program Files\Clak", &key.0, false);
     assert!(!path.contains());
 
     path.add().unwrap();
@@ -68,7 +64,7 @@ fn il_path_si_aggiunge_una_volta_e_si_toglie_lasciando_il_resto_com_era() {
     assert!(path.contains());
     assert_eq!(
         raw_path(&key.0).unwrap(),
-        r"%USERPROFILE%\bin;C:\Strumenti;C:\Programmi\Clak"
+        r"%USERPROFILE%\bin;C:\Tools;C:\Program Files\Clak"
     );
     // Variables stay variables.
     assert_eq!(
@@ -76,23 +72,23 @@ fn il_path_si_aggiunge_una_volta_e_si_toglie_lasciando_il_resto_com_era() {
         Some(EXPAND_STRING)
     );
 
-    assert!(UserPath::with_key(r"c:\programmi\clak\", &key.0, false).contains());
+    assert!(UserPath::with_key(r"c:\program files\clak\", &key.0, false).contains());
     path.remove().unwrap();
     assert!(!path.contains());
-    assert_eq!(raw_path(&key.0).unwrap(), r"%USERPROFILE%\bin;C:\Strumenti");
+    assert_eq!(raw_path(&key.0).unwrap(), r"%USERPROFILE%\bin;C:\Tools");
 }
 
 #[test]
-fn un_path_che_non_c_e_si_crea() {
+fn a_missing_path_is_created() {
     let key = TestKey::new("Env");
-    let path = UserPath::with_key(r"C:\Programmi\Clak", &key.0, false);
+    let path = UserPath::with_key(r"C:\Program Files\Clak", &key.0, false);
     path.remove().unwrap();
     path.add().unwrap();
-    assert_eq!(raw_path(&key.0).unwrap(), r"C:\Programmi\Clak");
+    assert_eq!(raw_path(&key.0).unwrap(), r"C:\Program Files\Clak");
 }
 
 #[test]
-fn una_variabile_nel_path_vale_per_la_cartella_che_indica() {
+fn a_variable_in_path_counts_as_the_folder_it_points_to() {
     let key = TestKey::new("Env");
     let profile = std::env::var("USERPROFILE").unwrap();
     registry::create(&key.0)
@@ -102,10 +98,10 @@ fn una_variabile_nel_path_vale_per_la_cartella_che_indica() {
     assert!(UserPath::with_key(format!(r"{profile}\bin"), &key.0, false).contains());
 }
 
-const EXE: &str = r"C:\Programmi\Clak\ClakApp.exe";
+const EXE: &str = r"C:\Program Files\Clak\ClakApp.exe";
 
 #[test]
-fn l_avvio_si_accende_si_spegne_e_riconosce_gestione_attivita_e_le_altre_copie() {
+fn autostart_turns_on_and_off_and_recognizes_task_manager_and_other_copies() {
     let root = TestKey::new("Win");
     let autostart = Autostart::with_root(EXE, &root.0);
     assert_eq!(autostart.state(), AutostartState::Off);
@@ -120,7 +116,7 @@ fn l_avvio_si_accende_si_spegne_e_riconosce_gestione_attivita_e_le_altre_copie()
         format!("\"{EXE}\"")
     );
     assert_eq!(
-        Autostart::with_root(r"D:\Altrove\ClakApp.exe", &root.0).state(),
+        Autostart::with_root(r"D:\Elsewhere\ClakApp.exe", &root.0).state(),
         AutostartState::Elsewhere
     );
 
@@ -139,7 +135,7 @@ fn l_avvio_si_accende_si_spegne_e_riconosce_gestione_attivita_e_le_altre_copie()
 }
 
 #[test]
-fn lo_schema_clak_si_registra_si_aggiorna_e_non_tocca_quello_di_altri() {
+fn clak_scheme_registers_updates_and_leaves_others_alone() {
     let root = TestKey::new("Win");
     let classes = format!(r"{}\Classes", root.0);
     let scheme = UriScheme::with_root(EXE, &classes);
@@ -156,7 +152,7 @@ fn lo_schema_clak_si_registra_si_aggiorna_e_non_tocca_quello_di_altri() {
         ""
     );
     assert_eq!(
-        UriScheme::with_root(r"D:\Altrove\ClakApp.exe", &classes).state(),
+        UriScheme::with_root(r"D:\Elsewhere\ClakApp.exe", &classes).state(),
         UriSchemeState::Elsewhere
     );
     scheme.unregister().unwrap();
@@ -166,23 +162,23 @@ fn lo_schema_clak_si_registra_si_aggiorna_e_non_tocca_quello_di_altri() {
     set(
         &format!(r"{classes}\clak\shell\open\command"),
         None,
-        r#""C:\Altro\altro.exe" "%1""#,
+        r#""C:\Other\other.exe" "%1""#,
     );
     assert_eq!(scheme.state(), UriSchemeState::Foreign);
     scheme.unregister().unwrap();
     let other = registry::open(&format!(r"{classes}\clak\shell\open\command"), false).unwrap();
-    assert_eq!(other.string(None).unwrap(), r#""C:\Altro\altro.exe" "%1""#);
+    assert_eq!(other.string(None).unwrap(), r#""C:\Other\other.exe" "%1""#);
 }
 
 #[test]
-fn lo_schema_con_la_nostra_descrizione_e_nostro_da_aggiornare() {
+fn a_scheme_with_our_description_is_ours_to_update() {
     let root = TestKey::new("Win");
     let classes = format!(r"{}\Classes", root.0);
     set(&format!(r"{classes}\clak"), None, "URL:Clak");
     set(
         &format!(r"{classes}\clak\shell\open\command"),
         None,
-        r#""C:\Programmi\Altro\avvio.exe" "%1""#,
+        r#""C:\Program Files\Other\launcher.exe" "%1""#,
     );
     let scheme = UriScheme::with_root(EXE, &classes);
     assert_eq!(scheme.state(), UriSchemeState::Elsewhere);
@@ -191,7 +187,7 @@ fn lo_schema_con_la_nostra_descrizione_e_nostro_da_aggiornare() {
 }
 
 #[test]
-fn le_preferenze_hanno_un_valore_predefinito_e_lasciano_stare_il_resto_di_win_json() {
+fn preferences_have_defaults_and_leave_the_rest_of_win_json_alone() {
     let sandbox = Sandbox::new();
     let home = sandbox.dir(&["hub"]);
     std::fs::write(home.join("win.json"), "{\"shim\": [\"C:\\\\shim.exe\"]}").unwrap();
@@ -210,12 +206,12 @@ fn le_preferenze_hanno_un_valore_predefinito_e_lasciano_stare_il_resto_di_win_js
 }
 
 #[test]
-fn lo_shim_accanto_all_app_o_quello_ricordato() {
+fn the_shim_next_to_the_app_or_the_remembered_one() {
     let sandbox = Sandbox::new();
     let home = sandbox.dir(&["hub"]);
     let app = sandbox.dir(&["app"]);
     assert_eq!(shim::locate(&app, &home), None);
-    let chosen = sandbox.write("altrove/clak-shim.exe", "");
+    let chosen = sandbox.write("elsewhere/clak-shim.exe", "");
     shim::remember(&home, &[chosen.to_string_lossy().into_owned(), "-v".into()]).unwrap();
     assert_eq!(shim::locate(&app, &home).unwrap()[1], "-v");
     let bundled = sandbox.write("app/clak-shim.exe", "");
@@ -318,10 +314,10 @@ impl Machine {
 }
 
 #[test]
-fn installata_prende_il_posto_di_un_altra_copia_e_disinstallata_toglie_solo_il_suo() {
+fn install_replaces_another_copy_and_uninstall_removes_only_its_own() {
     let machine = Machine::new();
     let old = machine.copy("publish");
-    let tools = machine.sandbox.dir(&["strumenti"]);
+    let tools = machine.sandbox.dir(&["tools"]);
     machine.set_path(&format!("{};{}", tools.display(), old.display()));
     machine.sandbox.dir(&["home", ".claude"]);
     machine.skill(&old).install().unwrap();
@@ -363,12 +359,12 @@ fn installata_prende_il_posto_di_un_altra_copia_e_disinstallata_toglie_solo_il_s
 }
 
 #[test]
-fn dopo_un_installazione_tolta_tutto_cio_che_indicava_la_sua_cartella_passa_a_questa() {
+fn after_a_removed_install_everything_pointing_to_its_folder_moves_to_this_one() {
     // A "Clak" folder that is gone, and its entries that remain.
     let machine = Machine::new();
-    let gone = machine.sandbox.root.join("Tolta").join("Clak");
-    let dev = machine.copy("sviluppo");
-    let tools = machine.sandbox.dir(&["strumenti"]);
+    let gone = machine.sandbox.root.join("Removed").join("Clak");
+    let dev = machine.copy("dev");
+    let tools = machine.sandbox.dir(&["tools"]);
     machine.set_path(&format!(
         "{};{};{}",
         tools.display(),
@@ -440,9 +436,9 @@ fn dopo_un_installazione_tolta_tutto_cio_che_indicava_la_sua_cartella_passa_a_qu
 }
 
 #[test]
-fn disinstallata_non_tocca_cio_che_indica_un_altra_copia() {
+fn uninstall_leaves_alone_what_points_to_another_copy() {
     let machine = Machine::new();
-    let other = machine.copy("altrove");
+    let other = machine.copy("elsewhere");
     machine.sandbox.dir(&["home", ".claude"]);
     let skill = machine.skill(&other);
     skill.install().unwrap();
@@ -456,7 +452,7 @@ fn disinstallata_non_tocca_cio_che_indica_un_altra_copia() {
 }
 
 #[test]
-fn l_avvio_spento_dal_pannello_resta_spento_negli_aggiornamenti() {
+fn autostart_turned_off_in_the_panel_stays_off_across_updates() {
     let machine = Machine::new();
     let installed = machine.copy("Programs/Clak");
     machine.preferences().set_autostart(Some(false)).unwrap();
@@ -470,7 +466,7 @@ fn l_avvio_spento_dal_pannello_resta_spento_negli_aggiornamenti() {
 }
 
 #[test]
-fn una_skill_scritta_da_altri_resta_e_senza_claude_code_non_se_ne_crea_una() {
+fn a_skill_written_by_others_stays_and_without_claude_code_none_is_created() {
     let machine = Machine::new();
     let installed = machine.copy("Programs/Clak");
     machine.setup(&installed);
@@ -479,14 +475,14 @@ fn una_skill_scritta_da_altri_resta_e_senza_claude_code_non_se_ne_crea_una() {
 
     let foreign = machine.sandbox.write(
         "home/.claude/skills/clak/SKILL.md",
-        "---\nname: clak\ndescription: mia\n---\n",
+        "---\nname: clak\ndescription: mine\n---\n",
     );
     machine.setup(&installed);
-    assert_eq!(read(&foreign), "---\nname: clak\ndescription: mia\n---\n");
+    assert_eq!(read(&foreign), "---\nname: clak\ndescription: mine\n---\n");
 }
 
 #[test]
-fn il_registro_dell_installazione_e_il_segno_di_riapertura() {
+fn the_installation_log_and_the_reopen_marker() {
     let sandbox = Sandbox::new();
     let home = sandbox.dir(&["hub"]);
     installation::append_log(
@@ -513,9 +509,15 @@ fn il_registro_dell_installazione_e_il_segno_di_riapertura() {
 }
 
 #[test]
-fn uno_shim_sparito_si_riconosce_dal_nome() {
-    assert!(installation::is_gone_shim(r"C:\Non\Esiste\clak-shim.exe"));
-    assert!(installation::is_gone_shim("C:/Non/Esiste/CLAK-SHIM.EXE"));
-    assert!(!installation::is_gone_shim(r"C:\Non\Esiste\altro-shim.exe"));
+fn a_vanished_shim_is_recognized_by_name() {
+    assert!(installation::is_gone_shim(
+        r"C:\Does\Not\Exist\clak-shim.exe"
+    ));
+    assert!(installation::is_gone_shim(
+        "C:/Does/Not/Exist/CLAK-SHIM.EXE"
+    ));
+    assert!(!installation::is_gone_shim(
+        r"C:\Does\Not\Exist\other-shim.exe"
+    ));
     assert!(!installation::is_gone_shim("clak-shim.exe"));
 }

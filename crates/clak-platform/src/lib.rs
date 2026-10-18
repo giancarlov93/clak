@@ -302,7 +302,7 @@ mod tests {
 
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
-    fn questo_processo_ha_una_catena_vera() {
+    fn this_process_has_a_real_chain() {
         let me = std::process::id();
         let started = process_start_time(me).unwrap();
         let alive = AgentIdentity {
@@ -341,7 +341,7 @@ mod tests {
 
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
-    fn l_agente_di_questo_processo() {
+    fn the_agent_of_this_process() {
         let me = std::process::id();
         // Already authorized, the process itself is the agent: the chain is just itself.
         let mine: HashSet<String> = [format!("{me}:{}", process_start_time(me).unwrap())].into();
@@ -370,7 +370,7 @@ mod tests {
 
     #[cfg(any(windows, target_os = "macos"))]
     #[test]
-    fn un_programma_vero_viene_riconosciuto_dalle_porte_tcp() {
+    fn a_real_program_is_recognized_by_its_tcp_ports() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let hub = listener.local_addr().unwrap().port();
         let client = std::net::TcpStream::connect(("127.0.0.1", hub)).unwrap();

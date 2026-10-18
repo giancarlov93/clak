@@ -108,11 +108,11 @@ impl Platform for FakePlatform {
                     pid: 20_000 + self.pids.fetch_add(1, Ordering::SeqCst),
                     started: 133_000_000_000_000_000,
                     started_at: Some(1_700_000_000.0),
-                    exe: Some(format!(r"C:\agenti\{name}.exe")),
+                    exe: Some(format!(r"C:\agents\{name}.exe")),
                     name: name.to_owned(),
                     chain: vec![format!("{name}.exe")],
                     signed: "valid".into(),
-                    signer: Some("Prove".into()),
+                    signer: Some("Tests".into()),
                 })
                 .clone(),
         )
@@ -123,7 +123,7 @@ impl Platform for FakePlatform {
     }
 
     fn attest_loopback(&self, _peer_port: u16, _local_port: u16) -> Value {
-        json!({ "exe": r"C:\prove\blocco.exe", "signed": "valid", "signer": "Prove", "pid": 4242 })
+        json!({ "exe": r"C:\tests\notepad.exe", "signed": "valid", "signer": "Tests", "pid": 4242 })
     }
 
     fn executable_hash(&self, _path: &str) -> Option<String> {
@@ -215,7 +215,7 @@ impl TestHub {
         let mut request = body.as_object().cloned().unwrap_or_default();
         request.insert("type".into(), json!("request"));
         request.insert("op".into(), json!(op));
-        request.insert("cwd".into(), json!(r"C:\Progetti\prova"));
+        request.insert("cwd".into(), json!(r"C:\Projects\demo"));
         request.insert("test_agent".into(), json!(agent));
         let mut stream = connect(self.hub().control()).await;
         stream

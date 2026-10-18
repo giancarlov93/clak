@@ -132,7 +132,7 @@ pub struct Agent {
 #[derive(Clone, PartialEq)]
 pub struct Program {
     pub grant: String,
-    /// "spesa.txt (Blocco)", or just "Blender" when the title is the program's name.
+    /// "groceries.txt (Notepad)", or just "Blender" when the title is the program's name.
     pub label: String,
     pub exe: Option<String>,
 }
@@ -225,31 +225,31 @@ mod tests {
     }
 
     #[test]
-    fn le_notifiche_raccontano_i_cambiamenti() {
+    fn notices_describe_the_changes() {
         let empty = json!({"resources": [], "grants": [], "sessions": []});
         let connected = json!({
-            "resources": [{"id": "r1", "name": "blocco", "resource": {"app": "Blocco", "title": "spesa.txt"}}],
-            "sessions": [{"id": "s1", "label": "Claude Code · prova"}],
+            "resources": [{"id": "r1", "name": "notepad", "resource": {"app": "Notepad", "title": "groceries.txt"}}],
+            "sessions": [{"id": "s1", "label": "Claude Code · demo"}],
             "grants": [{"id": "g1", "resource_id": "r1", "session_id": "s1"}],
         });
         assert!(between(None, &connected).notices.is_empty());
         let notices = between(Some(&empty), &connected).notices;
-        assert_eq!(notices[0].title, "Blocco connected");
-        assert_eq!(notices[1].title, "“spesa.txt” in use");
-        assert_eq!(notices[1].text, "Claude Code · prova can use Blocco.");
+        assert_eq!(notices[0].title, "Notepad connected");
+        assert_eq!(notices[1].title, "“groceries.txt” in use");
+        assert_eq!(notices[1].text, "Claude Code · demo can use Notepad.");
         let gone = between(
             Some(&connected),
             &json!({"resources": connected["resources"], "sessions": [], "grants": []}),
         );
-        assert_eq!(gone.notices[0].title, "“spesa.txt” no longer in use");
+        assert_eq!(gone.notices[0].title, "“groceries.txt” no longer in use");
         assert_eq!(headline(&connected), "1 agent · 1 program · 1 permission");
     }
 
     #[test]
-    fn ogni_agente_porta_i_suoi_programmi() {
+    fn each_agent_carries_its_own_programs() {
         let state = json!({
             "resources": [
-                {"id": "r1", "resource": {"app": "Blocco", "title": "spesa.txt"}, "origin": {"exe": "/A/Blocco"}},
+                {"id": "r1", "resource": {"app": "Notepad", "title": "groceries.txt"}, "origin": {"exe": "/A/Notepad"}},
                 {"id": "r2", "resource": {"app": "Rhino", "title": "Rhino"}, "origin": {"kind": "connector", "exe": "/x"}},
             ],
             "sessions": [
@@ -275,7 +275,7 @@ mod tests {
         assert_eq!(
             programs,
             [
-                ("g1", "spesa.txt (Blocco)", Some("/A/Blocco")),
+                ("g1", "groceries.txt (Notepad)", Some("/A/Notepad")),
                 ("g2", "Rhino", None)
             ]
         );

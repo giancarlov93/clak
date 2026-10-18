@@ -341,7 +341,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn un_comando_senza_schema_ne_ha_uno_vuoto() {
+    fn a_command_without_schema_gets_an_empty_one() {
         let tool = ToolDef::from_json(&json!({"name":"a","description":"d"})).unwrap();
         assert_eq!(tool.schema()["type"], "object");
         let same =
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn nomi_doppi_o_strani_si_rifiutano() {
+    fn duplicate_or_odd_names_are_refused() {
         assert!(
             parse_tools(&json!([{"name":"a","description":""},{"name":"a","description":""}]))
                 .is_err()
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn l_origine_si_racconta() {
+    fn the_origin_is_described() {
         let signed =
             json!({"exe": r"C:\x\blender.exe", "signed": "valid", "signer": "Blender Foundation"});
         assert_eq!(

@@ -20,7 +20,7 @@ static NOT_SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new("[^a-z0-9]+").unw
 static SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z0-9]+(-[a-z0-9]+)*$").unwrap());
 
 /// The automatic name: lowercase, without accents or spaces, 24 characters at most.
-/// «Notion (lavoro)» becomes «notion-lavoro».
+/// «Notion (work)» becomes «notion-work».
 pub fn from(name: &str) -> String {
     let plain: String = name.nfd().filter(|c| !is_combining_mark(*c)).collect();
     let lowered = plain.to_lowercase();
@@ -59,9 +59,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn i_nomi_automatici() {
-        assert_eq!(from("Notion (lavoro)"), "notion-lavoro");
-        assert_eq!(from("Città Àrea"), "citta-area");
+    fn automatic_names() {
+        assert_eq!(from("Notion (work)"), "notion-work");
+        assert_eq!(from("Crème Brûlée"), "creme-brulee");
         assert_eq!(from("Settings"), "app-settings");
         assert_eq!(from("!!!"), "app");
         assert_eq!(
@@ -71,7 +71,7 @@ mod tests {
     }
 
     #[test]
-    fn i_nomi_scelti() {
+    fn chosen_names() {
         assert!(problem(None).is_none());
         assert!(problem(Some("notion-work")).is_none());
         assert!(problem(Some("Notion")).is_some());

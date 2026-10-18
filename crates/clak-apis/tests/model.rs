@@ -7,7 +7,7 @@ use clak_apis::model::{
 use serde_json::json;
 
 #[test]
-fn un_endpoint_si_controlla_prima_di_salvarlo() {
+fn an_endpoint_is_checked_before_saving() {
     let cases: [(&str, &[&str], Option<&str>); 7] = [
         ("/users/{id}", &["id:path"], None),
         ("/users/{id}", &[], Some("isn't a parameter")),
@@ -68,7 +68,7 @@ fn un_endpoint_si_controlla_prima_di_salvarlo() {
 }
 
 #[test]
-fn i_nomi_dei_comandi_vengono_da_metodo_e_percorso() {
+fn command_names_come_from_method_and_path() {
     assert_eq!(
         ApiEndpoint::name_from("GET", "/users/{id}/repos"),
         "get_users_id_repos"
@@ -82,7 +82,7 @@ fn i_nomi_dei_comandi_vengono_da_metodo_e_percorso() {
         ApiEndpoint::sanitize("repos/list-for.user"),
         "repos_list-for.user"
     );
-    assert_eq!(ApiEndpoint::sanitize("  __crea  è__ "), "crea");
+    assert_eq!(ApiEndpoint::sanitize("  __create  è__ "), "create");
     assert_eq!(ApiEndpoint::sanitize("a è b"), "a_b");
     assert_eq!(ApiEndpoint::path_names("/a/{id}/b/{name}"), ["id", "name"]);
     assert_eq!(ApiEndpoint::path_names("/a/{}/b/{x"), Vec::<String>::new());
@@ -92,7 +92,7 @@ fn i_nomi_dei_comandi_vengono_da_metodo_e_percorso() {
 }
 
 #[test]
-fn il_comando_per_gli_agenti_ha_la_forma_dell_hub() {
+fn the_agent_command_has_the_hub_shape() {
     let endpoint = ApiEndpoint {
         body_required: true,
         ..ApiEndpoint::new(
@@ -159,7 +159,7 @@ fn il_comando_per_gli_agenti_ha_la_forma_dell_hub() {
 }
 
 #[test]
-fn un_api_si_rilegge_dal_disco_com_era() {
+fn an_api_reads_back_from_disk_unchanged() {
     let entry = ApiEntry {
         id: "api_1".into(),
         name: "X".into(),
@@ -201,7 +201,7 @@ fn un_api_si_rilegge_dal_disco_com_era() {
 }
 
 #[test]
-fn un_endpoint_scritto_da_un_agente_dice_che_cosa_non_va() {
+fn an_endpoint_written_by_an_agent_says_what_is_wrong() {
     let read = |v: serde_json::Value| ApiEndpoint::read(&v);
     assert_eq!(
         read(json!([])).unwrap_err(),
@@ -241,7 +241,7 @@ fn un_endpoint_scritto_da_un_agente_dice_che_cosa_non_va() {
 }
 
 #[test]
-fn l_accesso_si_controlla_e_si_descrive() {
+fn access_is_checked_and_described() {
     assert_eq!(
         ApiAuth::new(AuthKind::Header).problem().unwrap(),
         "The key needs the name of its header."
@@ -280,7 +280,7 @@ fn l_accesso_si_controlla_e_si_descrive() {
 }
 
 #[test]
-fn un_api_nuova_si_controlla_prima_di_salvarla() {
+fn a_new_api_is_checked_before_saving() {
     let draft = |base: &str| ApiDraft {
         name: "My Service".into(),
         base_url: base.into(),

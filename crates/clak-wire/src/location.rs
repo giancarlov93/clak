@@ -238,7 +238,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn il_nome_della_pipe_non_dipende_da_come_si_scrive_la_cartella() {
+    fn the_pipe_name_does_not_depend_on_how_the_folder_is_written() {
         // sha256 of the folder with backslashes and no trailing slash.
         let a = hash_name(Path::new(r"C:\Users\x\.clak"));
         let b = hash_name(Path::new("C:/Users/x/.clak/"));
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn la_cartella_si_normalizza() {
+    fn the_folder_is_normalized() {
         assert_eq!(
             normalized(Path::new(r"C:\a\b\..\c\")),
             PathBuf::from(r"C:\a\c")

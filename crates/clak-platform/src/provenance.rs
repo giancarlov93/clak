@@ -599,7 +599,7 @@ mod tests {
     // --- Windows ---
 
     #[test]
-    fn il_nome_di_un_agente_si_riconosce_dall_eseguibile_su_windows() {
+    fn an_agent_name_is_recognized_from_the_executable_on_windows() {
         let cases: &[(&str, Option<&str>, &str)] = &[
             (r"C:\Users\u\.local\bin\claude.exe", None, "Claude Code"),
             (
@@ -623,7 +623,7 @@ mod tests {
                 "node",
             ),
             (r"C:\Tools\codex.exe", None, "Codex"),
-            (r"C:\Tools\qualcosa.exe", None, "qualcosa"),
+            (r"C:\Tools\something.exe", None, "something"),
         ];
         for (exe, command, expected) in cases {
             assert_eq!(friendly_name_windows(exe, *command), *expected, "{exe}");
@@ -651,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn l_agente_e_il_primo_che_si_riconosce_risalendo_su_windows() {
+    fn the_agent_is_the_first_recognized_walking_up_on_windows() {
         let cases: &[(&str, Option<usize>)] = &[
             ("clak.exe bash.exe claude.exe", Some(2)),
             ("clak.exe timeout.exe bash.exe claude.exe", Some(3)), // no list of wrappers to keep up to date
@@ -673,7 +673,7 @@ mod tests {
     }
 
     #[test]
-    fn un_processo_lanciato_da_un_agente_autorizzato_e_suo() {
+    fn a_process_launched_by_an_authorized_agent_is_its_own() {
         let w = |files, authorized: &[usize]| chosen(line_windows(files), &WINDOWS, authorized);
         // python launched from a terminal the user already authorized: it's the terminal's.
         assert_eq!(
@@ -701,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn una_catena_interrotta_non_fa_chiedere_per_chi_capita() {
+    fn a_broken_chain_does_not_ask_for_whoever_is_there() {
         let none = HashSet::new();
         // Git Bash: "timeout" is left orphaned, its parent already exited. Nothing is visible past the gap.
         let orphan = line_windows("clak.exe timeout.exe timeout.exe");
@@ -730,7 +730,7 @@ mod tests {
     // --- Mac ---
 
     #[test]
-    fn il_nome_di_un_agente_si_riconosce_dall_eseguibile_sul_mac() {
+    fn an_agent_name_is_recognized_from_the_executable_on_mac() {
         let cases: &[(&str, Option<&str>, &str)] = &[
             (
                 "/Users/u/.local/share/claude/versions/2.1.300",
@@ -774,7 +774,7 @@ mod tests {
                 None,
                 "iTerm",
             ),
-            ("/usr/local/bin/qualcosa", None, "qualcosa"),
+            ("/usr/local/bin/something", None, "something"),
         ];
         for (exe, command, expected) in cases {
             assert_eq!(friendly_name_macos(exe, *command), *expected, "{exe}");
@@ -804,7 +804,7 @@ mod tests {
     }
 
     #[test]
-    fn l_agente_e_il_primo_che_si_riconosce_risalendo_sul_mac() {
+    fn the_agent_is_the_first_recognized_walking_up_on_mac() {
         let cases: &[(&str, Option<usize>)] = &[
             ("clak zsh claude", Some(2)),
             ("clak timeout zsh claude", Some(3)),
@@ -821,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn launchd_lancia_le_app_non_le_shell() {
+    fn launchd_launches_apps_not_shells() {
         assert!(launched_by_launchd(Some(
             "/Applications/Claude.app/Contents/MacOS/Claude"
         )));
@@ -837,7 +837,7 @@ mod tests {
     }
 
     #[test]
-    fn i_nomi_dei_firmatari() {
+    fn signer_names() {
         assert_eq!(
             common_name_of(r#"CN="Microsoft, Inc.", O=Microsoft"#).as_deref(),
             Some("Microsoft, Inc.")
@@ -846,7 +846,7 @@ mod tests {
             common_name_of("CN=Microsoft Windows, O=Microsoft Corporation, C=US").as_deref(),
             Some("Microsoft Windows")
         );
-        assert_eq!(common_name_of("O=Nessuno"), None);
+        assert_eq!(common_name_of("O=Nobody"), None);
         assert_eq!(
             signer_name_macos(
                 Some("Developer ID Application: Stichting Blender Foundation (68UA947AUU)"),
@@ -909,7 +909,7 @@ mod tests {
     }
 
     #[test]
-    fn la_risalita_su_windows_si_ferma_al_desktop() {
+    fn the_walk_on_windows_stops_at_the_desktop() {
         let table = FakeTable::default()
             .with(4, 0, "System", Some(1), None)
             .with(
@@ -970,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn un_genitore_nato_dopo_il_figlio_interrompe_la_catena() {
+    fn a_parent_born_after_the_child_breaks_the_chain() {
         // timeout's real parent is dead and its pid went to a younger process.
         let table = FakeTable::default()
             .with(10, 4, "explorer.exe", Some(10), None)
@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn sul_mac_launchd_e_la_fine_solo_sotto_un_app() {
+    fn on_mac_launchd_is_the_end_only_under_an_app() {
         let terminal = "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal";
         let table = FakeTable::default()
             .with(1, 0, "launchd", Some(0), Some("/sbin/launchd"))

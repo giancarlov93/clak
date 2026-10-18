@@ -675,7 +675,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_firma_distingue_apple_uno_sviluppatore_e_il_linker() {
+    fn the_signature_tells_apple_a_developer_and_the_linker_apart() {
         // A system binary: signed by Apple, without a Team ID.
         let ls = file_signature("/bin/ls");
         assert_eq!(ls.signed, "valid");
@@ -686,11 +686,11 @@ mod tests {
             signature(&path_of(me).unwrap(), Some(me)).signed,
             "unsigned"
         );
-        assert_eq!(file_signature("/tmp/non-esiste-clak").signed, "unknown");
+        assert_eq!(file_signature("/tmp/does-not-exist-clak").signed, "unknown");
     }
 
     #[test]
-    fn la_tabella_tcp_trova_chi_tiene_una_connessione() {
+    fn the_tcp_table_finds_who_holds_a_connection() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let hub = listener.local_addr().unwrap().port();
         let client = std::net::TcpStream::connect(("127.0.0.1", hub)).unwrap();

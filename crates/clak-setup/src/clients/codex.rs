@@ -249,7 +249,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn riconosce_le_intestazioni_della_voce() {
+    fn recognizes_the_entry_headers() {
         for ours in [
             "[mcp_servers.clak]",
             " [ mcp_servers . 'clak' ] # c",
@@ -260,7 +260,7 @@ mod tests {
         }
         for other in [
             "[mcp_servers.clak2]",
-            "[mcp_servers.altro]",
+            "[mcp_servers.other]",
             "[mcp_servers]",
             "[[mcp_servers.clak]]",
             "[mcp_servers.clak] x",
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn le_virgolette_solo_se_servono() {
+    fn quotes_only_when_needed() {
         assert_eq!(
             quote(r"C:\Program Files\x.exe"),
             r"'C:\Program Files\x.exe'"

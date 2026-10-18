@@ -27,7 +27,7 @@ fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 #[tokio::test]
-async fn un_programma_si_aggiunge_e_porta_i_suoi_comandi() {
+async fn a_program_is_added_and_brings_its_commands() {
     let hub = TestHub::start().await;
     let launch = fake_server(&[]);
     let entry = hub
@@ -35,7 +35,7 @@ async fn un_programma_si_aggiunge_e_porta_i_suoi_comandi() {
         .add_stdio(
             "Browser",
             &launch,
-            &env(&[("FAKE_INSTRUCTIONS", "Prima «echo».")]),
+            &env(&[("FAKE_INSTRUCTIONS", "First «echo».")]),
             None,
         )
         .unwrap();
@@ -59,13 +59,13 @@ async fn un_programma_si_aggiunge_e_porta_i_suoi_comandi() {
     let described = hub
         .ask("claude", "tools", Some(json!({ "resource": "browser" })))
         .await;
-    assert_eq!(described["instructions"], "Prima «echo».");
+    assert_eq!(described["instructions"], "First «echo».");
     assert_eq!(
         content(
-            &hub.call("claude", "browser", "echo", Some(json!({"text": "ciao"})))
+            &hub.call("claude", "browser", "echo", Some(json!({"text": "hello"})))
                 .await
         ),
-        "eco: ciao"
+        "echo: hello"
     );
     // The variables reach the program.
     assert_eq!(
@@ -78,15 +78,15 @@ async fn un_programma_si_aggiunge_e_porta_i_suoi_comandi() {
             )
             .await
         ),
-        "Prima «echo»."
+        "First «echo»."
     );
     assert!(hub.log_text().contains("environment FAKE_INSTRUCTIONS"));
     hub.stop().await;
 }
 
 #[tokio::test]
-async fn le_variabili_restano_cifrate_e_un_hub_nuovo_rilegge_il_programma() {
-    let secret = "chiave-segretissima-4711";
+async fn the_variables_stay_encrypted_and_a_new_hub_rereads_the_program() {
+    let secret = "very-secret-key-4711";
     let hub = TestHub::start().await;
     let launch = fake_server(&["--tools", "core,debug"]);
     let entry = hub
@@ -108,7 +108,7 @@ async fn le_variabili_restano_cifrate_e_un_hub_nuovo_rilegge_il_programma() {
 }
 
 #[tokio::test]
-async fn un_programma_che_si_ferma_riparte_e_dice_perche() {
+async fn a_program_that_stops_restarts_and_says_why() {
     let hub = TestHub::start().await;
     let entry = hub
         .connectors
@@ -118,7 +118,7 @@ async fn un_programma_che_si_ferma_riparte_e_dice_perche() {
     hub.prompt.set_allow_all(true);
     let asked = {
         let _ = hub
-            .call("claude", "browser", "echo", Some(json!({"text": "uno"})))
+            .call("claude", "browser", "echo", Some(json!({"text": "one"})))
             .await;
         hub.prompt.count()
     };
@@ -136,22 +136,22 @@ async fn un_programma_che_si_ferma_riparte_e_dice_perche() {
     hub.connector(&entry.id, phase::ACTIVE).await;
     assert_eq!(
         content(
-            &hub.call("claude", "browser", "echo", Some(json!({"text": "due"})))
+            &hub.call("claude", "browser", "echo", Some(json!({"text": "two"})))
                 .await
         ),
-        "eco: due"
+        "echo: two"
     );
     assert_eq!(hub.prompt.count(), asked);
     hub.stop().await;
 }
 
 #[tokio::test]
-async fn un_programma_che_non_parte_lo_dice_con_le_sue_parole() {
+async fn a_program_that_fails_to_start_says_so_in_its_own_words() {
     let hub = TestHub::start().await;
     let entry = hub
         .connectors
         .add_stdio(
-            "Rotto",
+            "Broken",
             &fake_server(&["--fail-start"]),
             &BTreeMap::new(),
             None,
@@ -169,12 +169,12 @@ async fn un_programma_che_non_parte_lo_dice_con_le_sue_parole() {
     );
 
     let missing = Launch {
-        program: "clak-programma-che-non-esiste".into(),
+        program: "clak-program-that-does-not-exist".into(),
         args: vec![],
     };
     let entry = hub
         .connectors
-        .add_stdio("Assente", &missing, &BTreeMap::new(), None)
+        .add_stdio("Missing", &missing, &BTreeMap::new(), None)
         .unwrap();
     let seen = hub
         .connector_until(&entry.id, |c| {
@@ -189,7 +189,7 @@ async fn un_programma_che_non_parte_lo_dice_con_le_sue_parole() {
 }
 
 #[tokio::test]
-async fn un_elenco_cambiato_arriva_subito() {
+async fn a_changed_list_arrives_right_away() {
     let hub = TestHub::start().await;
     let entry = hub
         .connectors
@@ -207,7 +207,7 @@ async fn un_elenco_cambiato_arriva_subito() {
 }
 
 #[tokio::test]
-async fn una_conferma_chiesta_dal_programma_la_da_l_utente() {
+async fn a_confirmation_asked_by_the_program_is_given_by_the_user() {
     let hub = TestHub::start().await;
     let entry = hub
         .connectors
@@ -223,7 +223,7 @@ async fn una_conferma_chiesta_dal_programma_la_da_l_utente() {
     let call = hub.call("claude", "browser", "ask", None);
     let (called, ()) = tokio::join!(call, async {
         let question = hub.prompt.next(ConsentKind::Confirm).await;
-        assert_eq!(question.request.question, "Procedo?");
+        assert_eq!(question.request.question, "Proceed?");
         question.allow();
     });
     assert_eq!(content(&called), "action: accept");
@@ -231,12 +231,12 @@ async fn una_conferma_chiesta_dal_programma_la_da_l_utente() {
 }
 
 #[tokio::test]
-async fn cambiare_le_variabili_riavvia_e_ritira_i_permessi_rinominare_no() {
+async fn changing_the_variables_restarts_and_revokes_permissions_renaming_does_not() {
     let hub = TestHub::start().await;
     let connectors = &hub.connectors;
     let launch = fake_server(&[]);
     let entry = connectors
-        .add_stdio("Browser", &launch, &env(&[("COLORE", "rosso")]), None)
+        .add_stdio("Browser", &launch, &env(&[("COLOR", "red")]), None)
         .unwrap();
     hub.connector(&entry.id, phase::ACTIVE).await;
     hub.prompt.set_allow_all(true);
@@ -249,10 +249,10 @@ async fn cambiare_le_variabili_riavvia_e_ritira_i_permessi_rinominare_no() {
     connectors
         .edit_stdio(
             &entry.id,
-            "Navigatore",
+            "Navigator",
             Some("browser"),
             &launch,
-            Some(env(&[("COLORE", "rosso")])),
+            Some(env(&[("COLOR", "red")])),
         )
         .await
         .unwrap();
@@ -260,10 +260,10 @@ async fn cambiare_le_variabili_riavvia_e_ritira_i_permessi_rinominare_no() {
     let asked = hub.prompt.count();
     assert_eq!(
         content(
-            &hub.call("claude", "browser", "env", Some(json!({"name": "COLORE"})))
+            &hub.call("claude", "browser", "env", Some(json!({"name": "COLOR"})))
                 .await
         ),
-        "rosso"
+        "red"
     );
     assert_eq!(hub.prompt.count(), asked);
 
@@ -271,21 +271,21 @@ async fn cambiare_le_variabili_riavvia_e_ritira_i_permessi_rinominare_no() {
     connectors
         .edit_stdio(
             &entry.id,
-            "Navigatore",
+            "Navigator",
             Some("browser"),
             &launch,
-            Some(env(&[("COLORE", "blu")])),
+            Some(env(&[("COLOR", "blue")])),
         )
         .await
         .unwrap();
     hub.connector(&entry.id, phase::ACTIVE).await;
-    let call = hub.call("claude", "browser", "env", Some(json!({"name": "COLORE"})));
+    let call = hub.call("claude", "browser", "env", Some(json!({"name": "COLOR"})));
     let (called, ()) = tokio::join!(call, async {
         hub.prompt.next(ConsentKind::Use).await.allow()
     });
-    assert_eq!(content(&called), "blu");
-    assert!(hub.log_text().contains("environment COLORE"));
-    assert!(!hub.log_text().contains("blu"));
+    assert_eq!(content(&called), "blue");
+    assert!(hub.log_text().contains("environment COLOR"));
+    assert!(!hub.log_text().contains("blue"));
 
     // An address isn't given to a program, and vice versa.
     assert!(
@@ -298,7 +298,7 @@ async fn cambiare_le_variabili_riavvia_e_ritira_i_permessi_rinominare_no() {
 }
 
 #[tokio::test]
-async fn nome_e_variabili_si_controllano_prima_di_salvare() {
+async fn name_and_variables_are_checked_before_saving() {
     let hub = TestHub::start().await;
     let launch = fake_server(&[]);
     assert_eq!(
@@ -314,7 +314,7 @@ async fn nome_e_variabili_si_controllano_prima_di_salvare() {
     );
     assert!(
         hub.connectors
-            .add_stdio("B", &launch, &BTreeMap::new(), Some("Non Valido"))
+            .add_stdio("B", &launch, &BTreeMap::new(), Some("Not Valid"))
             .is_err()
     );
     assert!(hub.connectors.entries().is_empty());
@@ -322,7 +322,7 @@ async fn nome_e_variabili_si_controllano_prima_di_salvare() {
 }
 
 #[tokio::test]
-async fn la_prova_avvia_il_programma_e_dice_che_cosa_offre() {
+async fn the_probe_starts_the_program_and_tells_what_it_offers() {
     let probe = ConnectorHub::probe_stdio(&fake_server(&[]), &BTreeMap::new()).await;
     assert!(probe.ok, "{}", probe.message);
     assert_eq!(probe.tools, 6);
@@ -359,7 +359,7 @@ fn wrapper(dir: &std::path::Path) -> Launch {
     };
     Launch {
         program: script.display().to_string(),
-        args: vec!["uno due".into()],
+        args: vec!["one two".into()],
     }
 }
 
@@ -378,7 +378,7 @@ fn alive(pid: &str) -> bool {
 }
 
 #[tokio::test]
-async fn un_programma_lanciato_da_uno_script_si_ferma_con_tutto_quel_che_ha_avviato() {
+async fn a_program_launched_by_a_script_stops_with_everything_it_started() {
     let hub = TestHub::start().await;
     let launch = wrapper(&hub.home.join("bin"));
     let entry = hub

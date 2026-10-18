@@ -1470,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    fn un_connettore_nuovo_con_oauth_chiede_l_accesso() {
+    fn a_new_oauth_connector_asks_to_sign_in() {
         let plan = form("https://mcp.notion.com/mcp", true).plan(&open(None, false, false, None));
         assert!(plan.needs_sign_in && !plan.token_changes && !plan.permissions_restart);
         assert_eq!(plan.problem, None);
@@ -1479,14 +1479,14 @@ mod tests {
     }
 
     #[test]
-    fn rinominare_non_tocca_l_accesso_ne_i_permessi() {
+    fn renaming_touches_neither_sign_in_nor_permissions() {
         let target = entry("https://mcp.notion.com/mcp", true);
         let mut f = form("https://mcp.notion.com/mcp", true);
-        f.name = "Notion lavoro".into();
+        f.name = "Notion work".into();
         let plan = f.plan(&open(Some(target.clone()), true, false, None));
         assert!(!plan.needs_sign_in && !plan.permissions_restart && plan.show_reauth);
         // Another host: the sign-in is redone, and permissions start over.
-        let plan = form("https://altro.it/mcp", true).plan(&open(Some(target), true, false, None));
+        let plan = form("https://other.com/mcp", true).plan(&open(Some(target), true, false, None));
         assert!(
             plan.needs_sign_in
                 && plan.permissions_restart
@@ -1496,22 +1496,22 @@ mod tests {
     }
 
     #[test]
-    fn il_token_salvato_resta_se_la_casella_e_vuota() {
-        let target = entry("https://x.it/mcp", false);
+    fn the_saved_token_stays_if_the_field_is_empty() {
+        let target = entry("https://x.com/mcp", false);
         let plan =
-            form("https://x.it/mcp", false).plan(&open(Some(target.clone()), true, false, None));
+            form("https://x.com/mcp", false).plan(&open(Some(target.clone()), true, false, None));
         assert!(plan.keeps_token && !plan.token_changes && !plan.permissions_restart);
-        let mut f = form("https://x.it/mcp", false);
+        let mut f = form("https://x.com/mcp", false);
         f.drop_token = true;
         assert!(f.plan(&open(Some(target), true, false, None)).token_changes);
     }
 
     #[test]
-    fn un_link_su_un_connettore_che_c_e_cambia_solo_l_accesso() {
-        let target = entry("https://x.it/mcp", false);
+    fn a_link_on_an_existing_connector_changes_only_the_access() {
+        let target = entry("https://x.com/mcp", false);
         let o = open(Some(target), true, true, Some("abc"));
         assert!(o.restricted());
-        let mut f = form("https://x.it/mcp", false);
+        let mut f = form("https://x.com/mcp", false);
         f.name = String::new(); // name and address don't matter: they aren't changed
         f.link_token = true;
         let plan = f.plan(&o);
@@ -1523,7 +1523,7 @@ mod tests {
     }
 
     #[test]
-    fn da_un_link_il_salvataggio_aspetta_un_attimo() {
+    fn from_a_link_saving_waits_a_moment() {
         let mut o = open(None, false, true, None);
         o.opened = Instant::now();
         assert!(!o.armed());
@@ -1541,10 +1541,10 @@ mod tests {
     }
 
     #[test]
-    fn un_programma_nuovo_con_le_sue_variabili() {
+    fn a_new_program_with_its_variables() {
         let plan = program(
             "agent-browser mcp --tools core",
-            "# chiavi\nAPI_KEY = abc\n\nDEBUG=1",
+            "# keys\nAPI_KEY = abc\n\nDEBUG=1",
         )
         .program_plan(&open(None, false, false, None));
         assert_eq!(plan.problem, None);
@@ -1556,7 +1556,7 @@ mod tests {
         );
         assert!(plan.program_changes && !plan.permissions_restart);
         // A line without =: the error doesn't repeat it, it might be a key.
-        let plan = program("x", "sk-segreta").program_plan(&open(None, false, false, None));
+        let plan = program("x", "sk-secret").program_plan(&open(None, false, false, None));
         assert_eq!(
             plan.problem.as_deref(),
             Some("Environment, line 1: write NAME=value.")
@@ -1570,7 +1570,7 @@ mod tests {
     }
 
     #[test]
-    fn un_programma_salvato_tiene_le_variabili_se_la_casella_e_vuota() {
+    fn a_saved_program_keeps_its_variables_if_the_field_is_empty() {
         let mut target = entry("", false);
         target.launch = Some(Launch::parse("agent-browser mcp").unwrap());
         let mut o = open(Some(target.clone()), false, false, None);
@@ -1593,7 +1593,7 @@ mod tests {
         assert!(
             program("x", "")
                 .program_plan(&open(
-                    Some(entry("https://x.it/mcp", false)),
+                    Some(entry("https://x.com/mcp", false)),
                     false,
                     false,
                     None
@@ -1621,7 +1621,7 @@ mod tests {
         ApiEntry {
             id: "a1".into(),
             name: "Pets".into(),
-            base_url: "https://api.pets.it/v1".into(),
+            base_url: "https://api.pets.com/v1".into(),
             enabled: true,
             since: 0.0,
             auth,
@@ -1634,7 +1634,7 @@ mod tests {
     fn api_form(kind: &str) -> ApiForm {
         ApiForm {
             name: "Pets".into(),
-            base_url: "https://api.pets.it/v1/".into(),
+            base_url: "https://api.pets.com/v1/".into(),
             auth: AuthForm {
                 kind: kind.into(),
                 ..AuthForm::default()
@@ -1645,7 +1645,7 @@ mod tests {
     }
 
     #[test]
-    fn un_api_con_il_segreto_salvato_lo_tiene() {
+    fn an_api_with_a_saved_secret_keeps_it() {
         let target = api_entry(ApiAuth::new(AuthKind::Bearer));
         let plan = api_form("bearer").plan(&api_open(Some(target.clone()), true));
         assert!(plan.keeps_secret && plan.draft.secret.is_none() && !plan.permissions_restart);
@@ -1657,10 +1657,10 @@ mod tests {
     }
 
     #[test]
-    fn un_api_oauth_nuova_chiede_l_accesso() {
+    fn a_new_oauth_api_asks_to_sign_in() {
         let mut f = api_form("oauth");
-        f.auth.authorization_url = "https://x.it/authorize".into();
-        f.auth.token_url = "https://x.it/token".into();
+        f.auth.authorization_url = "https://x.com/authorize".into();
+        f.auth.token_url = "https://x.com/token".into();
         f.auth.client_id = "app".into();
         let plan = f.plan(&api_open(None, false));
         assert!(plan.needs_sign_in);
@@ -1671,7 +1671,7 @@ mod tests {
     }
 
     #[test]
-    fn un_endpoint_senza_nome_prende_quello_automatico() {
+    fn an_unnamed_endpoint_takes_the_automatic_name() {
         let node = json!({ "name": "", "method": "GET", "path": "/users/{id}", "parameters": [{ "name": "id", "in": "path" }] });
         let (endpoint, problem, auto) = endpoint_problem(&node, &[]);
         assert_eq!(problem, None);

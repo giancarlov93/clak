@@ -95,8 +95,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn le_lunghezze_si_contano_in_unita_utf16() {
-        assert_eq!(utf16_len("perché"), 6);
+    fn lengths_are_counted_in_utf16_units() {
+        assert_eq!(utf16_len("résumé"), 6);
         assert_eq!(utf16_len("😀"), 2);
         assert_eq!(utf16_prefix("abc😀d", 4), "abc");
         assert_eq!(utf16_prefix("abc😀d", 5), "abc😀");

@@ -1116,7 +1116,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_risorsa_dichiarata_deve_essere_il_server_o_un_suo_prefisso() {
+    fn the_declared_resource_must_be_the_server_or_a_prefix_of_it() {
         let cases = [
             (
                 "https://mcp.notion.com/mcp",
@@ -1139,7 +1139,7 @@ mod tests {
                 "https://mcp.notion.com/mcp",
                 false,
             ),
-            ("https://altro.com/mcp", "https://mcp.notion.com/mcp", false),
+            ("https://other.com/mcp", "https://mcp.notion.com/mcp", false),
             (
                 "http://mcp.notion.com/mcp",
                 "https://mcp.notion.com/mcp",
@@ -1156,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn la_sfida_di_un_401_dice_dove_accedere() {
+    fn the_challenge_of_a_401_says_where_to_sign_in() {
         let challenge = OAuthChallenge::parse(
             "Bearer realm=\"OAuth\", resource_metadata=\"https://mcp.notion.com/.well-known/oauth-protected-resource/mcp\", scope=\"default\"",
         );
@@ -1181,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    fn la_sfida_bearer_si_trova_anche_dopo_un_altro_schema() {
+    fn the_bearer_challenge_is_found_even_after_another_scheme() {
         let challenge = OAuthChallenge::parse(
             "Basic realm=\"x, y\", Bearer error=invalid_token, scope=\"a b\"",
         )
@@ -1194,7 +1194,7 @@ mod tests {
     }
 
     #[test]
-    fn un_accesso_si_salva_e_si_rilegge_senza_stamparsi() {
+    fn a_grant_is_saved_and_read_back_without_printing_itself() {
         let grant = OAuthGrant {
             issuer: "https://auth.example".into(),
             authorization_endpoint: "https://auth.example/authorize".into(),
@@ -1207,8 +1207,8 @@ mod tests {
             redirect_uri: "http://127.0.0.1:5000/callback".into(),
             resource: "https://mcp.example/mcp".into(),
             scope: Some("read".into()),
-            access_token: "at-segreto".into(),
-            refresh_token: Some("rt-segreto".into()),
+            access_token: "at-secret".into(),
+            refresh_token: Some("rt-secret".into()),
             expires_at: Some(1_700_000_000.5),
             flow: None,
         };
@@ -1234,7 +1234,7 @@ mod tests {
     }
 
     #[test]
-    fn gli_indirizzi_noti_devono_essere_https() {
+    fn known_addresses_must_be_https() {
         let server = known(
             "https://auth.example/oauth/authorize",
             "https://auth.example/oauth/token",
