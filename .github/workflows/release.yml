@@ -68,9 +68,23 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # The Tauri CLI already built, from Tauri's releases: compiling it took 5 to 20 minutes
+      # a run. Pinned like the toolchain: move it along with the tauri crate in Cargo.lock.
       - name: Tauri CLI
         shell: bash
-        run: cargo install tauri-cli --version "^2" --locked
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_CLI: 2.12.3
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          dir="$RUNNER_TEMP/tauri-cli"
+          gh release download "tauri-cli-v$TAURI_CLI" --repo tauri-apps/tauri \
+            --pattern "cargo-tauri-$host.zip" --dir "$dir"
+          unzip -q -o "$dir/cargo-tauri-$host.zip" -d "$dir"
+          bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+          find "$dir" -type f -name 'cargo-tauri*' ! -name '*.zip' -exec mv -f {} "$bin/" \;
+          chmod +x "$bin"/cargo-tauri*
+          cargo tauri --version
 
       - name: Version
         shell: bash
