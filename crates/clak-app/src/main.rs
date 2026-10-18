@@ -27,6 +27,7 @@ mod notices;
 mod prompt;
 mod setup;
 mod tray;
+mod updates;
 mod windows;
 
 use std::sync::Arc;
@@ -146,6 +147,8 @@ fn main() {
             commands::prefs_get,
             commands::prefs_set,
             app_icon::app_icon,
+            updates::update_status,
+            updates::update_open,
             // The Agents and Settings tabs (agents.rs).
             agents::agents_status,
             agents::agents_add,
@@ -203,6 +206,7 @@ fn main() {
                 std::thread::spawn(move || agents::repair(&home));
             }
             tauri::async_runtime::spawn(bridge.run(own));
+            updates::start(handle.clone());
             if show {
                 windows::panel(&handle, None);
             }

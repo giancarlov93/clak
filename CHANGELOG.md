@@ -14,6 +14,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- The app tells when a newer Clak is out: a notification, and in Settings › About a Download
+  button that opens the release page. It checks GitHub every few hours and installs nothing;
+  Check for updates turns it off, and so does the `CLAK_NO_UPDATE_CHECK` variable.
 - A brief clack animation when an agent connects, with an optional connection sound in Settings
   (off by default). The animation respects reduced motion and groups rapid connections.
 - On the Mac, the app follows the accent color chosen in System Settings, and changes with it.
