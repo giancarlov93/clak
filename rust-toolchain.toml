@@ -1,0 +1,7 @@
+# The same Rust everywhere: here, in CI and on every contributor's machine. In this folder
+# `rustup toolchain install` installs it. To move on, change the version here; CI adds the
+# build targets itself (rustup target add).
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
