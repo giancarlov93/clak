@@ -52,8 +52,10 @@ pub fn consent_resize(app: AppHandle, window: WebviewWindow, id: String, height:
     }
 }
 
+/// Async: on Windows a window built inside a synchronous command waits forever for its
+/// WebView2, and the whole app stops (a blank panel that no longer quits).
 #[tauri::command]
-pub fn open_panel(app: AppHandle, tab: Option<String>) {
+pub async fn open_panel(app: AppHandle, tab: Option<String>) {
     crate::windows::hide_flyout(&app);
     crate::windows::panel(&app, tab.as_deref());
 }
