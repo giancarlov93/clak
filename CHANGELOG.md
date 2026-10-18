@@ -39,6 +39,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows, Open the panel in the tray box left a blank window, and Clak stopped
+  responding until it was ended from Task Manager.
 - The menu bar icon with a green or amber dot stayed black on a dark bar.
 - "Sign in…" on an MCP server added from the command line closed its window at once.
 - Mac windows could not be dragged by their top edge.
