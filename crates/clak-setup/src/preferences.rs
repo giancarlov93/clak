@@ -65,13 +65,22 @@ impl Preferences {
         self.write("connectionSound", Some(value))
     }
 
-    /// A look at GitHub now and then for a newer Clak. It only tells; nothing is installed.
+    /// A look at GitHub now and then for a newer Clak.
     pub fn update_check(&self) -> bool {
         self.read("updateCheck").unwrap_or(true)
     }
 
     pub fn set_update_check(&self, value: bool) -> Result<()> {
         self.write("updateCheck", Some(value))
+    }
+
+    /// A newer Clak installs by itself, when no agent is connected. Opt-in.
+    pub fn auto_update(&self) -> bool {
+        self.read("autoUpdate").unwrap_or(false)
+    }
+
+    pub fn set_auto_update(&self, value: bool) -> Result<()> {
+        self.write("autoUpdate", Some(value))
     }
 
     /// Start with the system as the user chose it from the panel; `None` if they never

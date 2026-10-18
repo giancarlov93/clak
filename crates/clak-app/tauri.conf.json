@@ -45,5 +45,16 @@
     "macOS": {
       "minimumSystemVersion": "13.0"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNFQjBGNUE3RjMyQjdEQzQKUldURWZTdnpwL1d3UG5mTy91TFRhZXpkazRrc09VZU5XVk4wTEszYlhacTlaTld2T2ZJaWxwN1UK",
+      "endpoints": [
+        "https://github.com/giancarlov93/clak/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

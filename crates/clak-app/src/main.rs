@@ -135,6 +135,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::hub_hello,
             commands::hub_send,
@@ -149,6 +150,7 @@ fn main() {
             app_icon::app_icon,
             updates::update_status,
             updates::update_open,
+            updates::update_install,
             // The Agents and Settings tabs (agents.rs).
             agents::agents_status,
             agents::agents_add,

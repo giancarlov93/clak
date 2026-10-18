@@ -113,10 +113,44 @@
     draw();
   });
 
-  const updates = () =>
-    el("div", { class: "card group settings" },
-      setting("refresh", "#5856d6", "Check for updates", null, Kit.toggle(data.update_check, "Check for updates", setPreference("update_check"))),
-      data.update ? Kit.bar("info", `Clak ${data.update.version} is available`, el("button", { class: "accent", onclick: download }, "Download")) : null);
+  /// The update being installed: { version, downloaded, total }, { installing }, { error }.
+  let progress = null;
+
+  const install = () => {
+    progress = { version: data.update?.version, downloaded: 0 };
+    draw();
+    // It returns only if the user said no, or on an error: otherwise Clak starts again.
+    Clak.invoke("update_install").then(() => {
+      if (progress && !progress.error) progress = null;
+      draw();
+    }, (e) => {
+      progress = { error: String(e) };
+      draw();
+    });
+  };
+
+  const installing = () => {
+    if (progress.error) return Kit.bar("warn", `Couldn't install the update: ${progress.error}`, el("button", { onclick: download }, "Download"));
+    if (progress.installing) return Kit.bar("info", `Installing Clak ${progress.version}…`);
+    const percent = progress.total ? Math.round((100 * progress.downloaded) / progress.total) : null;
+    return Kit.bar("info", el("div", null, `Downloading Clak ${progress.version ?? ""}${percent === null ? "…" : `… ${percent}%`}`,
+      el("div", { class: "meter" }, el("span", { style: `width: ${percent ?? 0}%` }))));
+  };
+
+  const updates = () => {
+    const rows = [setting("refresh", "#5856d6", "Check for updates", null, Kit.toggle(data.update_check, "Check for updates", setPreference("update_check")))];
+    if (data.update_check) {
+      rows.push(setting("refresh", "#34c759", "Install updates automatically", "When no agent is connected",
+        Kit.toggle(data.auto_update, "Install updates automatically", setPreference("auto_update"))));
+    }
+    if (progress) rows.push(installing());
+    else if (data.update) {
+      rows.push(Kit.bar("info", `Clak ${data.update.version} is available`, el("div", { class: "actions" },
+        el("button", { onclick: download }, "Download"),
+        el("button", { class: "accent", onclick: install }, "Install and restart"))));
+    }
+    return el("div", { class: "card group settings" }, rows);
+  };
 
   const draw = () => {
     if (!page || !data) return;
@@ -140,6 +174,10 @@
       Clak.listen("update", (update) => {
         if (!data) return;
         data.update = update;
+        draw();
+      });
+      Clak.listen("update-progress", (p) => {
+        progress = p;
         draw();
       });
       refresh();

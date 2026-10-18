@@ -142,8 +142,16 @@ number (`0.3.17`): to move to `0.4` change it there, by hand or with
 node scripts/version.mjs 0.4.0
 ```
 
-On the Mac the app is signed ad hoc, not by an Apple developer: the first time it must be opened with
-right-click → Open.
+On the Mac the app is signed with a Developer ID and sent to Apple for notarization without waiting:
+until Apple accepts it, macOS asks before the first opening.
+
+The installed apps update themselves through Tauri's updater: each release also carries the
+installer's `.sig`, the Mac `.app.tar.gz` with its `.sig`, and `latest.json`
+(`scripts/updater-manifest.mjs`). The updater installs only files signed with Clak's key, whose
+public half is in `crates/clak-app/tauri.conf.json`. The private key and its password are the
+`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets of the `release`
+environment; for a local build, `.secrets/updater.key` and `.secrets/updater.password`. Without
+them the installers are built as before, without the updater files.
 
 ## License
 
