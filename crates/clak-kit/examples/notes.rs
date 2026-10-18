@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex};
 
 #[tokio::main]
 async fn main() {
-    let title = std::env::args().nth(1).unwrap_or_else(|| "notes.txt".to_owned());
+    let title = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "notes.txt".to_owned());
     let notes = Arc::new(Mutex::new(String::new()));
     let resource = LiveResource::new("Notes", &title, Some("Clak"), None);
     let read = notes.clone();
@@ -29,7 +31,8 @@ async fn main() {
             async move { text("added") }
         },
     );
-    resource.on_event(|kind, message| eprintln!("[notes] {kind}: {}", Value::Object(message.clone())));
+    resource
+        .on_event(|kind, message| eprintln!("[notes] {kind}: {}", Value::Object(message.clone())));
     if let Err(e) = resource.connect().await {
         eprintln!("[notes] {}", e.0);
         std::process::exit(1);

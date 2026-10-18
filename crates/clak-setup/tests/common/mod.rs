@@ -24,11 +24,19 @@ impl Sandbox {
     }
 
     pub fn with_environment(environment: BTreeMap<String, String>) -> Sandbox {
-        let root = std::env::temp_dir().join(format!("clak-setup-{}", clak_wire::json::random_hex(8)));
+        let root =
+            std::env::temp_dir().join(format!("clak-setup-{}", clak_wire::json::random_hex(8)));
         std::fs::create_dir_all(&root).unwrap();
         // On the Mac /var/folders is a link to /private/var/folders: the real path avoids surprises.
-        let root = std::fs::canonicalize(&root).map(|p| strip_verbatim(&p)).unwrap_or(root);
-        let places = Places::new(root.join("home"), root.join("appdata"), root.join("localappdata"), environment);
+        let root = std::fs::canonicalize(&root)
+            .map(|p| strip_verbatim(&p))
+            .unwrap_or(root);
+        let places = Places::new(
+            root.join("home"),
+            root.join("appdata"),
+            root.join("localappdata"),
+            environment,
+        );
         let sandbox = Sandbox { root, places };
         sandbox.dir(&["home"]);
         sandbox.dir(&["appdata"]);
@@ -43,7 +51,9 @@ impl Sandbox {
     }
 
     pub fn path(&self, relative: &str) -> PathBuf {
-        relative.split('/').fold(self.root.clone(), |p, part| p.join(part))
+        relative
+            .split('/')
+            .fold(self.root.clone(), |p, part| p.join(part))
     }
 
     pub fn write(&self, relative: &str, text: &str) -> PathBuf {
@@ -64,7 +74,10 @@ impl Sandbox {
     }
 
     pub fn client(&self, name: &str) -> Box<dyn McpClient> {
-        clients::all(&self.places, &[SHIM.to_owned()]).into_iter().find(|c| c.name() == name).unwrap()
+        clients::all(&self.places, &[SHIM.to_owned()])
+            .into_iter()
+            .find(|c| c.name() == name)
+            .unwrap()
     }
 }
 

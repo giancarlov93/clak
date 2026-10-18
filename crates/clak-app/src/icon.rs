@@ -7,7 +7,9 @@
 //! grid with the prompt "punched out", a *template* image the system colors like the others
 //! in the bar (until there is a dot, which is in color).
 
-use tiny_skia::{Color, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{
+    Color, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Stroke, Transform,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -61,14 +63,23 @@ fn circle(cx: f32, cy: f32, r: f32) -> Option<tiny_skia::Path> {
 }
 
 fn stroke(width: f32) -> Stroke {
-    Stroke { width, line_cap: LineCap::Round, line_join: LineJoin::Round, ..Stroke::default() }
+    Stroke {
+        width,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        ..Stroke::default()
+    }
 }
 
 /// The color icon, like the executable's: for the Windows tray.
 pub fn windows(kind: Kind, pixels: u32) -> Drawn {
     let mut map = Pixmap::new(pixels, pixels).expect("size");
     let scale = Transform::from_scale(pixels as f32 / 32.0, pixels as f32 / 32.0);
-    let body = if kind == Kind::Offline { paint((0x7A, 0x7A, 0x7A), 255) } else { paint(ACCENT, 255) };
+    let body = if kind == Kind::Offline {
+        paint((0x7A, 0x7A, 0x7A), 255)
+    } else {
+        paint(ACCENT, 255)
+    };
     let mut pb = PathBuilder::new();
     pb.move_to(16.0, 2.5);
     pb.line_to(16.0, 7.0);
@@ -99,7 +110,11 @@ pub fn windows(kind: Kind, pixels: u32) -> Drawn {
             map.fill_path(&core, &paint(dot, 255), FillRule::Winding, scale, None);
         }
     }
-    Drawn { rgba: unpremultiply(map), size: pixels, template: false }
+    Drawn {
+        rgba: unpremultiply(map),
+        size: pixels,
+        template: false,
+    }
 }
 
 /// The icon for the Mac menu bar: black (template) when there is no dot.
@@ -107,9 +122,20 @@ pub fn macos(kind: Kind, pixels: u32) -> Drawn {
     let mut map = macos_head(kind, pixels);
     let dot = dot(kind);
     if let Some(color) = dot {
-        map.draw_pixmap(0, 0, macos_dot(color, pixels).as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), None);
+        map.draw_pixmap(
+            0,
+            0,
+            macos_dot(color, pixels).as_ref(),
+            &tiny_skia::PixmapPaint::default(),
+            Transform::identity(),
+            None,
+        );
     }
-    Drawn { rgba: unpremultiply(map), size: pixels, template: dot.is_none() }
+    Drawn {
+        rgba: unpremultiply(map),
+        size: pixels,
+        template: dot.is_none(),
+    }
 }
 
 /// With a dot the icon can't be a template, or the dot would lose its color: the bar
@@ -118,7 +144,10 @@ pub fn macos(kind: Kind, pixels: u32) -> Drawn {
 #[cfg(target_os = "macos")]
 pub fn macos_layers(kind: Kind, pixels: u32) -> Option<(Vec<u8>, Vec<u8>)> {
     let color = dot(kind)?;
-    Some((macos_head(kind, pixels).encode_png().ok()?, macos_dot(color, pixels).encode_png().ok()?))
+    Some((
+        macos_head(kind, pixels).encode_png().ok()?,
+        macos_dot(color, pixels).encode_png().ok()?,
+    ))
 }
 
 /// The head, black, with the prompt and, if there is a dot, its place punched out.
@@ -153,10 +182,10 @@ fn macos_head(kind: Kind, pixels: u32) -> Pixmap {
     if let Some(prompt) = pb.finish() {
         map.stroke_path(&prompt, &clear, &stroke(1.8), scale, None);
     }
-    if dot(kind).is_some() {
-        if let Some(hole) = circle(14.0, 18.0 - 4.0, 4.5) {
-            map.fill_path(&hole, &clear, FillRule::Winding, scale, None);
-        }
+    if dot(kind).is_some()
+        && let Some(hole) = circle(14.0, 18.0 - 4.0, 4.5)
+    {
+        map.fill_path(&hole, &clear, FillRule::Winding, scale, None);
     }
     map
 }
@@ -166,7 +195,13 @@ fn macos_dot(color: (u8, u8, u8), pixels: u32) -> Pixmap {
     let mut map = Pixmap::new(pixels, pixels).expect("size");
     let s = pixels as f32 / 18.0;
     if let Some(core) = circle(14.0, 18.0 - 4.0, 3.0) {
-        map.fill_path(&core, &paint(color, 255), FillRule::Winding, Transform::from_scale(s, s), None);
+        map.fill_path(
+            &core,
+            &paint(color, 255),
+            FillRule::Winding,
+            Transform::from_scale(s, s),
+            None,
+        );
     }
     map
 }
@@ -182,7 +217,7 @@ fn dot(kind: Kind) -> Option<(u8, u8, u8)> {
 /// tiny-skia works in premultiplied alpha; the system icons want it straight.
 fn unpremultiply(map: Pixmap) -> Vec<u8> {
     let mut data = map.take();
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         if a > 0 && a < 255 {
             for c in &mut px[..3] {
@@ -195,5 +230,9 @@ fn unpremultiply(map: Pixmap) -> Vec<u8> {
 
 /// The right icon for this system.
 pub fn current(kind: Kind) -> Drawn {
-    if cfg!(target_os = "macos") { macos(kind, 36) } else { windows(kind, 32) }
+    if cfg!(target_os = "macos") {
+        macos(kind, 36)
+    } else {
+        windows(kind, 32)
+    }
 }

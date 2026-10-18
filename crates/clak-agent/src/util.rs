@@ -17,7 +17,10 @@ pub(crate) fn flag(object: &Object, key: &str) -> bool {
 
 /// The objects of a field that is a list; the rest is skipped.
 pub(crate) fn objects(value: Option<&Value>) -> Vec<&Object> {
-    value.and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_object).collect()).unwrap_or_default()
+    value
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_object).collect())
+        .unwrap_or_default()
 }
 
 /// An object inside an object.

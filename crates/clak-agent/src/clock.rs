@@ -34,7 +34,9 @@ impl Local {
         }
         #[cfg(unix)]
         {
-            let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+            let since = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
             let seconds = since.as_secs() as libc::time_t;
             // SAFETY: `tm` holds only integers (and a pointer that localtime_r fills); both
             // pointers are valid for the whole call.

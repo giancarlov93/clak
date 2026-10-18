@@ -88,7 +88,10 @@ fn una_chiave_ripetuta_non_si_tocca() {
     let original = "{\"mcpServers\": {}, \"mcpServers\": {}}";
     let path = sandbox.write("home/.cursor/mcp.json", original);
     let cursor = sandbox.client("Cursor");
-    assert_eq!(cursor.add().unwrap_err().0, "mcp.json has a repeated key: not touching it.");
+    assert_eq!(
+        cursor.add().unwrap_err().0,
+        "mcp.json has a repeated key: not touching it."
+    );
     assert_eq!(read(&path), original);
 }
 
@@ -107,14 +110,20 @@ fn una_voce_che_punta_altrove_e_da_aggiornare_e_si_aggiorna() {
 
     cursor.add().unwrap();
     assert_eq!(cursor.status().state, ClientState::Ok);
-    assert_eq!(json(&path)["mcpServers"]["clak"]["args"], serde_json::json!([]));
+    assert_eq!(
+        json(&path)["mcpServers"]["clak"]["args"],
+        serde_json::json!([])
+    );
 }
 
 #[cfg(windows)]
 #[test]
 fn lo_stesso_percorso_scritto_con_altre_barre_e_la_stessa_voce() {
     let sandbox = Sandbox::new();
-    sandbox.write("home/.cursor/mcp.json", "{\"mcpServers\": {\"clak\": {\"command\": \"c:/program files/clak/CLAK-SHIM.EXE\"}}}");
+    sandbox.write(
+        "home/.cursor/mcp.json",
+        "{\"mcpServers\": {\"clak\": {\"command\": \"c:/program files/clak/CLAK-SHIM.EXE\"}}}",
+    );
     assert_eq!(sandbox.client("Cursor").status().state, ClientState::Ok);
 }
 
@@ -160,7 +169,9 @@ fn crea_il_file_se_il_client_c_e_ma_non_ha_ancora_configurazione() {
     let shim = serde_json::to_string(SHIM).unwrap();
     assert_eq!(
         read(&windsurf.status().path),
-        format!("{{\n  \"mcpServers\": {{\n    \"clak\": {{\n      \"command\": {shim},\n      \"args\": []\n    }}\n  }}\n}}\n")
+        format!(
+            "{{\n  \"mcpServers\": {{\n    \"clak\": {{\n      \"command\": {shim},\n      \"args\": []\n    }}\n  }}\n}}\n"
+        )
     );
 }
 
@@ -178,7 +189,10 @@ fn una_sezione_che_non_e_un_oggetto_non_viene_toccata() {
 #[test]
 fn claude_desktop_dello_store_si_scrive_nella_sua_copia_di_appdata() {
     let sandbox = Sandbox::new();
-    sandbox.write("appdata/Claude/claude_desktop_config.json", "{\"vecchio\": true}");
+    sandbox.write(
+        "appdata/Claude/claude_desktop_config.json",
+        "{\"vecchio\": true}",
+    );
     let packaged = sandbox.write(
         "localappdata/Packages/Claude_pzs8sxrjxfjjc/LocalCache/Roaming/Claude/claude_desktop_config.json",
         "{\n  \"preferences\": {}\n}\n",
@@ -189,7 +203,16 @@ fn claude_desktop_dello_store_si_scrive_nella_sua_copia_di_appdata() {
     desktop.add().unwrap();
 
     assert!(json(&packaged)["mcpServers"]["clak"].is_object());
-    assert_eq!(read(&sandbox.places.app_data.join("Claude").join("claude_desktop_config.json")), "{\"vecchio\": true}");
+    assert_eq!(
+        read(
+            &sandbox
+                .places
+                .app_data
+                .join("Claude")
+                .join("claude_desktop_config.json")
+        ),
+        "{\"vecchio\": true}"
+    );
 }
 
 const EXISTING: &str = "# la mia configurazione\nmodel = \"gpt-5\"\n\n[mcp_servers.altro]\ncommand = \"npx\"\nargs = [\"-y\", \"qualcosa\"]\n\n[projects.'C:\\lavoro']\ntrust_level = \"trusted\"\n";
@@ -206,10 +229,21 @@ fn codex_aggiunge_e_toglie_il_blocco_senza_toccare_commenti_e_tabelle_altrui() {
     assert_eq!(codex.status().state, ClientState::Ok);
     let text = read(&path);
     assert!(text.starts_with(EXISTING));
-    assert!(text.ends_with(&format!("\n[mcp_servers.clak]\ncommand = '{SHIM}'\nargs = []\n")), "{text}");
+    assert!(
+        text.ends_with(&format!(
+            "\n[mcp_servers.clak]\ncommand = '{SHIM}'\nargs = []\n"
+        )),
+        "{text}"
+    );
 
     codex.add().unwrap(); // twice doesn't duplicate
-    assert_eq!(read(&path).lines().filter(|l| *l == "[mcp_servers.clak]").count(), 1);
+    assert_eq!(
+        read(&path)
+            .lines()
+            .filter(|l| *l == "[mcp_servers.clak]")
+            .count(),
+        1
+    );
 
     codex.remove().unwrap();
     assert_eq!(read(&path), EXISTING);
@@ -228,13 +262,19 @@ fn codex_toglie_anche_le_sottotabelle_della_propria_voce() {
 
     codex.remove().unwrap();
 
-    assert_eq!(read(&path), "model = \"x\"\n\n[mcp_servers.clak2]\ncommand = \"resta\"\n");
+    assert_eq!(
+        read(&path),
+        "model = \"x\"\n\n[mcp_servers.clak2]\ncommand = \"resta\"\n"
+    );
 }
 
 #[test]
 fn codex_una_voce_con_il_nome_fra_apici_si_sostituisce() {
     let sandbox = Sandbox::new();
-    let path = sandbox.write("home/.codex/config.toml", "model = \"x\"\n\n[mcp_servers.'clak']\ncommand = 'vecchio'\nargs = []\n");
+    let path = sandbox.write(
+        "home/.codex/config.toml",
+        "model = \"x\"\n\n[mcp_servers.'clak']\ncommand = 'vecchio'\nargs = []\n",
+    );
     let codex = sandbox.client("Codex");
     assert_eq!(codex.status().state, ClientState::Stale);
 
@@ -255,7 +295,10 @@ fn codex_conserva_i_ritorni_a_capo_di_windows() {
     let path = sandbox.write("home/.codex/config.toml", "model = \"x\"\r\n");
     let codex = sandbox.client("Codex");
     codex.add().unwrap();
-    assert_eq!(read(&path), format!("model = \"x\"\r\n\r\n[mcp_servers.clak]\r\ncommand = '{SHIM}'\r\nargs = []\r\n"));
+    assert_eq!(
+        read(&path),
+        format!("model = \"x\"\r\n\r\n[mcp_servers.clak]\r\ncommand = '{SHIM}'\r\nargs = []\r\n")
+    );
     codex.remove().unwrap();
     assert_eq!(read(&path), "model = \"x\"\r\n");
 }
@@ -280,7 +323,13 @@ fn codex_un_toml_rotto_non_viene_riscritto() {
     let codex = sandbox.client("Codex");
     let status = codex.status();
     assert_eq!(status.state, ClientState::Unreadable);
-    assert!(status.detail.starts_with("config.toml can't be read (line 1:"), "{}", status.detail);
+    assert!(
+        status
+            .detail
+            .starts_with("config.toml can't be read (line 1:"),
+        "{}",
+        status.detail
+    );
     assert!(codex.add().is_err());
     assert_eq!(read(&path), "model = \n[rotto\n");
 }
@@ -309,15 +358,28 @@ fn recorder(calls: &Arc<Mutex<Vec<String>>>) -> CommandRunner {
 #[test]
 fn claude_code_scrive_solo_attraverso_il_suo_comando() {
     let sandbox = Sandbox::new();
-    let bin = fake_claude(&sandbox, if cfg!(windows) { "claude.exe" } else { "claude" });
-    let places = sandbox.places.with_environment(BTreeMap::from([("PATH".to_owned(), bin.to_string_lossy().into_owned())]));
+    let bin = fake_claude(
+        &sandbox,
+        if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        },
+    );
+    let places = sandbox.places.with_environment(BTreeMap::from([(
+        "PATH".to_owned(),
+        bin.to_string_lossy().into_owned(),
+    )]));
     let calls = Arc::new(Mutex::new(Vec::new()));
     let config = sandbox.write("home/.claude.json", "{\"numStartups\": 3}");
     let client = ClaudeCodeClient::with_runner(&places, &[SHIM.to_owned()], recorder(&calls));
 
     assert_eq!(client.status().state, ClientState::Absent);
     client.add().unwrap();
-    assert_eq!(*calls.lock().unwrap(), [format!("mcp add --scope user clak -- {SHIM}")]);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [format!("mcp add --scope user clak -- {SHIM}")]
+    );
     assert_eq!(read(&config), "{\"numStartups\": 3}"); // we don't touch the file ourselves
 
     // If the entry is already there and points elsewhere, it is removed first.
@@ -325,25 +387,48 @@ fn claude_code_scrive_solo_attraverso_il_suo_comando() {
     assert_eq!(client.status().state, ClientState::Stale);
     calls.lock().unwrap().clear();
     client.add().unwrap();
-    assert_eq!(*calls.lock().unwrap(), ["mcp remove --scope user clak".to_owned(), format!("mcp add --scope user clak -- {SHIM}")]);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        [
+            "mcp remove --scope user clak".to_owned(),
+            format!("mcp add --scope user clak -- {SHIM}")
+        ]
+    );
 
     calls.lock().unwrap().clear();
     client.remove().unwrap();
     assert_eq!(*calls.lock().unwrap(), ["mcp remove --scope user clak"]);
-    assert!(client.snippet().starts_with("claude mcp add --scope user clak -- "));
+    assert!(
+        client
+            .snippet()
+            .starts_with("claude mcp add --scope user clak -- ")
+    );
 }
 
 #[test]
 fn claude_code_un_errore_del_comando_arriva_all_utente() {
     let sandbox = Sandbox::new();
-    let bin = fake_claude(&sandbox, if cfg!(windows) { "claude.cmd" } else { "claude" });
-    let places = sandbox.places.with_environment(BTreeMap::from([("PATH".to_owned(), bin.to_string_lossy().into_owned())]));
+    let bin = fake_claude(
+        &sandbox,
+        if cfg!(windows) {
+            "claude.cmd"
+        } else {
+            "claude"
+        },
+    );
+    let places = sandbox.places.with_environment(BTreeMap::from([(
+        "PATH".to_owned(),
+        bin.to_string_lossy().into_owned(),
+    )]));
     let client = ClaudeCodeClient::with_runner(
         &places,
         &[SHIM.to_owned()],
         Arc::new(|_, _, _| Ok((1, "MCP server clak already exists\n".to_owned()))),
     );
-    assert_eq!(client.add().unwrap_err().0, "MCP server clak already exists");
+    assert_eq!(
+        client.add().unwrap_err().0,
+        "MCP server clak already exists"
+    );
 }
 
 #[test]
@@ -351,7 +436,8 @@ fn claude_code_senza_il_comando_nel_path_si_dice_e_non_si_scrive() {
     let sandbox = Sandbox::new();
     let config = sandbox.write("home/.claude.json", "{}");
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let client = ClaudeCodeClient::with_runner(&sandbox.places, &[SHIM.to_owned()], recorder(&calls));
+    let client =
+        ClaudeCodeClient::with_runner(&sandbox.places, &[SHIM.to_owned()], recorder(&calls));
     assert_eq!(client.status().state, ClientState::Absent);
     assert!(client.add().unwrap_err().0.contains("PATH"));
     assert_eq!(read(&config), "{}");
@@ -362,7 +448,10 @@ fn claude_code_senza_il_comando_nel_path_si_dice_e_non_si_scrive() {
 fn claude_config_dir_sposta_il_file_di_claude_code() {
     let sandbox = Sandbox::new();
     let config = sandbox.dir(&["claude"]);
-    let places = sandbox.places.with_environment(BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), config.to_string_lossy().into_owned())]));
+    let places = sandbox.places.with_environment(BTreeMap::from([(
+        "CLAUDE_CONFIG_DIR".to_owned(),
+        config.to_string_lossy().into_owned(),
+    )]));
     let client = ClaudeCodeClient::new(&places, &[SHIM.to_owned()]);
     assert_eq!(client.status().path, config.join(".claude.json"));
 }
@@ -370,6 +459,21 @@ fn claude_config_dir_sposta_il_file_di_claude_code() {
 #[test]
 fn il_catalogo_e_nell_ordine_del_pannello() {
     let sandbox = Sandbox::new();
-    let names: Vec<String> = clak_setup::clients::all(&sandbox.places, &[SHIM.to_owned()]).iter().map(|c| c.name().to_owned()).collect();
-    assert_eq!(names, ["Claude Code", "Claude Desktop", "VS Code", "Cursor", "Windsurf", "Gemini CLI", "Codex", "LM Studio"]);
+    let names: Vec<String> = clak_setup::clients::all(&sandbox.places, &[SHIM.to_owned()])
+        .iter()
+        .map(|c| c.name().to_owned())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "Claude Code",
+            "Claude Desktop",
+            "VS Code",
+            "Cursor",
+            "Windsurf",
+            "Gemini CLI",
+            "Codex",
+            "LM Studio"
+        ]
+    );
 }

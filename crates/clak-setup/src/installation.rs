@@ -21,7 +21,11 @@ pub use unix::repair_gone;
 
 /// The command line and the app, as the installer places them.
 pub const CLI: &str = if cfg!(windows) { "clak.exe" } else { "clak" };
-pub const TRAY_APP: &str = if cfg!(windows) { "ClakApp.exe" } else { "ClakApp" };
+pub const TRAY_APP: &str = if cfg!(windows) {
+    "ClakApp.exe"
+} else {
+    "ClakApp"
+};
 
 /// The log of what `--setup` and `--uninstall` did.
 pub fn log_file(home: &Path) -> PathBuf {
@@ -32,9 +36,17 @@ pub fn log_file(home: &Path) -> PathBuf {
 /// time. If it can't be written, never mind: the installation is done anyway.
 pub fn append_log(home: &Path, uninstall: bool, done: &[String]) {
     use std::io::Write;
-    let stamp = format!("{} {}", local_time(), if uninstall { "uninstall" } else { "install" });
+    let stamp = format!(
+        "{} {}",
+        local_time(),
+        if uninstall { "uninstall" } else { "install" }
+    );
     let _ = std::fs::create_dir_all(home);
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log_file(home)) {
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file(home))
+    {
         for line in done {
             let _ = writeln!(file, "{stamp}: {line}");
         }
@@ -64,8 +76,14 @@ pub fn is_gone_shim(command: &str) -> bool {
     #[cfg(windows)]
     let command = crate::registry::expand(command);
     let path = Path::new(&command);
-    let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else { return false };
-    let ours = if cfg!(windows) { name.eq_ignore_ascii_case(shim::FILE_NAME) } else { name == shim::FILE_NAME };
+    let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        return false;
+    };
+    let ours = if cfg!(windows) {
+        name.eq_ignore_ascii_case(shim::FILE_NAME)
+    } else {
+        name == shim::FILE_NAME
+    };
     ours && path.is_absolute() && !path.exists()
 }
 
@@ -75,7 +93,9 @@ pub fn is_gone_shim(command: &str) -> bool {
 fn repair_clients(places: &crate::Places, shim: &Path, done: &mut Vec<(String, String)>) {
     for client in clients::all(places, &[shim.to_string_lossy().into_owned()]) {
         let status = client.status();
-        if status.state != ClientState::Stale || !status.command.as_deref().is_some_and(is_gone_shim) {
+        if status.state != ClientState::Stale
+            || !status.command.as_deref().is_some_and(is_gone_shim)
+        {
             continue;
         }
         match client.add() {
@@ -119,7 +139,10 @@ mod windows {
         let mut done = Vec::new();
         if preferences.autostart() == Some(false) {
             done.push("start with Windows left off, as chosen in the panel".to_owned());
-        } else if matches!(autostart.state(), AutostartState::Off | AutostartState::Elsewhere) {
+        } else if matches!(
+            autostart.state(),
+            AutostartState::Off | AutostartState::Elsewhere
+        ) {
             autostart.enable()?;
             done.push(format!("start with Windows: {}", autostart.exe().display()));
         }
@@ -134,9 +157,14 @@ mod windows {
         match scheme.state() {
             UriSchemeState::Off | UriSchemeState::Elsewhere => {
                 scheme.register()?;
-                done.push(format!("clak:// links opened by {}", scheme.exe().display()));
+                done.push(format!(
+                    "clak:// links opened by {}",
+                    scheme.exe().display()
+                ));
             }
-            UriSchemeState::Foreign => done.push("clak:// links left to the program that already opens them".to_owned()),
+            UriSchemeState::Foreign => {
+                done.push("clak:// links left to the program that already opens them".to_owned())
+            }
             UriSchemeState::On => {}
         }
 
@@ -144,10 +172,17 @@ mod windows {
             let state = skill.status().state;
             if matches!(state, SkillState::Absent | SkillState::Stale) {
                 skill.install()?;
-                let verb = if state == SkillState::Stale { "updated" } else { "installed" };
+                let verb = if state == SkillState::Stale {
+                    "updated"
+                } else {
+                    "installed"
+                };
                 done.push(format!("skill {verb}: {}", skill.path().display()));
             } else if state != SkillState::NotInstalled {
-                done.push(format!("skill left as it was ({state:?}): {}", skill.path().display()));
+                done.push(format!(
+                    "skill left as it was ({state:?}): {}",
+                    skill.path().display()
+                ));
             }
         }
 
@@ -163,9 +198,18 @@ mod windows {
     }
 
     /// Before uninstalling `folder`: only what points to this copy is removed.
-    pub fn cleanup(folder: &Path, places: &Places, path: &UserPath, autostart: &Autostart, scheme: &UriScheme) -> Result<Vec<String>> {
+    pub fn cleanup(
+        folder: &Path,
+        places: &Places,
+        path: &UserPath,
+        autostart: &Autostart,
+        scheme: &UriScheme,
+    ) -> Result<Vec<String>> {
         let mut done = Vec::new();
-        if matches!(autostart.state(), AutostartState::On | AutostartState::DisabledBySystem) {
+        if matches!(
+            autostart.state(),
+            AutostartState::On | AutostartState::DisabledBySystem
+        ) {
             autostart.disable()?;
             done.push("removed start with Windows".to_owned());
         }
@@ -185,7 +229,10 @@ mod windows {
             }
         }
 
-        for client in clients::all(places, &[folder.join(shim::FILE_NAME).to_string_lossy().into_owned()]) {
+        for client in clients::all(
+            places,
+            &[folder.join(shim::FILE_NAME).to_string_lossy().into_owned()],
+        ) {
             if client.status().state != ClientState::Ok {
                 continue;
             }
@@ -225,26 +272,44 @@ mod unix {
         const NOTE: &str = "Updated: it pointed to an app that is gone";
         let mut done = BTreeMap::new();
         let mut record = |id: String, result: Result<String>| {
-            done.insert(id, match result {
-                Ok(note) => format!("{NOTE} · {note}"),
-                Err(e) => e.0,
-            });
+            done.insert(
+                id,
+                match result {
+                    Ok(note) => format!("{NOTE} · {note}"),
+                    Err(e) => e.0,
+                },
+            );
         };
 
         let link = PathLink::user_bin(places, cli.to_string_lossy().into_owned());
         let status = link.status();
         if let (PathLinkState::Stale, Some(target)) = (status.state, status.target.as_deref()) {
             // A relative link is relative to its folder.
-            let absolute = if target.starts_with('/') { target.to_owned() } else { format!("{}/{target}", link.folder()) };
+            let absolute = if target.starts_with('/') {
+                target.to_owned()
+            } else {
+                format!("{}/{target}", link.folder())
+            };
             if !Path::new(&absolute).exists() {
-                record("path".into(), link.add().map(|()| "Added · applies to new shells".to_owned()));
+                record(
+                    "path".into(),
+                    link.add()
+                        .map(|()| "Added · applies to new shells".to_owned()),
+                );
             }
         }
 
         let gone = |old: &String| old.starts_with('/') && !Path::new(old).exists();
         for skill in skills(places, cli) {
-            if skill.status().state == SkillState::Stale && skill.written_cli().is_some_and(|old| gone(&old)) {
-                record(format!("skill:{}", skill.name()), skill.install().map(|()| "Installed · applies to new sessions".to_owned()));
+            if skill.status().state == SkillState::Stale
+                && skill.written_cli().is_some_and(|old| gone(&old))
+            {
+                record(
+                    format!("skill:{}", skill.name()),
+                    skill
+                        .install()
+                        .map(|()| "Installed · applies to new sessions".to_owned()),
+                );
             }
         }
 
@@ -271,7 +336,10 @@ fn local_time() -> String {
         GetLocalTime(&mut t);
         t
     };
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond
+    )
 }
 
 /// Local date and time, `yyyy-mm-dd hh:mm:ss`.

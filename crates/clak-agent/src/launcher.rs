@@ -14,13 +14,18 @@ pub const BROKER_VARIABLE: &str = "CLAK_BROKER";
 
 /// What `CLAK_BROKER` says, if it says anything.
 fn custom() -> Option<String> {
-    std::env::var(BROKER_VARIABLE).ok().filter(|v| !v.trim().is_empty())
+    std::env::var(BROKER_VARIABLE)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
 }
 
 /// The folder of this executable.
 #[cfg(windows)]
 fn base_directory() -> Option<std::path::PathBuf> {
-    std::env::current_exe().ok()?.parent().map(std::path::Path::to_path_buf)
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(std::path::Path::to_path_buf)
 }
 
 // =============================================================================
@@ -40,7 +45,11 @@ pub fn command() -> Option<String> {
         return Some(custom);
     }
     let base = base_directory()?;
-    [TRAY_APP, DAEMON].iter().map(|name| base.join(name)).find(|path| path.is_file()).map(|path| format!("\"{}\"", path.display()))
+    [TRAY_APP, DAEMON]
+        .iter()
+        .map(|name| base.join(name))
+        .find(|path| path.is_file())
+        .map(|path| format!("\"{}\"", path.display()))
 }
 
 /// Starts the hub, if it is known where it is.
@@ -54,8 +63,8 @@ pub fn start() -> bool {
 pub fn start_command(command_line: &str) -> bool {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{
-        CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CreateProcessW, PROCESS_INFORMATION,
-        STARTUPINFOW,
+        CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CreateProcessW,
+        PROCESS_INFORMATION, STARTUPINFOW,
     };
     // If the harness's job doesn't allow breaking away, too bad: we stay inside.
     for flags in [
@@ -115,11 +124,16 @@ fn target_for(executable: &std::path::Path) -> Option<String> {
     let contents = mac_os.parent()?;
     let bundle = contents.parent()?;
     let named = |path: &std::path::Path, name: &str| path.file_name().is_some_and(|n| n == name);
-    if named(mac_os, "MacOS") && named(contents, "Contents") && bundle.extension().is_some_and(|e| e == "app") {
+    if named(mac_os, "MacOS")
+        && named(contents, "Contents")
+        && bundle.extension().is_some_and(|e| e == "app")
+    {
         return Some(bundle.to_string_lossy().into_owned());
     }
     // Development: the hub next to it, in the build folder.
-    Some(mac_os.join("clak-daemon")).filter(|path| is_executable(path)).map(|path| path.to_string_lossy().into_owned())
+    Some(mac_os.join("clak-daemon"))
+        .filter(|path| is_executable(path))
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 #[cfg(unix)]
@@ -141,10 +155,15 @@ pub fn start() -> bool {
         open.args(["-g", "-j"]);
         let variable = clak_wire::location::HOME_VARIABLE;
         if std::env::var(variable).is_ok_and(|v| !v.trim().is_empty()) {
-            open.arg("--env").arg(format!("{variable}={}", clak_wire::location::home().display()));
+            open.arg("--env").arg(format!(
+                "{variable}={}",
+                clak_wire::location::home().display()
+            ));
         }
         open.arg("-a").arg(&target);
-        open.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        open.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         return open.status().is_ok_and(|status| status.success());
     }
     // An executable (the windowless hub): detached, in its own group.
@@ -175,7 +194,10 @@ mod tests {
 
     #[test]
     fn l_app_si_trova_intorno_all_eseguibile() {
-        assert_eq!(target_for(Path::new("/Applications/Clak.app/Contents/MacOS/clak")).as_deref(), Some("/Applications/Clak.app"));
+        assert_eq!(
+            target_for(Path::new("/Applications/Clak.app/Contents/MacOS/clak")).as_deref(),
+            Some("/Applications/Clak.app")
+        );
         assert_eq!(target_for(Path::new("/nessun/posto/clak")), None);
     }
 }

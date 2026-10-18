@@ -15,7 +15,9 @@ pub struct Stream {
 impl Stream {
     /// A second handle on the same connection: one for reading, one for writing.
     pub fn try_clone(&self) -> io::Result<Stream> {
-        Ok(Stream { inner: self.inner.try_clone()? })
+        Ok(Stream {
+            inner: self.inner.try_clone()?,
+        })
     }
 
     /// Stops waiting: a pending read ends with an error. On the Mac it shuts the socket down
@@ -30,7 +32,10 @@ impl Stream {
             use std::os::windows::io::AsRawHandle;
             // SAFETY: the handle lives as long as `self`.
             unsafe {
-                windows_sys::Win32::System::IO::CancelIoEx(self.inner.as_raw_handle() as _, std::ptr::null());
+                windows_sys::Win32::System::IO::CancelIoEx(
+                    self.inner.as_raw_handle() as _,
+                    std::ptr::null(),
+                );
             }
         }
     }
@@ -72,16 +77,25 @@ pub fn connect(control: &str, wait: Duration) -> io::Result<Stream> {
         use windows_sys::Win32::System::Pipes::WaitNamedPipeW;
         let started = std::time::Instant::now();
         loop {
-            match std::fs::OpenOptions::new().read(true).write(true).open(control) {
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(control)
+            {
                 Ok(file) => return Ok(Stream { inner: file }),
                 Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
                     let left = wait.saturating_sub(started.elapsed());
                     if left.is_zero() {
                         return Err(e);
                     }
-                    let wide: Vec<u16> = std::ffi::OsStr::new(control).encode_wide().chain(Some(0)).collect();
+                    let wide: Vec<u16> = std::ffi::OsStr::new(control)
+                        .encode_wide()
+                        .chain(Some(0))
+                        .collect();
                     // SAFETY: nul-terminated text.
-                    unsafe { WaitNamedPipeW(wide.as_ptr(), left.as_millis().min(u32::MAX as u128) as u32) };
+                    unsafe {
+                        WaitNamedPipeW(wide.as_ptr(), left.as_millis().min(u32::MAX as u128) as u32)
+                    };
                 }
                 Err(e) => return Err(e),
             }

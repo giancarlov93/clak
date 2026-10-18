@@ -100,8 +100,11 @@ impl Shim {
         for line in input.split(b'\n') {
             let Ok(line) = line else { break };
             let line = line.strip_suffix(b"\r").unwrap_or(&line);
-            let Some(message) = clak_wire::json::object(line) else { continue };
-            let handled = std::panic::catch_unwind(AssertUnwindSafe(|| dispatch(&shared, &message)));
+            let Some(message) = clak_wire::json::object(line) else {
+                continue;
+            };
+            let handled =
+                std::panic::catch_unwind(AssertUnwindSafe(|| dispatch(&shared, &message)));
             if handled.is_err() {
                 log("unhandled message");
                 if let (Some(id), true) = (request_id(&message), message.contains_key("method")) {
@@ -110,7 +113,9 @@ impl Shim {
             }
         }
         if let Ok(calls) = shared.calls.lock() {
-            let _ = shared.done.wait_timeout_while(calls, Duration::from_secs(1), |n| *n > 0);
+            let _ = shared
+                .done
+                .wait_timeout_while(calls, Duration::from_secs(1), |n| *n > 0);
         }
         if let Ok(mut output) = shared.output.lock() {
             let _ = output.flush();
@@ -131,23 +136,34 @@ fn send(shared: &Shared, message: Value) {
 }
 
 fn reply(shared: &Shared, id: Value, result: Object) {
-    send(shared, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+    send(
+        shared,
+        json!({"jsonrpc": "2.0", "id": id, "result": result}),
+    );
 }
 
 fn fail(shared: &Shared, id: Value, code: i64, message: &str) {
-    send(shared, json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}));
+    send(
+        shared,
+        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}),
+    );
 }
 
 fn dispatch(shared: &Arc<Shared>, message: &Object) {
     // A response: this server never asks the client anything.
-    let Some(method) = str_of(message, "method") else { return };
+    let Some(method) = str_of(message, "method") else {
+        return;
+    };
     let id = request_id(message);
     let parameters = object_of(message, "params").cloned().unwrap_or_default();
-    let modern = object_of(&parameters, "_meta").and_then(|m| str_of(m, META_VERSION)) == Some(MODERN);
+    let modern =
+        object_of(&parameters, "_meta").and_then(|m| str_of(m, META_VERSION)) == Some(MODERN);
 
     match (method, id) {
         ("initialize", Some(id)) => {
-            let asked = str_of(&parameters, "protocolVersion").filter(|v| HANDSHAKE.contains(v)).unwrap_or(HANDSHAKE[0]);
+            let asked = str_of(&parameters, "protocolVersion")
+                .filter(|v| HANDSHAKE.contains(v))
+                .unwrap_or(HANDSHAKE[0]);
             reply(
                 shared,
                 id,
@@ -168,7 +184,11 @@ fn dispatch(shared: &Arc<Shared>, message: &Object) {
             reply(shared, id, envelope(result, true));
         }
         ("ping", Some(id)) => reply(shared, id, envelope(Object::new(), modern)),
-        ("tools/list", Some(id)) => reply(shared, id, envelope(object(json!({"tools": tools()})), modern)),
+        ("tools/list", Some(id)) => reply(
+            shared,
+            id,
+            envelope(object(json!({"tools": tools()})), modern),
+        ),
         ("tools/call", Some(id)) => {
             // On its own thread: a call waiting for the user must not stop the rest.
             if let Ok(mut calls) = shared.calls.lock() {
@@ -176,7 +196,9 @@ fn dispatch(shared: &Arc<Shared>, message: &Object) {
             }
             let shared = Arc::clone(shared);
             std::thread::spawn(move || {
-                let called = std::panic::catch_unwind(AssertUnwindSafe(|| call(shared.home.as_deref(), &parameters)));
+                let called = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    call(shared.home.as_deref(), &parameters)
+                }));
                 match called {
                     Ok(result) => reply(&shared, id, envelope(result, modern)),
                     Err(_) => {
@@ -225,7 +247,9 @@ fn envelope(mut result: Object, modern: bool) -> Object {
     if !modern {
         return result;
     }
-    result.entry("resultType").or_insert_with(|| "complete".into());
+    result
+        .entry("resultType")
+        .or_insert_with(|| "complete".into());
     result.insert("_meta".into(), json!({META_SERVER: server_info()}));
     result
 }
@@ -292,7 +316,9 @@ fn result(text: &str, is_error: bool) -> Object {
 /// A call to one of the three tools: the request to the hub, the response written for the model.
 fn call(home: Option<&std::path::Path>, parameters: &Object) -> Object {
     let name = str_of(parameters, "name");
-    let arguments = object_of(parameters, "arguments").cloned().unwrap_or_default();
+    let arguments = object_of(parameters, "arguments")
+        .cloned()
+        .unwrap_or_default();
     let mut request = Object::new();
     request.insert("via".into(), "mcp".into());
     let mut wait = WAIT_SECONDS;
@@ -302,24 +328,42 @@ fn call(home: Option<&std::path::Path>, parameters: &Object) -> Object {
         }
         Some("commands") => {
             request.insert("op".into(), "tools".into());
-            request.insert("resource".into(), arguments.get("program").cloned().unwrap_or(Value::Null));
+            request.insert(
+                "resource".into(),
+                arguments.get("program").cloned().unwrap_or(Value::Null),
+            );
             if let Some(query) = str_of(&arguments, "search").filter(|q| !q.is_empty()) {
                 request.insert("query".into(), query.into());
             }
         }
         Some("run") => {
             request.insert("op".into(), "call".into());
-            request.insert("resource".into(), arguments.get("program").cloned().unwrap_or(Value::Null));
-            request.insert("tool".into(), arguments.get("command").cloned().unwrap_or(Value::Null));
-            let given = object_of(&arguments, "arguments").cloned().unwrap_or_default();
+            request.insert(
+                "resource".into(),
+                arguments.get("program").cloned().unwrap_or(Value::Null),
+            );
+            request.insert(
+                "tool".into(),
+                arguments.get("command").cloned().unwrap_or(Value::Null),
+            );
+            let given = object_of(&arguments, "arguments")
+                .cloned()
+                .unwrap_or_default();
             request.insert("arguments".into(), Value::Object(given));
-            if let Some(asked) = arguments.get("wait_seconds").and_then(Value::as_f64).filter(|s| *s > 0.0) {
+            if let Some(asked) = arguments
+                .get("wait_seconds")
+                .and_then(Value::as_f64)
+                .filter(|s| *s > 0.0)
+            {
                 wait = asked.min(MAX_WAIT_SECONDS);
             }
         }
         _ => {
             return result(
-                &format!("There is no tool '{}': the tools are programs, commands and run.", name.unwrap_or("")),
+                &format!(
+                    "There is no tool '{}': the tools are programs, commands and run.",
+                    name.unwrap_or("")
+                ),
                 true,
             );
         }
@@ -327,7 +371,9 @@ fn call(home: Option<&std::path::Path>, parameters: &Object) -> Object {
 
     // The waiting lines are not shown: the model doesn't read the shim's stderr.
     // `ask` reads them anyway, and if time runs out it says what was being waited for.
-    let home = home.map(PathBuf::from).unwrap_or_else(clak_wire::location::home);
+    let home = home
+        .map(PathBuf::from)
+        .unwrap_or_else(clak_wire::location::home);
     let response = match hub::ask(request, hub::seconds(wait), &home, |_| {}) {
         Ok(response) => response,
         Err(HubUnavailable(message)) => return result(&message, true),
@@ -343,7 +389,10 @@ fn call(home: Option<&std::path::Path>, parameters: &Object) -> Object {
         // Text and image blocks pass through as they are: MCP already knows them.
         _ => match render::blocks(response.get("content")) {
             Some(blocks) => {
-                let content: Vec<Value> = blocks.into_iter().map(|b| Value::Object(b.clone())).collect();
+                let content: Vec<Value> = blocks
+                    .into_iter()
+                    .map(|b| Value::Object(b.clone()))
+                    .collect();
                 object(json!({"content": content, "isError": is_error}))
             }
             None => result(&render::result(response.get("content")), is_error),
@@ -373,15 +422,26 @@ mod tests {
 
     /// Runs the shim on some lines, and returns the replies in order of arrival.
     fn talk(shim: &Shim, lines: &[Value]) -> Vec<Value> {
-        let input: String = lines.iter().map(|l| format!("{}\n", clak_wire::json::text(l))).collect();
+        let input: String = lines
+            .iter()
+            .map(|l| format!("{}\n", clak_wire::json::text(l)))
+            .collect();
         let sink = Sink::default();
         shim.run(Cursor::new(input.into_bytes()), sink.clone());
         let bytes = sink.0.lock().unwrap().clone();
-        String::from_utf8(bytes).unwrap().lines().map(|l| clak_wire::json::parse_str(l).unwrap()).collect()
+        String::from_utf8(bytes)
+            .unwrap()
+            .lines()
+            .map(|l| clak_wire::json::parse_str(l).unwrap())
+            .collect()
     }
 
     fn by_id(replies: &[Value], id: i64) -> Value {
-        replies.iter().find(|r| r["id"] == id).cloned().unwrap_or(Value::Null)
+        replies
+            .iter()
+            .find(|r| r["id"] == id)
+            .cloned()
+            .unwrap_or(Value::Null)
     }
 
     #[test]
@@ -400,16 +460,32 @@ mod tests {
         assert_eq!(replies.len(), 4);
         let init = by_id(&replies, 1);
         assert_eq!(init["result"]["protocolVersion"], "2025-06-18");
-        assert_eq!(init["result"]["serverInfo"], json!({"name": "clak", "version": "0.3.0"}));
-        assert_eq!(init["result"]["capabilities"], json!({"tools": {"listChanged": false}}));
+        assert_eq!(
+            init["result"]["serverInfo"],
+            json!({"name": "clak", "version": "0.3.0"})
+        );
+        assert_eq!(
+            init["result"]["capabilities"],
+            json!({"tools": {"listChanged": false}})
+        );
         assert_eq!(init["result"]["instructions"], INSTRUCTIONS);
         let listed = by_id(&replies, 2);
-        let names: Vec<&str> =
-            listed["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        let names: Vec<&str> = listed["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
         assert_eq!(names, ["programs", "commands", "run"]);
         assert!(by_id(&replies, 2)["result"].get("_meta").is_none());
-        assert_eq!(by_id(&replies, 3)["result"]["protocolVersion"], "2025-11-25");
-        assert_eq!(by_id(&replies, 4)["error"], json!({"code": -32601, "message": "Method not found: nessuno"}));
+        assert_eq!(
+            by_id(&replies, 3)["result"]["protocolVersion"],
+            "2025-11-25"
+        );
+        assert_eq!(
+            by_id(&replies, 4)["error"],
+            json!({"code": -32601, "message": "Method not found: nessuno"})
+        );
     }
 
     #[test]
@@ -428,9 +504,15 @@ mod tests {
         assert_eq!(discover["supportedVersions"], json!([MODERN]));
         assert_eq!(discover["resultType"], "complete");
         assert_eq!(discover["_meta"][META_SERVER]["name"], "clak");
-        assert_eq!(by_id(&replies, 2)["result"], json!({"resultType": "complete", "_meta": {META_SERVER: server_info()}}));
+        assert_eq!(
+            by_id(&replies, 2)["result"],
+            json!({"resultType": "complete", "_meta": {META_SERVER: server_info()}})
+        );
         assert_eq!(by_id(&replies, 3)["result"]["resultType"], "complete");
-        let acknowledged = replies.iter().find(|r| r["method"] == "notifications/subscriptions/acknowledged").unwrap();
+        let acknowledged = replies
+            .iter()
+            .find(|r| r["method"] == "notifications/subscriptions/acknowledged")
+            .unwrap();
         assert_eq!(acknowledged["params"]["_meta"][META_SUBSCRIPTION], 4);
     }
 
@@ -458,16 +540,26 @@ mod tests {
         assert_eq!(request["arguments"], json!({"view": 3}));
         let other = &by_id(&replies, 2)["result"];
         assert_eq!(other["isError"], true);
-        assert_eq!(other["content"][0]["text"], "There is no tool 'altro': the tools are programs, commands and run.");
+        assert_eq!(
+            other["content"][0]["text"],
+            "There is no tool 'altro': the tools are programs, commands and run."
+        );
     }
 
     #[test]
     fn un_errore_dell_hub_e_un_risultato_con_is_error() {
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": false, "code": "denied", "error": "The user refused."}))]);
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": false, "code": "denied", "error": "The user refused."}),
+        )]);
         let replies = talk(
             &Shim::with_home(hub.home.clone()),
-            &[json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "programs"}})],
+            &[
+                json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "programs"}}),
+            ],
         );
-        assert_eq!(by_id(&replies, 7)["result"], json!({"content": [{"type": "text", "text": "The user refused."}], "isError": true}));
+        assert_eq!(
+            by_id(&replies, 7)["result"],
+            json!({"content": [{"type": "text", "text": "The user refused."}], "isError": true})
+        );
     }
 }

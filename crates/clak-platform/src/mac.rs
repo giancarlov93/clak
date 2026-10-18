@@ -15,7 +15,9 @@ use core_foundation::dictionary::CFDictionary;
 use core_foundation::number::CFNumber;
 use core_foundation::string::CFString;
 use core_foundation::url::CFURL;
-use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef};
+use core_foundation_sys::array::{
+    CFArrayGetCount, CFArrayGetTypeID, CFArrayGetValueAtIndex, CFArrayRef,
+};
 use core_foundation_sys::base::{CFGetTypeID, CFRelease, CFTypeRef, OSStatus};
 use core_foundation_sys::data::{CFDataGetBytePtr, CFDataGetLength, CFDataGetTypeID, CFDataRef};
 use core_foundation_sys::dictionary::{CFDictionaryGetValue, CFDictionaryRef};
@@ -41,11 +43,21 @@ pub fn bsd_info(pid: u32) -> Option<BsdInfo> {
     }
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = size_of::<libc::proc_bsdinfo>() as i32;
-    let read = unsafe { libc::proc_pidinfo(pid as i32, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size) };
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
     if read != size {
         return None;
     }
-    let comm = unsafe { CStr::from_ptr(info.pbi_comm.as_ptr()) }.to_string_lossy().into_owned();
+    let comm = unsafe { CStr::from_ptr(info.pbi_comm.as_ptr()) }
+        .to_string_lossy()
+        .into_owned();
     Some(BsdInfo {
         parent: info.pbi_ppid,
         started: info.pbi_start_tvsec as i64 * 1_000_000 + info.pbi_start_tvusec as i64,
@@ -59,7 +71,8 @@ pub fn path_of(pid: u32) -> Option<String> {
         return None;
     }
     let mut buffer = vec![0u8; 4 * libc::PATH_MAX as usize];
-    let length = unsafe { libc::proc_pidpath(pid as i32, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
+    let length =
+        unsafe { libc::proc_pidpath(pid as i32, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
     if length <= 0 {
         return None;
     }
@@ -70,11 +83,31 @@ pub fn path_of(pid: u32) -> Option<String> {
 pub fn command_line(pid: u32) -> Option<String> {
     let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as i32];
     let mut size: libc::size_t = 0;
-    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, std::ptr::null_mut(), &mut size, std::ptr::null_mut(), 0) } != 0 || size == 0 {
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+        || size == 0
+    {
         return None;
     }
     let mut buffer = vec![0u8; size];
-    if unsafe { libc::sysctl(mib.as_mut_ptr(), 3, buffer.as_mut_ptr().cast(), &mut size, std::ptr::null_mut(), 0) } != 0
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
         || size <= 4
     {
         return None;
@@ -105,7 +138,10 @@ pub struct Processes;
 
 impl ProcessLookup for Processes {
     fn entry(&self, pid: u32) -> Option<ProcessEntry> {
-        bsd_info(pid).map(|info| ProcessEntry { parent: info.parent, name: info.comm })
+        bsd_info(pid).map(|info| ProcessEntry {
+            parent: info.parent,
+            name: info.comm,
+        })
     }
 
     fn start_time(&self, pid: u32) -> Option<i64> {
@@ -127,7 +163,15 @@ impl ProcessLookup for Processes {
 pub fn unix_peer_pid(fd: RawFd) -> Option<u32> {
     let mut pid: libc::pid_t = 0;
     let mut size = size_of::<libc::pid_t>() as libc::socklen_t;
-    let ok = unsafe { libc::getsockopt(fd, libc::SOL_LOCAL, libc::LOCAL_PEERPID, (&mut pid as *mut libc::pid_t).cast(), &mut size) };
+    let ok = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&mut pid as *mut libc::pid_t).cast(),
+            &mut size,
+        )
+    };
     (ok == 0 && pid > 0).then_some(pid as u32)
 }
 
@@ -153,7 +197,12 @@ pub fn tcp_owner(local_port: u16, remote_port: u16) -> Option<u32> {
         return None;
     }
     let mut pids = vec![0i32; count as usize + 64];
-    let found = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), (pids.len() * size_of::<i32>()) as i32) };
+    let found = unsafe {
+        libc::proc_listallpids(
+            pids.as_mut_ptr().cast(),
+            (pids.len() * size_of::<i32>()) as i32,
+        )
+    };
     if found <= 0 {
         return None;
     }
@@ -166,13 +215,23 @@ pub fn tcp_owner(local_port: u16, remote_port: u16) -> Option<u32> {
 }
 
 fn owns(pid: i32, local_port: u16, remote_port: u16) -> bool {
-    let needed = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    let needed =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
     if needed <= 0 {
         return false;
     }
     let stride = size_of::<libc::proc_fdinfo>();
-    let mut fds: Vec<libc::proc_fdinfo> = vec![unsafe { std::mem::zeroed() }; needed as usize / stride + 16];
-    let size = unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, fds.as_mut_ptr().cast(), (fds.len() * stride) as i32) };
+    let mut fds: Vec<libc::proc_fdinfo> =
+        vec![unsafe { std::mem::zeroed() }; needed as usize / stride + 16];
+    let size = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDLISTFDS,
+            0,
+            fds.as_mut_ptr().cast(),
+            (fds.len() * stride) as i32,
+        )
+    };
     if size <= 0 {
         return false;
     }
@@ -182,12 +241,19 @@ fn owns(pid: i32, local_port: u16, remote_port: u16) -> bool {
             continue;
         }
         let read = unsafe {
-            libc::proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, info.as_mut_ptr().cast(), SOCKET_FDINFO_SIZE as i32)
+            libc::proc_pidfdinfo(
+                pid,
+                fd.proc_fd,
+                PROC_PIDFDSOCKETINFO,
+                info.as_mut_ptr().cast(),
+                SOCKET_FDINFO_SIZE as i32,
+            )
         };
         if read != SOCKET_FDINFO_SIZE as i32 {
             continue;
         }
-        let bytes: &[u8] = unsafe { std::slice::from_raw_parts(info.as_ptr().cast(), SOCKET_FDINFO_SIZE) };
+        let bytes: &[u8] =
+            unsafe { std::slice::from_raw_parts(info.as_ptr().cast(), SOCKET_FDINFO_SIZE) };
         let int = |at: usize| i32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
         if int(SOI_KIND) != SOCKINFO_TCP {
             continue;
@@ -216,13 +282,42 @@ const K_SEC_CODE_SIGNATURE_ADHOC: u32 = 0x0002;
 
 #[link(name = "Security", kind = "framework")]
 unsafe extern "C" {
-    fn SecCodeCopyGuestWithAttributes(host: SecCodeRef, attributes: CFDictionaryRef, flags: u32, guest: *mut SecCodeRef) -> OSStatus;
-    fn SecCodeCheckValidity(code: SecCodeRef, flags: u32, requirement: SecRequirementRef) -> OSStatus;
-    fn SecCodeCopyStaticCode(code: SecCodeRef, flags: u32, static_code: *mut SecStaticCodeRef) -> OSStatus;
-    fn SecStaticCodeCreateWithPath(path: CFURLRef, flags: u32, static_code: *mut SecStaticCodeRef) -> OSStatus;
-    fn SecStaticCodeCheckValidity(code: SecStaticCodeRef, flags: u32, requirement: SecRequirementRef) -> OSStatus;
-    fn SecCodeCopySigningInformation(code: SecStaticCodeRef, flags: u32, information: *mut CFDictionaryRef) -> OSStatus;
-    fn SecRequirementCreateWithString(text: CFStringRef, flags: u32, requirement: *mut SecRequirementRef) -> OSStatus;
+    fn SecCodeCopyGuestWithAttributes(
+        host: SecCodeRef,
+        attributes: CFDictionaryRef,
+        flags: u32,
+        guest: *mut SecCodeRef,
+    ) -> OSStatus;
+    fn SecCodeCheckValidity(
+        code: SecCodeRef,
+        flags: u32,
+        requirement: SecRequirementRef,
+    ) -> OSStatus;
+    fn SecCodeCopyStaticCode(
+        code: SecCodeRef,
+        flags: u32,
+        static_code: *mut SecStaticCodeRef,
+    ) -> OSStatus;
+    fn SecStaticCodeCreateWithPath(
+        path: CFURLRef,
+        flags: u32,
+        static_code: *mut SecStaticCodeRef,
+    ) -> OSStatus;
+    fn SecStaticCodeCheckValidity(
+        code: SecStaticCodeRef,
+        flags: u32,
+        requirement: SecRequirementRef,
+    ) -> OSStatus;
+    fn SecCodeCopySigningInformation(
+        code: SecStaticCodeRef,
+        flags: u32,
+        information: *mut CFDictionaryRef,
+    ) -> OSStatus;
+    fn SecRequirementCreateWithString(
+        text: CFStringRef,
+        flags: u32,
+        requirement: *mut SecRequirementRef,
+    ) -> OSStatus;
     fn SecCertificateCopySubjectSummary(certificate: SecCertificateRef) -> CFStringRef;
     fn SecItemCopyMatching(query: CFDictionaryRef, result: *mut CFTypeRef) -> OSStatus;
     fn SecItemAdd(attributes: CFDictionaryRef, result: *mut CFTypeRef) -> OSStatus;
@@ -284,8 +379,14 @@ fn apple_rooted() -> SecRequirementRef {
         .get_or_init(|| {
             let text = CFString::new("anchor apple generic");
             let mut requirement: SecRequirementRef = std::ptr::null_mut();
-            let status = unsafe { SecRequirementCreateWithString(text.as_concrete_TypeRef(), 0, &mut requirement) };
-            Requirement(if status == ERR_SEC_SUCCESS { requirement } else { std::ptr::null_mut() })
+            let status = unsafe {
+                SecRequirementCreateWithString(text.as_concrete_TypeRef(), 0, &mut requirement)
+            };
+            Requirement(if status == ERR_SEC_SUCCESS {
+                requirement
+            } else {
+                std::ptr::null_mut()
+            })
         })
         .0
 }
@@ -307,23 +408,37 @@ pub fn signature(exe: &str, pid: Option<u32>) -> Signature {
 }
 
 fn running(pid: u32) -> Option<Signature> {
-    let attributes = dictionary(&[(key(unsafe { kSecGuestAttributePid }), CFNumber::from(pid as i32).as_CFType())]);
+    let attributes = dictionary(&[(
+        key(unsafe { kSecGuestAttributePid }),
+        CFNumber::from(pid as i32).as_CFType(),
+    )]);
     let mut code: SecCodeRef = std::ptr::null_mut();
-    let status =
-        unsafe { SecCodeCopyGuestWithAttributes(std::ptr::null_mut(), attributes.as_concrete_TypeRef(), 0, &mut code) };
+    let status = unsafe {
+        SecCodeCopyGuestWithAttributes(
+            std::ptr::null_mut(),
+            attributes.as_concrete_TypeRef(),
+            0,
+            &mut code,
+        )
+    };
     if status != ERR_SEC_SUCCESS || code.is_null() {
         return None;
     }
     let code = Owned(code);
     let validity = unsafe { SecCodeCheckValidity(code.0 as SecCodeRef, 0, std::ptr::null_mut()) };
     let mut static_code: SecStaticCodeRef = std::ptr::null_mut();
-    if unsafe { SecCodeCopyStaticCode(code.0 as SecCodeRef, 0, &mut static_code) } != ERR_SEC_SUCCESS || static_code.is_null() {
+    if unsafe { SecCodeCopyStaticCode(code.0 as SecCodeRef, 0, &mut static_code) }
+        != ERR_SEC_SUCCESS
+        || static_code.is_null()
+    {
         return None;
     }
     let static_code = Owned(static_code);
-    Some(judge(validity, static_code.0 as SecStaticCodeRef, || unsafe {
-        SecCodeCheckValidity(code.0 as SecCodeRef, 0, apple_rooted())
-    }))
+    Some(judge(
+        validity,
+        static_code.0 as SecStaticCodeRef,
+        || unsafe { SecCodeCheckValidity(code.0 as SecCodeRef, 0, apple_rooted()) },
+    ))
 }
 
 /// The file's signature, without a process.
@@ -331,16 +446,25 @@ pub fn file_signature(exe: &str) -> Signature {
     if !std::path::Path::new(exe).exists() {
         return Signature::unknown();
     }
-    let Some(url) = CFURL::from_path(exe, false) else { return Signature::unknown() };
+    let Some(url) = CFURL::from_path(exe, false) else {
+        return Signature::unknown();
+    };
     let mut code: SecStaticCodeRef = std::ptr::null_mut();
-    if unsafe { SecStaticCodeCreateWithPath(url.as_concrete_TypeRef(), 0, &mut code) } != ERR_SEC_SUCCESS || code.is_null() {
+    if unsafe { SecStaticCodeCreateWithPath(url.as_concrete_TypeRef(), 0, &mut code) }
+        != ERR_SEC_SUCCESS
+        || code.is_null()
+    {
         return Signature::unknown();
     }
     let code = Owned(code);
     // A large app's resources would all be read: the executable is enough.
     let flags = K_SEC_CS_DO_NOT_VALIDATE_RESOURCES;
-    let status = unsafe { SecStaticCodeCheckValidity(code.0 as SecStaticCodeRef, flags, std::ptr::null_mut()) };
-    judge(status, code.0 as SecStaticCodeRef, || unsafe { SecStaticCodeCheckValidity(code.0 as SecStaticCodeRef, flags, apple_rooted()) })
+    let status = unsafe {
+        SecStaticCodeCheckValidity(code.0 as SecStaticCodeRef, flags, std::ptr::null_mut())
+    };
+    judge(status, code.0 as SecStaticCodeRef, || unsafe {
+        SecStaticCodeCheckValidity(code.0 as SecStaticCodeRef, flags, apple_rooted())
+    })
 }
 
 fn judge(status: OSStatus, code: SecStaticCodeRef, rooted: impl Fn() -> OSStatus) -> Signature {
@@ -348,17 +472,32 @@ fn judge(status: OSStatus, code: SecStaticCodeRef, rooted: impl Fn() -> OSStatus
         return Signature::unsigned();
     }
     let mut raw: CFDictionaryRef = std::ptr::null();
-    if unsafe { SecCodeCopySigningInformation(code, K_SEC_CS_SIGNING_INFORMATION, &mut raw) } != ERR_SEC_SUCCESS || raw.is_null() {
-        let signed = if status == ERR_SEC_SUCCESS { "unknown" } else { "invalid" };
-        return Signature { signed: signed.into(), signer: None, team: None };
+    if unsafe { SecCodeCopySigningInformation(code, K_SEC_CS_SIGNING_INFORMATION, &mut raw) }
+        != ERR_SEC_SUCCESS
+        || raw.is_null()
+    {
+        let signed = if status == ERR_SEC_SUCCESS {
+            "unknown"
+        } else {
+            "invalid"
+        };
+        return Signature {
+            signed: signed.into(),
+            signer: None,
+            team: None,
+        };
     }
     let info = Owned(raw as CFTypeRef);
-    let get = |name: CFStringRef| unsafe { CFDictionaryGetValue(info.0 as CFDictionaryRef, name as *const c_void) };
+    let get = |name: CFStringRef| unsafe {
+        CFDictionaryGetValue(info.0 as CFDictionaryRef, name as *const c_void)
+    };
 
     let flags = {
         let value = get(unsafe { kSecCodeInfoFlags });
         if !value.is_null() && unsafe { CFGetTypeID(value) == CFNumberGetTypeID() } {
-            unsafe { CFNumber::wrap_under_get_rule(value as CFNumberRef) }.to_i64().unwrap_or(0) as u32
+            unsafe { CFNumber::wrap_under_get_rule(value as CFNumberRef) }
+                .to_i64()
+                .unwrap_or(0) as u32
         } else {
             0
         }
@@ -376,13 +515,23 @@ fn judge(status: OSStatus, code: SecStaticCodeRef, rooted: impl Fn() -> OSStatus
         return Signature::unsigned();
     }
     let team = string_of(get(unsafe { kSecCodeInfoTeamIdentifier }));
-    let summary = unsafe { SecCertificateCopySubjectSummary(first_certificate as SecCertificateRef) };
-    let summary = (!summary.is_null()).then(|| unsafe { CFString::wrap_under_create_rule(summary) }.to_string());
+    let summary =
+        unsafe { SecCertificateCopySubjectSummary(first_certificate as SecCertificateRef) };
+    let summary = (!summary.is_null())
+        .then(|| unsafe { CFString::wrap_under_create_rule(summary) }.to_string());
     let signer = crate::provenance::signer_name_macos(summary.as_deref(), team.as_deref());
     if status != ERR_SEC_SUCCESS || rooted() != ERR_SEC_SUCCESS {
-        return Signature { signed: "invalid".into(), signer, team: None };
+        return Signature {
+            signed: "invalid".into(),
+            signer,
+            team: None,
+        };
     }
-    Signature { signed: "valid".into(), signer, team }
+    Signature {
+        signed: "valid".into(),
+        signer,
+        team,
+    }
 }
 
 type SignatureKey = (String, u128, u64);
@@ -390,9 +539,14 @@ type SignatureKey = (String, u128, u64);
 /// File signatures, cached by path, time and size.
 fn cached_signature(exe: &str) -> Signature {
     static KNOWN: OnceLock<Mutex<HashMap<SignatureKey, Signature>>> = OnceLock::new();
-    let Ok(metadata) = std::fs::metadata(exe) else { return Signature::unknown() };
-    let modified =
-        metadata.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    let Ok(metadata) = std::fs::metadata(exe) else {
+        return Signature::unknown();
+    };
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
     let key = (exe.to_string(), modified, metadata.len());
     let known = KNOWN.get_or_init(Default::default);
     if let Some(hit) = known.lock().ok().and_then(|k| k.get(&key).cloned()) {
@@ -400,9 +554,10 @@ fn cached_signature(exe: &str) -> Signature {
     }
     let read = file_signature(exe);
     if read.signed != "unknown"
-        && let Ok(mut known) = known.lock() {
-            known.insert(key, read.clone());
-        }
+        && let Ok(mut known) = known.lock()
+    {
+        known.insert(key, read.clone());
+    }
     read
 }
 
@@ -425,7 +580,10 @@ pub fn keychain_read(service: &str, account: &str) -> Option<String> {
         pairs.push((key(kSecMatchLimit), key(kSecMatchLimitOne)));
     }
     let mut found: CFTypeRef = std::ptr::null();
-    if unsafe { SecItemCopyMatching(dictionary(&pairs).as_concrete_TypeRef(), &mut found) } != ERR_SEC_SUCCESS || found.is_null() {
+    if unsafe { SecItemCopyMatching(dictionary(&pairs).as_concrete_TypeRef(), &mut found) }
+        != ERR_SEC_SUCCESS
+        || found.is_null()
+    {
         return None;
     }
     let found = Owned(found);
@@ -433,7 +591,9 @@ pub fn keychain_read(service: &str, account: &str) -> Option<String> {
         return None;
     }
     let data = found.0 as CFDataRef;
-    let bytes = unsafe { std::slice::from_raw_parts(CFDataGetBytePtr(data), CFDataGetLength(data) as usize) };
+    let bytes = unsafe {
+        std::slice::from_raw_parts(CFDataGetBytePtr(data), CFDataGetLength(data) as usize)
+    };
     String::from_utf8(bytes.to_vec()).ok()
 }
 
@@ -441,19 +601,29 @@ pub fn keychain_read(service: &str, account: &str) -> Option<String> {
 pub fn keychain_has(service: &str, account: &str) -> bool {
     let mut pairs = query(service, account);
     unsafe {
-        pairs.push((key(kSecReturnAttributes), CFBoolean::true_value().as_CFType()));
+        pairs.push((
+            key(kSecReturnAttributes),
+            CFBoolean::true_value().as_CFType(),
+        ));
         pairs.push((key(kSecMatchLimit), key(kSecMatchLimitOne)));
     }
     let mut found: CFTypeRef = std::ptr::null();
-    let status = unsafe { SecItemCopyMatching(dictionary(&pairs).as_concrete_TypeRef(), &mut found) };
+    let status =
+        unsafe { SecItemCopyMatching(dictionary(&pairs).as_concrete_TypeRef(), &mut found) };
     drop(Owned(found));
     status == ERR_SEC_SUCCESS
 }
 
-pub fn keychain_write(service: &str, account: &str, secret: Option<&str>, label: &str) -> Result<(), SecretError> {
+pub fn keychain_write(
+    service: &str,
+    account: &str,
+    secret: Option<&str>,
+    label: &str,
+) -> Result<(), SecretError> {
     // Remove and add again: updating an item written by another copy of the app would
     // go through that copy's permissions, a new item belongs to this one.
-    let removed = unsafe { SecItemDelete(dictionary(&query(service, account)).as_concrete_TypeRef()) };
+    let removed =
+        unsafe { SecItemDelete(dictionary(&query(service, account)).as_concrete_TypeRef()) };
     if removed != ERR_SEC_SUCCESS && removed != ERR_SEC_ITEM_NOT_FOUND {
         return Err(keychain_error(removed));
     }
@@ -468,11 +638,22 @@ pub fn keychain_write(service: &str, account: &str, secret: Option<&str>, label:
     };
     let mut item = query(service, account);
     unsafe {
-        item.push((key(kSecValueData), CFData::from_buffer(secret.as_bytes()).as_CFType()));
+        item.push((
+            key(kSecValueData),
+            CFData::from_buffer(secret.as_bytes()).as_CFType(),
+        ));
         item.push((key(kSecAttrLabel), CFString::new(label).as_CFType()));
-        item.push((key(kSecAttrDescription), CFString::new(description).as_CFType()));
+        item.push((
+            key(kSecAttrDescription),
+            CFString::new(description).as_CFType(),
+        ));
     }
-    let added = unsafe { SecItemAdd(dictionary(&item).as_concrete_TypeRef(), std::ptr::null_mut()) };
+    let added = unsafe {
+        SecItemAdd(
+            dictionary(&item).as_concrete_TypeRef(),
+            std::ptr::null_mut(),
+        )
+    };
     if added != ERR_SEC_SUCCESS {
         return Err(keychain_error(added));
     }
@@ -501,7 +682,10 @@ mod tests {
         assert_eq!(ls.signer.as_deref(), Some("Apple"));
         // This very test process: signed only by the linker, i.e. unsigned.
         let me = std::process::id();
-        assert_eq!(signature(&path_of(me).unwrap(), Some(me)).signed, "unsigned");
+        assert_eq!(
+            signature(&path_of(me).unwrap(), Some(me)).signed,
+            "unsigned"
+        );
         assert_eq!(file_signature("/tmp/non-esiste-clak").signed, "unknown");
     }
 

@@ -87,16 +87,34 @@ pub fn agent_of(pid: Option<u32>, authorized: &HashSet<String>) -> Option<AgentI
     #[cfg(windows)]
     {
         let processes = win::Processes::snapshot();
-        let (agent, chain) = provenance::select(&processes, pid, authorized, &provenance::WINDOWS, provenance::lineage_windows)?;
+        let (agent, chain) = provenance::select(
+            &processes,
+            pid,
+            authorized,
+            &provenance::WINDOWS,
+            provenance::lineage_windows,
+        )?;
         let exe = win::exe_of(agent.pid);
-        let signature = exe.as_deref().map(signature_of).unwrap_or_else(Signature::unknown);
+        let signature = exe
+            .as_deref()
+            .map(signature_of)
+            .unwrap_or_else(Signature::unknown);
         Some(identity(agent, chain, exe, signature))
     }
     #[cfg(target_os = "macos")]
     {
-        let (agent, chain) = provenance::select(&mac::Processes, pid, authorized, &provenance::MACOS, provenance::lineage_macos)?;
+        let (agent, chain) = provenance::select(
+            &mac::Processes,
+            pid,
+            authorized,
+            &provenance::MACOS,
+            provenance::lineage_macos,
+        )?;
         let exe = mac::path_of(agent.pid);
-        let signature = exe.as_deref().map(|exe| mac::signature(exe, Some(agent.pid))).unwrap_or_else(Signature::unknown);
+        let signature = exe
+            .as_deref()
+            .map(|exe| mac::signature(exe, Some(agent.pid)))
+            .unwrap_or_else(Signature::unknown);
         Some(identity(agent, chain, exe, signature))
     }
     #[cfg(not(any(windows, target_os = "macos")))]
@@ -107,7 +125,12 @@ pub fn agent_of(pid: Option<u32>, authorized: &HashSet<String>) -> Option<AgentI
 }
 
 #[cfg(any(windows, target_os = "macos"))]
-fn identity(agent: Ancestor, chain: Vec<String>, exe: Option<String>, signature: Signature) -> AgentIdentity {
+fn identity(
+    agent: Ancestor,
+    chain: Vec<String>,
+    exe: Option<String>,
+    signature: Signature,
+) -> AgentIdentity {
     AgentIdentity {
         pid: agent.pid,
         started: agent.started,
@@ -153,7 +176,9 @@ pub fn process_exe(pid: u32) -> Option<String> {
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
-        std::fs::read_link(format!("/proc/{pid}/exe")).ok().map(|p| p.to_string_lossy().into_owned())
+        std::fs::read_link(format!("/proc/{pid}/exe"))
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
     }
 }
 
@@ -170,8 +195,11 @@ pub fn process_command_line(pid: u32) -> Option<String> {
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-        let parts: Vec<String> =
-            raw.split(|&b| b == 0).filter(|p| !p.is_empty()).map(|p| String::from_utf8_lossy(p).into_owned()).collect();
+        let parts: Vec<String> = raw
+            .split(|&b| b == 0)
+            .filter(|p| !p.is_empty())
+            .map(|p| String::from_utf8_lossy(p).into_owned())
+            .collect();
         Some(parts.join(" "))
     }
 }
@@ -182,7 +210,11 @@ pub fn signature_of(exe: &str) -> Signature {
     #[cfg(windows)]
     {
         let (signed, signer) = win::signature(exe);
-        Signature { signed, signer, team: None }
+        Signature {
+            signed,
+            signer,
+            team: None,
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -211,8 +243,12 @@ pub fn attest_loopback(peer_port: u16, local_port: u16) -> serde_json::Value {
         let _ = (peer_port, local_port);
         None
     };
-    let Some(pid) = pid else { return Value::Object(Default::default()) };
-    let Some(exe) = process_exe(pid).filter(|exe| !exe.is_empty()) else { return json!({ "pid": pid }) };
+    let Some(pid) = pid else {
+        return Value::Object(Default::default());
+    };
+    let Some(exe) = process_exe(pid).filter(|exe| !exe.is_empty()) else {
+        return json!({ "pid": pid });
+    };
     #[cfg(target_os = "macos")]
     {
         let signature = mac::signature(&exe, Some(pid));
@@ -243,7 +279,13 @@ pub fn unix_peer_pid(fd: std::os::fd::RawFd) -> Option<u32> {
         let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
         let mut size = size_of::<libc::ucred>() as libc::socklen_t;
         let ok = unsafe {
-            libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut credentials as *mut libc::ucred).cast(), &mut size)
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut credentials as *mut libc::ucred).cast(),
+                &mut size,
+            )
         };
         (ok == 0 && credentials.pid > 0).then_some(credentials.pid as u32)
     }
@@ -273,7 +315,10 @@ mod tests {
             signer: None,
         };
         assert!(is_alive(&alive));
-        assert!(!is_alive(&AgentIdentity { started: started + 1, ..alive.clone() }));
+        assert!(!is_alive(&AgentIdentity {
+            started: started + 1,
+            ..alive.clone()
+        }));
         let at = alive.started_at().unwrap();
         let age = std::time::SystemTime::now().duration_since(at).unwrap();
         assert!(age < std::time::Duration::from_secs(3600), "{age:?}");
@@ -287,7 +332,11 @@ mod tests {
         assert_eq!(line.first().map(|a| a.pid), Some(me));
         assert!(line.len() >= 2, "{line:?}");
         // cargo is the parent of the test process.
-        assert!(line.iter().any(|a| a.file.to_lowercase().starts_with("cargo")), "{line:?}");
+        assert!(
+            line.iter()
+                .any(|a| a.file.to_lowercase().starts_with("cargo")),
+            "{line:?}"
+        );
     }
 
     #[cfg(any(windows, target_os = "macos"))]
@@ -305,9 +354,15 @@ mod tests {
         // Without permissions: a recognized agent above the tests (Claude Code, VS Code…)
         // or, failing that, the tests themselves, which aren't a shell; none if the chain is broken.
         if let Some(agent) = agent_of(Some(me), &HashSet::new()) {
-            assert!(agent.chain.len() == 1 || provenance::Rules::current().is_agent(&agent.name), "{agent:?}");
+            assert!(
+                agent.chain.len() == 1 || provenance::Rules::current().is_agent(&agent.name),
+                "{agent:?}"
+            );
             assert!(is_alive(&agent), "{agent:?}");
-            eprintln!("test agent: {} {:?} {} {:?} {:?}", agent.name, agent.exe, agent.signed, agent.signer, agent.chain);
+            eprintln!(
+                "test agent: {} {:?} {} {:?} {:?}",
+                agent.name, agent.exe, agent.signed, agent.signer, agent.chain
+            );
         }
         assert_eq!(agent_of(None, &HashSet::new()), None);
         assert_eq!(agent_of(Some(u32::MAX - 3), &HashSet::new()), None);
@@ -323,15 +378,26 @@ mod tests {
         let _accepted = listener.accept().unwrap();
         let origin = attest_loopback(program, hub);
         assert_eq!(origin["pid"], serde_json::json!(std::process::id()));
-        assert_eq!(origin["exe"].as_str(), process_exe(std::process::id()).as_deref());
+        assert_eq!(
+            origin["exe"].as_str(),
+            process_exe(std::process::id()).as_deref()
+        );
         assert_eq!(origin["signed"], "unsigned");
         assert!(origin["signer"].is_null());
-        let keys: Vec<&str> = origin.as_object().unwrap().keys().map(String::as_str).collect();
+        let keys: Vec<&str> = origin
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         #[cfg(windows)]
         assert_eq!(keys, ["pid", "exe", "signed", "signer"]);
         #[cfg(target_os = "macos")]
         assert_eq!(keys, ["pid", "exe", "signed", "signer", "team"]);
         // A port nobody holds: no provenance.
-        assert_eq!(attest_loopback(program, hub.wrapping_add(1).max(1)), serde_json::json!({}));
+        assert_eq!(
+            attest_loopback(program, hub.wrapping_add(1).max(1)),
+            serde_json::json!({})
+        );
     }
 }

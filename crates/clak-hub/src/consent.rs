@@ -48,7 +48,10 @@ pub struct ConsentLine {
 
 impl ConsentLine {
     pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
-        ConsentLine { label: label.into(), value: value.into() }
+        ConsentLine {
+            label: label.into(),
+            value: value.into(),
+        }
     }
 }
 
@@ -82,7 +85,9 @@ impl ConsentRequest {
     /// The whole question for an interface: the window shows it as it is.
     pub fn to_json(&self) -> Value {
         let lines = |list: &[ConsentLine]| -> Value {
-            list.iter().map(|l| json!({ "label": l.label, "value": l.value })).collect()
+            list.iter()
+                .map(|l| json!({ "label": l.label, "value": l.value }))
+                .collect()
         };
         json!({
             "id": self.id,
@@ -117,7 +122,11 @@ pub trait ConsentPrompt: Send + Sync + 'static {
     /// True if the user consents. The token is cancelled when the answer is no longer needed
     /// (the asker has gone away, or too much time has passed): the question must be removed.
     /// An error means the question could not be shown.
-    fn ask(&self, request: ConsentRequest, cancel: CancellationToken) -> BoxFuture<Result<bool, String>>;
+    fn ask(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<bool, String>>;
 }
 
 /// The agent behind a request: the first process, walking up from whoever opened the
@@ -149,7 +158,12 @@ impl AgentIdentity {
 pub trait Platform: Send + Sync + 'static {
     /// The agent behind process `pid` (at the other end of the control channel), or none
     /// if the process chain is broken. Slow: never under the lock.
-    fn agent_of(&self, pid: Option<u32>, request: &Map<String, Value>, authorized: &HashSet<String>) -> Option<AgentIdentity>;
+    fn agent_of(
+        &self,
+        pid: Option<u32>,
+        request: &Map<String, Value>,
+        authorized: &HashSet<String>,
+    ) -> Option<AgentIdentity>;
 
     /// Whether the agent's process is still alive.
     fn is_alive(&self, agent: &AgentIdentity) -> bool;

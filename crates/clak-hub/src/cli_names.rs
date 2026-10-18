@@ -24,7 +24,10 @@ static SLUG: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[a-z0-9]+(-[a-z0-9]
 pub fn from(name: &str) -> String {
     let plain: String = name.nfd().filter(|c| !is_combining_mark(*c)).collect();
     let lowered = plain.to_lowercase();
-    let mut slug = NOT_SLUG.replace_all(&lowered, "-").trim_matches('-').to_owned();
+    let mut slug = NOT_SLUG
+        .replace_all(&lowered, "-")
+        .trim_matches('-')
+        .to_owned();
     if slug.len() > MAX_LENGTH {
         slug = slug[..MAX_LENGTH].trim_end_matches('-').to_owned();
     }
@@ -38,7 +41,9 @@ pub fn from(name: &str) -> String {
 pub fn problem(command: Option<&str>) -> Option<String> {
     let command = command.filter(|c| !c.is_empty())?;
     if command.chars().count() > MAX_LENGTH {
-        return Some(format!("The command is too long ({MAX_LENGTH} characters at most)."));
+        return Some(format!(
+            "The command is too long ({MAX_LENGTH} characters at most)."
+        ));
     }
     if !SLUG.is_match(command) {
         return Some("The command can only have lowercase letters, digits and single hyphens (e.g. notion-work).".into());
@@ -59,7 +64,10 @@ mod tests {
         assert_eq!(from("Città Àrea"), "citta-area");
         assert_eq!(from("Settings"), "app-settings");
         assert_eq!(from("!!!"), "app");
-        assert_eq!(from("a very long program name indeed yes"), "a-very-long-program-name");
+        assert_eq!(
+            from("a very long program name indeed yes"),
+            "a-very-long-program-name"
+        );
     }
 
     #[test]

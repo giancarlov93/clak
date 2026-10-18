@@ -31,7 +31,10 @@ fn plain(text: &str) -> Vec<char> {
 }
 
 fn plain_of(text: &str) -> Vec<char> {
-    text.chars().filter(|c| *c != '-' && *c != '_').flat_map(char::to_lowercase).collect()
+    text.chars()
+        .filter(|c| *c != '-' && *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// The edits to get from one name to the other; two swapped letters count as one.
@@ -47,7 +50,9 @@ fn distance(a: &[char], b: &[char]) -> usize {
     for i in 1..=n {
         for j in 1..=m {
             let cost = usize::from(a[i - 1] != b[j - 1]);
-            d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+            d[i][j] = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
             if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
                 d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
             }
@@ -62,8 +67,14 @@ mod tests {
 
     #[test]
     fn suggerisce_il_nome_vicino() {
-        assert_eq!(closest(Some("intnet"), ["intent", "other"]), Some("intent".into()));
-        assert_eq!(closest(Some("get-text"), ["get_text"]), Some("get_text".into()));
+        assert_eq!(
+            closest(Some("intnet"), ["intent", "other"]),
+            Some("intent".into())
+        );
+        assert_eq!(
+            closest(Some("get-text"), ["get_text"]),
+            Some("get_text".into())
+        );
         assert_eq!(closest(Some("zzz"), ["intent"]), None);
         assert_eq!(closest(None, ["intent"]), None);
     }

@@ -51,12 +51,20 @@ impl Places {
         local_app_data: impl Into<PathBuf>,
         environment: BTreeMap<String, String>,
     ) -> Places {
-        Places { home: home.into(), app_data: app_data.into(), local_app_data: local_app_data.into(), environment }
+        Places {
+            home: home.into(),
+            app_data: app_data.into(),
+            local_app_data: local_app_data.into(),
+            environment,
+        }
     }
 
     /// The same folders with another environment.
     pub fn with_environment(&self, environment: BTreeMap<String, String>) -> Places {
-        Places { environment, ..self.clone() }
+        Places {
+            environment,
+            ..self.clone()
+        }
     }
 
     /// An environment variable. On Windows names are case-insensitive (`Path` and `PATH`
@@ -66,7 +74,11 @@ impl Places {
             return Some(value);
         }
         if cfg!(windows) {
-            return self.environment.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.as_str());
+            return self
+                .environment
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.as_str());
         }
         None
     }
@@ -82,8 +94,14 @@ impl Places {
         let environment = real_environment();
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let app_data = dirs::config_dir().unwrap_or_else(|| home.join("AppData").join("Roaming"));
-        let local_app_data = dirs::data_local_dir().unwrap_or_else(|| home.join("AppData").join("Local"));
-        Places { home, app_data, local_app_data, environment }
+        let local_app_data =
+            dirs::data_local_dir().unwrap_or_else(|| home.join("AppData").join("Local"));
+        Places {
+            home,
+            app_data,
+            local_app_data,
+            environment,
+        }
     }
 
     /// The real user. `HOME` wins over what the system says: so the panel can be tried on
@@ -101,23 +119,50 @@ impl Places {
             .map(PathBuf::from)
             .or_else(dirs::home_dir)
             .unwrap_or_else(|| PathBuf::from("/"));
-        let mut path: Vec<String> =
-            environment.get("PATH").map(|p| p.split(':').filter(|s| !s.is_empty()).map(str::to_owned).collect()).unwrap_or_default();
-        let local_bin = home.join(".local").join("bin").to_string_lossy().into_owned();
-        for extra in [local_bin.as_str(), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] {
+        let mut path: Vec<String> = environment
+            .get("PATH")
+            .map(|p| {
+                p.split(':')
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let local_bin = home
+            .join(".local")
+            .join("bin")
+            .to_string_lossy()
+            .into_owned();
+        for extra in [
+            local_bin.as_str(),
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+        ] {
             if !path.iter().any(|p| p == extra) {
                 path.push(extra.to_owned());
             }
         }
         environment.insert("PATH".into(), path.join(":"));
         let support = home.join("Library").join("Application Support");
-        Places { home, app_data: support.clone(), local_app_data: support, environment }
+        Places {
+            home,
+            app_data: support.clone(),
+            local_app_data: support,
+            environment,
+        }
     }
 }
 
 fn real_environment() -> BTreeMap<String, String> {
     std::env::vars_os()
-        .map(|(key, value)| (key.to_string_lossy().into_owned(), value.to_string_lossy().into_owned()))
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
         .collect()
 }
 

@@ -19,20 +19,33 @@ pub struct Malformed {
 
 impl Malformed {
     pub fn missing(key: &str) -> Self {
-        Malformed { kind: "KeyError", detail: key.to_owned() }
+        Malformed {
+            kind: "KeyError",
+            detail: key.to_owned(),
+        }
     }
 
     pub fn type_error(detail: impl Into<String>) -> Self {
-        Malformed { kind: "TypeError", detail: detail.into() }
+        Malformed {
+            kind: "TypeError",
+            detail: detail.into(),
+        }
     }
 
     pub fn value(detail: impl Into<String>) -> Self {
-        Malformed { kind: "ValueError", detail: detail.into() }
+        Malformed {
+            kind: "ValueError",
+            detail: detail.into(),
+        }
     }
 
     /// For whoever sent it.
     pub fn text(&self) -> String {
-        if self.kind == "KeyError" { format!("'{}'", self.detail) } else { self.detail.clone() }
+        if self.kind == "KeyError" {
+            format!("'{}'", self.detail)
+        } else {
+            self.detail.clone()
+        }
     }
 
     /// For the log.
@@ -53,15 +66,22 @@ pub fn required<'a>(message: &'a Map<String, Value>, key: &str) -> Result<&'a Va
     message.get(key).ok_or_else(|| Malformed::missing(key))
 }
 
-pub fn required_string<'a>(message: &'a Map<String, Value>, key: &str) -> Result<&'a str, Malformed> {
-    required(message, key)?.as_str().ok_or_else(|| Malformed::type_error(format!("“{key}” must be a string")))
+pub fn required_string<'a>(
+    message: &'a Map<String, Value>,
+    key: &str,
+) -> Result<&'a str, Malformed> {
+    required(message, key)?
+        .as_str()
+        .ok_or_else(|| Malformed::type_error(format!("“{key}” must be a string")))
 }
 
 /// A value used as a registry key (an id). A scalar that is not a string simply finds
 /// nothing; a list or an object is not a key.
 pub fn key(value: Option<&Value>) -> Result<Option<&str>, Malformed> {
     match value {
-        Some(Value::Array(_) | Value::Object(_)) => Err(Malformed::type_error("an id can't be a list or an object")),
+        Some(Value::Array(_) | Value::Object(_)) => {
+            Err(Malformed::type_error("an id can't be a list or an object"))
+        }
         other => Ok(json::str(other)),
     }
 }
@@ -118,19 +138,27 @@ pub struct ToolDef {
     pub digest: String,
 }
 
-static TOOL_NAME: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.-]{1,64}$").unwrap());
+static TOOL_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.-]{1,64}$").unwrap());
 
 impl ToolDef {
     /// A command built by the hub itself (settings, REST APIs, connectors).
     pub fn new(name: &str, description: &str, schema: Value) -> ToolDef {
         let json = json!({ "name": name, "description": description, "input_schema": schema });
         let digest = json::digest(&json);
-        ToolDef { name: name.to_owned(), description: description.to_owned(), json, digest }
+        ToolDef {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            json,
+            digest,
+        }
     }
 
     /// The parameter schema. To read, not to modify: it is part of the digest.
     pub fn schema(&self) -> &Map<String, Value> {
-        self.json["input_schema"].as_object().expect("input_schema is always an object")
+        self.json["input_schema"]
+            .as_object()
+            .expect("input_schema is always an object")
     }
 
     /// A copy of the command as it goes on the wire.
@@ -157,7 +185,10 @@ pub fn parse_tools(raw: &Value) -> Result<Vec<ToolDef>, Malformed> {
     let Value::Array(list) = raw else {
         return Err(Malformed::type_error("“tools” must be a list"));
     };
-    let tools = list.iter().map(ToolDef::from_json).collect::<Result<Vec<_>, _>>()?;
+    let tools = list
+        .iter()
+        .map(ToolDef::from_json)
+        .collect::<Result<Vec<_>, _>>()?;
     let mut names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
     names.sort_unstable();
     names.dedup();
@@ -178,7 +209,10 @@ pub fn active(manifest: Vec<ToolDef>, active: Option<&Value>) -> Result<Vec<Tool
                     on.push(name.to_owned());
                 }
             }
-            Ok(manifest.into_iter().filter(|t| on.contains(&t.name)).collect())
+            Ok(manifest
+                .into_iter()
+                .filter(|t| on.contains(&t.name))
+                .collect())
         }
         Some(_) => Err(Malformed::type_error("“active” must be a list of names")),
     }
@@ -190,11 +224,19 @@ fn file_name(path: &str) -> &str {
 
 /// Which service the hub reaches: an MCP server or a REST API.
 fn service(origin: &Value) -> &'static str {
-    if origin.get("protocol").and_then(Value::as_str) == Some("rest") { "REST API" } else { "MCP server" }
+    if origin.get("protocol").and_then(Value::as_str) == Some("rest") {
+        "REST API"
+    } else {
+        "MCP server"
+    }
 }
 
 fn unencrypted(origin: &Value) -> &'static str {
-    if origin.get("secure").and_then(Value::as_bool) == Some(false) { ", unencrypted" } else { "" }
+    if origin.get("secure").and_then(Value::as_bool) == Some(false) {
+        ", unencrypted"
+    } else {
+        ""
+    }
 }
 
 /// Who is offering itself, according to the operating system and not to the program.
@@ -203,18 +245,27 @@ pub fn origin_label(origin: &Value) -> String {
     if kind == Some("hub") {
         return "Clak itself".into();
     }
-    if kind == Some("connector") && let Some(command) = local_program(origin, "command") {
+    if kind == Some("connector")
+        && let Some(command) = local_program(origin, "command")
+    {
         return format!("{}, local program: {command}", service(origin));
     }
     if kind == Some("connector") {
         let url = origin.get("url").and_then(Value::as_str).unwrap_or("");
         return format!("{}, {url}{}", service(origin), unencrypted(origin));
     }
-    let Some(path) = origin.get("exe").and_then(Value::as_str).filter(|p| !p.is_empty()) else {
+    let Some(path) = origin
+        .get("exe")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+    else {
         return "unidentified process".into();
     };
     let exe = file_name(path);
-    match (origin.get("signed").and_then(Value::as_str), origin.get("signer").and_then(Value::as_str)) {
+    match (
+        origin.get("signed").and_then(Value::as_str),
+        origin.get("signer").and_then(Value::as_str),
+    ) {
         (Some("valid"), Some(signer)) if !signer.is_empty() => format!("{exe}, signed by {signer}"),
         (Some("invalid"), _) => format!("{exe}, INVALID SIGNATURE ({path})"),
         _ => format!("{exe}, unsigned ({path})"),
@@ -227,7 +278,9 @@ pub fn origin_short(origin: &Value) -> String {
     if kind == Some("hub") {
         return "Clak itself".into();
     }
-    if kind == Some("connector") && let Some(program) = local_program(origin, "program") {
+    if kind == Some("connector")
+        && let Some(program) = local_program(origin, "program")
+    {
         return format!("{}, local program {program}", service(origin));
     }
     if kind == Some("connector") {
@@ -238,11 +291,18 @@ pub fn origin_short(origin: &Value) -> String {
             .unwrap_or_else(|| "?".into());
         return format!("{}, {site}{}", service(origin), unencrypted(origin));
     }
-    let Some(path) = origin.get("exe").and_then(Value::as_str).filter(|p| !p.is_empty()) else {
+    let Some(path) = origin
+        .get("exe")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+    else {
         return "unidentified process".into();
     };
     let exe = file_name(path);
-    match (origin.get("signed").and_then(Value::as_str), origin.get("signer").and_then(Value::as_str)) {
+    match (
+        origin.get("signed").and_then(Value::as_str),
+        origin.get("signer").and_then(Value::as_str),
+    ) {
         (Some("valid"), Some(signer)) if !signer.is_empty() => format!("{exe}, signed by {signer}"),
         (Some("invalid"), _) => format!("{exe}, INVALID SIGNATURE"),
         _ => format!("{exe}, unsigned"),
@@ -269,7 +329,11 @@ fn site_of(url: &str) -> Option<String> {
     if host.is_empty() {
         return None;
     }
-    Some(format!("{}://{}", scheme.to_ascii_lowercase(), host.to_ascii_lowercase()))
+    Some(format!(
+        "{}://{}",
+        scheme.to_ascii_lowercase(),
+        host.to_ascii_lowercase()
+    ))
 }
 
 #[cfg(test)]
@@ -280,7 +344,8 @@ mod tests {
     fn un_comando_senza_schema_ne_ha_uno_vuoto() {
         let tool = ToolDef::from_json(&json!({"name":"a","description":"d"})).unwrap();
         assert_eq!(tool.schema()["type"], "object");
-        let same = ToolDef::from_json(&json!({"name":"a","description":"d","input_schema":{}})).unwrap();
+        let same =
+            ToolDef::from_json(&json!({"name":"a","description":"d","input_schema":{}})).unwrap();
         assert_eq!(tool.digest, same.digest);
         let other = ToolDef::from_json(&json!({"name":"a","description":"d."})).unwrap();
         assert_ne!(tool.digest, other.digest);
@@ -288,20 +353,37 @@ mod tests {
 
     #[test]
     fn nomi_doppi_o_strani_si_rifiutano() {
-        assert!(parse_tools(&json!([{"name":"a","description":""},{"name":"a","description":""}])).is_err());
+        assert!(
+            parse_tools(&json!([{"name":"a","description":""},{"name":"a","description":""}]))
+                .is_err()
+        );
         assert!(parse_tools(&json!([{"name":"a b","description":""}])).is_err());
         assert!(parse_tools(&json!({"name":"a"})).is_err());
     }
 
     #[test]
     fn l_origine_si_racconta() {
-        let signed = json!({"exe": r"C:\x\blender.exe", "signed": "valid", "signer": "Blender Foundation"});
-        assert_eq!(origin_short(&signed), "blender.exe, signed by Blender Foundation");
-        let connector = json!({"kind":"connector","url":"http://example.com:8080/mcp","secure":false});
-        assert_eq!(origin_short(&connector), "MCP server, http://example.com:8080, unencrypted");
+        let signed =
+            json!({"exe": r"C:\x\blender.exe", "signed": "valid", "signer": "Blender Foundation"});
+        assert_eq!(
+            origin_short(&signed),
+            "blender.exe, signed by Blender Foundation"
+        );
+        let connector =
+            json!({"kind":"connector","url":"http://example.com:8080/mcp","secure":false});
+        assert_eq!(
+            origin_short(&connector),
+            "MCP server, http://example.com:8080, unencrypted"
+        );
         assert_eq!(origin_label(&json!({"kind":"hub"})), "Clak itself");
         let local = json!({"kind":"connector","transport":"stdio","program":"agent-browser","command":"agent-browser mcp --tools core"});
-        assert_eq!(origin_short(&local), "MCP server, local program agent-browser");
-        assert_eq!(origin_label(&local), "MCP server, local program: agent-browser mcp --tools core");
+        assert_eq!(
+            origin_short(&local),
+            "MCP server, local program agent-browser"
+        );
+        assert_eq!(
+            origin_label(&local),
+            "MCP server, local program: agent-browser mcp --tools core"
+        );
     }
 }

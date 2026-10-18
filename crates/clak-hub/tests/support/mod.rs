@@ -3,7 +3,9 @@
 
 #![allow(dead_code)]
 
-use clak_hub::{AgentIdentity, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions, Platform};
+use clak_hub::{
+    AgentIdentity, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions, Platform,
+};
 use clak_kit::LiveResource;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
@@ -61,11 +63,16 @@ impl FakePrompt {
     }
 
     pub async fn next(&self, kind: ConsentKind) -> Question {
-        let question = tokio::time::timeout(Duration::from_secs(10), self.receiver.lock().await.recv())
-            .await
-            .expect("no question")
-            .expect("channel closed");
-        assert_eq!(question.request.kind, kind, "question: {}", question.request.title);
+        let question =
+            tokio::time::timeout(Duration::from_secs(10), self.receiver.lock().await.recv())
+                .await
+                .expect("no question")
+                .expect("channel closed");
+        assert_eq!(
+            question.request.kind, kind,
+            "question: {}",
+            question.request.title
+        );
         question
     }
 
@@ -79,13 +86,21 @@ impl FakePrompt {
 }
 
 impl ConsentPrompt for FakePrompt {
-    fn ask(&self, request: ConsentRequest, cancel: CancellationToken) -> clak_hub::consent::BoxFuture<Result<bool, String>> {
+    fn ask(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> clak_hub::consent::BoxFuture<Result<bool, String>> {
         self.count.fetch_add(1, Ordering::SeqCst);
         if self.allow_all.load(Ordering::SeqCst) {
             return Box::pin(async { Ok(true) });
         }
         let (answer, receiver) = oneshot::channel();
-        let _ = self.sender.send(Question { request, answer: Some(answer), cancel: cancel.clone() });
+        let _ = self.sender.send(Question {
+            request,
+            answer: Some(answer),
+            cancel: cancel.clone(),
+        });
         Box::pin(async move {
             tokio::select! {
                 answer = receiver => Ok(answer.unwrap_or(false)),
@@ -117,7 +132,12 @@ impl FakePlatform {
 }
 
 impl Platform for FakePlatform {
-    fn agent_of(&self, _pid: Option<u32>, request: &Map<String, Value>, _authorized: &HashSet<String>) -> Option<AgentIdentity> {
+    fn agent_of(
+        &self,
+        _pid: Option<u32>,
+        request: &Map<String, Value>,
+        _authorized: &HashSet<String>,
+    ) -> Option<AgentIdentity> {
         let name = request.get("test_agent")?.as_str()?;
         let mut agents = self.agents.lock().unwrap();
         Some(
@@ -222,7 +242,8 @@ impl TestHub {
     }
 
     pub async fn start_with(setup: Setup) -> TestHub {
-        let home = std::env::temp_dir().join(format!("clak-hub-{}", clak_wire::json::random_hex(6)));
+        let home =
+            std::env::temp_dir().join(format!("clak-hub-{}", clak_wire::json::random_hex(6)));
         std::fs::create_dir_all(&home).unwrap();
         let prompt = FakePrompt::new();
         let platform = Arc::new(FakePlatform::default());
@@ -243,10 +264,14 @@ impl TestHub {
         options.settings = false;
         let log = Arc::new(Mutex::new(Vec::new()));
         let sink = log.clone();
-        let hub = Hub::try_start(&home, options, Some(Arc::new(move |line| sink.lock().unwrap().push(line))))
-            .await
-            .unwrap()
-            .expect("hub already running");
+        let hub = Hub::try_start(
+            &home,
+            options,
+            Some(Arc::new(move |line| sink.lock().unwrap().push(line))),
+        )
+        .await
+        .unwrap()
+        .expect("hub already running");
         TestHub {
             home: home.clone(),
             prompt,
@@ -266,16 +291,26 @@ impl TestHub {
     // --- the agent side ----------------------------------------------------------
 
     /// Only the request: the response can be read, or not waited for, as one likes.
-    pub async fn open(&self, agent: Option<&str>, op: &str, body: Option<Value>) -> BufReader<Control> {
-        let mut request = body.and_then(|b| b.as_object().cloned()).unwrap_or_default();
+    pub async fn open(
+        &self,
+        agent: Option<&str>,
+        op: &str,
+        body: Option<Value>,
+    ) -> BufReader<Control> {
+        let mut request = body
+            .and_then(|b| b.as_object().cloned())
+            .unwrap_or_default();
         request.insert("type".into(), json!("request"));
         request.insert("op".into(), json!(op));
         request.entry("cwd").or_insert(json!(r"C:\Progetti\prova"));
         if let Some(agent) = agent {
             request.insert("test_agent".into(), json!(agent));
         }
-        let mut stream = connect(&self.hub().control().to_owned()).await;
-        stream.write_all(&clak_wire::json::encode_line(&Value::Object(request))).await.unwrap();
+        let mut stream = connect(self.hub().control()).await;
+        stream
+            .write_all(&clak_wire::json::encode_line(&Value::Object(request)))
+            .await
+            .unwrap();
         stream.flush().await.unwrap();
         BufReader::new(stream)
     }
@@ -297,7 +332,10 @@ impl TestHub {
                     ));
                     continue;
                 }
-                assert_eq!(message.get("type").and_then(Value::as_str), Some("response"));
+                assert_eq!(
+                    message.get("type").and_then(Value::as_str),
+                    Some("response")
+                );
                 return message;
             }
         })
@@ -305,7 +343,14 @@ impl TestHub {
         .expect("no response")
     }
 
-    pub async fn call(&self, agent: &str, program: &str, tool: &str, arguments: Option<Value>, flags: Option<Value>) -> Map<String, Value> {
+    pub async fn call(
+        &self,
+        agent: &str,
+        program: &str,
+        tool: &str,
+        arguments: Option<Value>,
+        flags: Option<Value>,
+    ) -> Map<String, Value> {
         let mut body = json!({ "resource": program, "tool": tool, "arguments": arguments.unwrap_or(json!({})) });
         if let Some(flags) = flags {
             body["flags"] = flags;
@@ -315,7 +360,7 @@ impl TestHub {
 
     /// The panel's first message of the wanted type, after sending `asks`.
     pub async fn panel(&self, asks: &[Value], answer: &str) -> Map<String, Value> {
-        let mut stream = connect(&self.hub().control().to_owned()).await;
+        let mut stream = connect(self.hub().control()).await;
         let mut text = b"{\"type\":\"watch\"}\n".to_vec();
         for ask in asks {
             text.extend(clak_wire::json::encode_line(ask));
@@ -326,7 +371,10 @@ impl TestHub {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let mut line = String::new();
-                assert!(reader.read_line(&mut line).await.unwrap() > 0, "the hub closed");
+                assert!(
+                    reader.read_line(&mut line).await.unwrap() > 0,
+                    "the hub closed"
+                );
                 if let Some(message) = clak_wire::json::object(line.trim().as_bytes())
                     && message.get("type").and_then(Value::as_str) == Some(answer)
                 {
@@ -372,7 +420,11 @@ impl TestHub {
             },
         );
         self.apps.lock().unwrap().push(resource.clone());
-        TestApp { resource, events: tokio::sync::Mutex::new(receiver), last_arguments: last }
+        TestApp {
+            resource,
+            events: tokio::sync::Mutex::new(receiver),
+            last_arguments: last,
+        }
     }
 
     /// Connects the program and, if the hub asks, allows it.

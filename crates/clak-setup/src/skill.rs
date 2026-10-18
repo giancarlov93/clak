@@ -43,8 +43,16 @@ pub struct Skill {
 
 impl Skill {
     /// `folder` is the agent's skills folder; `cli` the path of `clak`.
-    pub fn new(name: impl Into<String>, folder: impl Into<PathBuf>, cli: impl Into<String>) -> Skill {
-        Skill { name: name.into(), folder: folder.into(), cli: cli.into() }
+    pub fn new(
+        name: impl Into<String>,
+        folder: impl Into<PathBuf>,
+        cli: impl Into<String>,
+    ) -> Skill {
+        Skill {
+            name: name.into(),
+            folder: folder.into(),
+            cli: cli.into(),
+        }
     }
 
     /// Where Claude Code looks for the user's skills: `~/.claude/skills`, or under CLAUDE_CONFIG_DIR.
@@ -69,12 +77,20 @@ impl Skill {
     /// shows them. Those not on this computer report [`SkillState::NotInstalled`].
     pub fn agents(places: &Places, cli: impl Into<String>) -> Vec<Skill> {
         let cli = cli.into();
-        let home = |parts: &[&str]| parts.iter().fold(places.home.clone(), |path, part| path.join(part));
+        let home = |parts: &[&str]| {
+            parts
+                .iter()
+                .fold(places.home.clone(), |path, part| path.join(part))
+        };
         vec![
             Skill::claude_code(places, cli.clone()),
             Skill::codex(places, cli.clone()),
             Skill::new("Gemini CLI", home(&[".gemini", "skills"]), cli.clone()),
-            Skill::new("GitHub Copilot CLI", home(&[".copilot", "skills"]), cli.clone()),
+            Skill::new(
+                "GitHub Copilot CLI",
+                home(&[".copilot", "skills"]),
+                cli.clone(),
+            ),
             Skill::new("Cursor", home(&[".cursor", "skills"]), cli.clone()),
             Skill::new("OpenCode", home(&[".config", "opencode", "skills"]), cli),
         ]
@@ -96,19 +112,42 @@ impl Skill {
     pub fn status(&self) -> SkillStatus {
         let path = self.path();
         if !is_dir(parent(&self.folder)) && !is_dir(&self.folder) {
-            return SkillStatus { state: SkillState::NotInstalled, path };
+            return SkillStatus {
+                state: SkillState::NotInstalled,
+                path,
+            };
         }
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
-            Err(e) if e.kind() == ErrorKind::NotFound => return SkillStatus { state: SkillState::Absent, path },
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                return SkillStatus {
+                    state: SkillState::Absent,
+                    path,
+                };
+            }
             // A file that can't be read (or isn't text) is not ours: better not to touch it.
-            Err(_) => return SkillStatus { state: SkillState::Foreign, path },
+            Err(_) => {
+                return SkillStatus {
+                    state: SkillState::Foreign,
+                    path,
+                };
+            }
         };
         if !marked(&text) {
-            return SkillStatus { state: SkillState::Foreign, path };
+            return SkillStatus {
+                state: SkillState::Foreign,
+                path,
+            };
         }
         let current = normalize(&text) == normalize(&text_for(&self.cli));
-        SkillStatus { state: if current { SkillState::Ok } else { SkillState::Stale }, path }
+        SkillStatus {
+            state: if current {
+                SkillState::Ok
+            } else {
+                SkillState::Stale
+            },
+            path,
+        }
     }
 
     pub fn install(&self) -> Result<()> {
@@ -154,7 +193,11 @@ impl Skill {
 }
 
 fn text_for(cli: &str) -> String {
-    if cfg!(windows) { windows_text(cli) } else { mac_text(cli) }
+    if cfg!(windows) {
+        windows_text(cli)
+    } else {
+        mac_text(cli)
+    }
 }
 
 fn normalize(text: &str) -> String {

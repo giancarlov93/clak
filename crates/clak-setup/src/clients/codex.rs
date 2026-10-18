@@ -24,18 +24,36 @@ struct Entry {
 
 impl CodexClient {
     pub fn new(places: &Places, command: &[String]) -> CodexClient {
-        CodexClient { command: command.to_vec(), path: places.home.join(".codex").join("config.toml") }
+        CodexClient {
+            command: command.to_vec(),
+            path: places.home.join(".codex").join("config.toml"),
+        }
     }
 
     /// Our entry, if any.
     fn entry(text: &str) -> Result<Option<Entry>> {
-        let model = toml::parse(text).map_err(|e| SetupError(format!("config.toml can't be read ({e}): not rewriting it.")))?;
-        let Some(servers) = model.get("mcp_servers") else { return Ok(None) };
-        let Some(table) = servers.as_table() else {
-            return Err(SetupError("config.toml doesn't have the expected shape: not touching it.".into()));
+        let model = toml::parse(text).map_err(|e| {
+            SetupError(format!(
+                "config.toml can't be read ({e}): not rewriting it."
+            ))
+        })?;
+        let Some(servers) = model.get("mcp_servers") else {
+            return Ok(None);
         };
-        let Some(entry) = table.get(SERVER) else { return Ok(None) };
-        let Some(ours) = entry.as_table() else { return Ok(Some(Entry { command: None, args: Vec::new() })) };
+        let Some(table) = servers.as_table() else {
+            return Err(SetupError(
+                "config.toml doesn't have the expected shape: not touching it.".into(),
+            ));
+        };
+        let Some(entry) = table.get(SERVER) else {
+            return Ok(None);
+        };
+        let Some(ours) = entry.as_table() else {
+            return Ok(Some(Entry {
+                command: None,
+                args: Vec::new(),
+            }));
+        };
         let args = ours
             .get("args")
             .and_then(TomlValue::as_array)
@@ -49,7 +67,13 @@ impl CodexClient {
                     .collect()
             })
             .unwrap_or_default();
-        Ok(Some(Entry { command: ours.get("command").and_then(TomlValue::as_str).map(str::to_owned), args }))
+        Ok(Some(Entry {
+            command: ours
+                .get("command")
+                .and_then(TomlValue::as_str)
+                .map(str::to_owned),
+            args,
+        }))
     }
 
     fn same(&self, entry: &Entry) -> bool {
@@ -57,9 +81,16 @@ impl CodexClient {
     }
 
     fn block(&self, newline: &str) -> String {
-        let command = self.command.first().map(|c| quote(c)).unwrap_or_else(|| "''".into());
+        let command = self
+            .command
+            .first()
+            .map(|c| quote(c))
+            .unwrap_or_else(|| "''".into());
         let args: Vec<String> = self.command.iter().skip(1).map(|a| quote(a)).collect();
-        format!("[mcp_servers.{SERVER}]{newline}command = {command}{newline}args = [{}]{newline}", args.join(", "))
+        format!(
+            "[mcp_servers.{SERVER}]{newline}command = {command}{newline}args = [{}]{newline}",
+            args.join(", ")
+        )
     }
 }
 
@@ -85,18 +116,30 @@ fn any_header(line: &str) -> bool {
 
 /// The header of our entry or of one of its subtables, with the name written in any legal way.
 fn our_header(line: &str) -> bool {
-    let Some(rest) = line.trim_start().strip_prefix('[') else { return false };
-    let Some(rest) = rest.trim_start().strip_prefix("mcp_servers") else { return false };
-    let Some(rest) = rest.trim_start().strip_prefix('.') else { return false };
+    let Some(rest) = line.trim_start().strip_prefix('[') else {
+        return false;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix("mcp_servers") else {
+        return false;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix('.') else {
+        return false;
+    };
     let rest = rest.trim_start();
     let names = ["\"clak\"", "'clak'", "clak"];
-    let Some(rest) = names.iter().find_map(|name| rest.strip_prefix(name)) else { return false };
+    let Some(rest) = names.iter().find_map(|name| rest.strip_prefix(name)) else {
+        return false;
+    };
     let mut rest = rest.trim_start();
     if let Some(sub) = rest.strip_prefix('.') {
-        let Some(end) = sub.find(']') else { return false };
+        let Some(end) = sub.find(']') else {
+            return false;
+        };
         rest = &sub[end..];
     }
-    let Some(rest) = rest.strip_prefix(']') else { return false };
+    let Some(rest) = rest.strip_prefix(']') else {
+        return false;
+    };
     let rest = rest.trim_start();
     rest.is_empty() || rest.starts_with('#')
 }
@@ -144,8 +187,17 @@ impl McpClient for CodexClient {
         match found {
             Ok(None) => ClientStatus::new(ClientState::Absent, &self.path),
             Ok(Some(entry)) => {
-                let state = if self.same(&entry) { ClientState::Ok } else { ClientState::Stale };
-                ClientStatus::with(state, &self.path, line(entry.command.as_deref(), &entry.args), entry.command)
+                let state = if self.same(&entry) {
+                    ClientState::Ok
+                } else {
+                    ClientState::Stale
+                };
+                ClientStatus::with(
+                    state,
+                    &self.path,
+                    line(entry.command.as_deref(), &entry.args),
+                    entry.command,
+                )
             }
             Err(e) => ClientStatus::with(ClientState::Unreadable, &self.path, e.0, None),
         }
@@ -157,7 +209,11 @@ impl McpClient for CodexClient {
         let newline = if raw.contains("\r\n") { "\r\n" } else { "\n" };
         let rest = without(&raw);
         let rest = rest.trim_end();
-        let text = if rest.is_empty() { String::new() } else { format!("{rest}{newline}{newline}") } + &self.block(newline);
+        let text = if rest.is_empty() {
+            String::new()
+        } else {
+            format!("{rest}{newline}{newline}")
+        } + &self.block(newline);
         let written = CodexClient::entry(&text).ok().flatten();
         if !written.is_some_and(|w| self.same(&w)) {
             return Err(SetupError(
@@ -194,17 +250,31 @@ mod tests {
 
     #[test]
     fn riconosce_le_intestazioni_della_voce() {
-        for ours in ["[mcp_servers.clak]", " [ mcp_servers . 'clak' ] # c", "[mcp_servers.\"clak\".env]", "[mcp_servers.clak.env.x]"] {
+        for ours in [
+            "[mcp_servers.clak]",
+            " [ mcp_servers . 'clak' ] # c",
+            "[mcp_servers.\"clak\".env]",
+            "[mcp_servers.clak.env.x]",
+        ] {
             assert!(our_header(ours), "{ours}");
         }
-        for other in ["[mcp_servers.clak2]", "[mcp_servers.altro]", "[mcp_servers]", "[[mcp_servers.clak]]", "[mcp_servers.clak] x"] {
+        for other in [
+            "[mcp_servers.clak2]",
+            "[mcp_servers.altro]",
+            "[mcp_servers]",
+            "[[mcp_servers.clak]]",
+            "[mcp_servers.clak] x",
+        ] {
             assert!(!our_header(other), "{other}");
         }
     }
 
     #[test]
     fn le_virgolette_solo_se_servono() {
-        assert_eq!(quote(r"C:\Program Files\x.exe"), r"'C:\Program Files\x.exe'");
+        assert_eq!(
+            quote(r"C:\Program Files\x.exe"),
+            r"'C:\Program Files\x.exe'"
+        );
         assert_eq!(quote("it's"), "\"it's\"");
         assert_eq!(quote("a\\'\n"), "\"a\\\\'\\n\"");
     }

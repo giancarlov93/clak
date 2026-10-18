@@ -11,7 +11,11 @@ pub struct Notice {
 }
 
 fn list<'a>(state: &'a Value, key: &str) -> &'a [Value] {
-    state.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+    state
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -31,7 +35,10 @@ pub fn between(before: Option<&Value>, after: &Value) -> Vec<Notice> {
     let mut notices = Vec::new();
     let Some(before) = before else { return notices };
 
-    for resource in list(after, "resources").iter().filter(|r| !has(before, "resources", text(r, "id"))) {
+    for resource in list(after, "resources")
+        .iter()
+        .filter(|r| !has(before, "resources", text(r, "id")))
+    {
         let info = &resource["resource"];
         notices.push(Notice {
             title: format!("{} connected", text(info, "app")),
@@ -43,20 +50,42 @@ pub fn between(before: Option<&Value>, after: &Value) -> Vec<Notice> {
         });
     }
     let agent = |state: &Value, grant: &Value| {
-        find(state, "sessions", text(grant, "session_id")).map_or("An agent".to_owned(), |s| text(s, "label").to_owned())
+        find(state, "sessions", text(grant, "session_id"))
+            .map_or("An agent".to_owned(), |s| text(s, "label").to_owned())
     };
-    for grant in list(after, "grants").iter().filter(|g| !has(before, "grants", text(g, "id"))) {
-        let Some(resource) = find(after, "resources", text(grant, "resource_id")) else { continue };
+    for grant in list(after, "grants")
+        .iter()
+        .filter(|g| !has(before, "grants", text(g, "id")))
+    {
+        let Some(resource) = find(after, "resources", text(grant, "resource_id")) else {
+            continue;
+        };
         notices.push(Notice {
             title: format!("“{}” in use", text(&resource["resource"], "title")),
-            text: format!("{} can use {}.", agent(after, grant), text(&resource["resource"], "app")),
+            text: format!(
+                "{} can use {}.",
+                agent(after, grant),
+                text(&resource["resource"], "app")
+            ),
         });
     }
-    for grant in list(before, "grants").iter().filter(|g| !has(after, "grants", text(g, "id"))) {
-        let Some(resource) = find(before, "resources", text(grant, "resource_id")) else { continue };
+    for grant in list(before, "grants")
+        .iter()
+        .filter(|g| !has(after, "grants", text(g, "id")))
+    {
+        let Some(resource) = find(before, "resources", text(grant, "resource_id")) else {
+            continue;
+        };
         notices.push(Notice {
-            title: format!("“{}” no longer in use", text(&resource["resource"], "title")),
-            text: format!("{} can no longer use {}.", agent(before, grant), text(&resource["resource"], "app")),
+            title: format!(
+                "“{}” no longer in use",
+                text(&resource["resource"], "title")
+            ),
+            text: format!(
+                "{} can no longer use {}.",
+                agent(before, grant),
+                text(&resource["resource"], "app")
+            ),
         });
     }
     notices
@@ -103,26 +132,45 @@ pub fn agents(state: &Value) -> Vec<Agent> {
     sessions
         .into_iter()
         .map(|session| {
-            let mut grants: Vec<&Value> =
-                list(state, "grants").iter().filter(|g| text(g, "session_id") == text(session, "id")).collect();
+            let mut grants: Vec<&Value> = list(state, "grants")
+                .iter()
+                .filter(|g| text(g, "session_id") == text(session, "id"))
+                .collect();
             grants.sort_by(|a, b| since(a).total_cmp(&since(b)));
             let programs = grants
                 .into_iter()
                 .map(|grant| {
                     let resource = find(state, "resources", text(grant, "resource_id"));
                     let info = resource.map(|r| &r["resource"]);
-                    let (title, app) = info.map_or((text(grant, "resource_id"), ""), |i| (text(i, "title"), text(i, "app")));
-                    let label = if app.is_empty() || app == title { title.to_owned() } else { format!("{title} ({app})") };
+                    let (title, app) = info.map_or((text(grant, "resource_id"), ""), |i| {
+                        (text(i, "title"), text(i, "app"))
+                    });
+                    let label = if app.is_empty() || app == title {
+                        title.to_owned()
+                    } else {
+                        format!("{title} ({app})")
+                    };
                     // Connectors and the hub's own programs have no executable of their own.
                     let exe = resource
                         .filter(|r| r["origin"].get("kind").is_none())
                         .and_then(|r| r["origin"].get("exe"))
                         .and_then(Value::as_str)
                         .map(str::to_owned);
-                    Program { grant: text(grant, "id").to_owned(), label, exe }
+                    Program {
+                        grant: text(grant, "id").to_owned(),
+                        label,
+                        exe,
+                    }
                 })
                 .collect();
-            Agent { label: text(session, "label").to_owned(), exe: session.get("exe").and_then(Value::as_str).map(str::to_owned), programs }
+            Agent {
+                label: text(session, "label").to_owned(),
+                exe: session
+                    .get("exe")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                programs,
+            }
         })
         .collect()
 }
@@ -157,7 +205,10 @@ mod tests {
         assert_eq!(notices[0].title, "Blocco connected");
         assert_eq!(notices[1].title, "“spesa.txt” in use");
         assert_eq!(notices[1].text, "Claude Code · prova can use Blocco.");
-        let gone = between(Some(&connected), &json!({"resources": connected["resources"], "sessions": [], "grants": []}));
+        let gone = between(
+            Some(&connected),
+            &json!({"resources": connected["resources"], "sessions": [], "grants": []}),
+        );
         assert_eq!(gone[0].title, "“spesa.txt” no longer in use");
         assert_eq!(headline(&connected), "1 agent · 1 program · 1 permission");
     }
@@ -179,10 +230,23 @@ mod tests {
             ],
         });
         let agents = agents(&state);
-        assert_eq!(agents.iter().map(|a| a.label.as_str()).collect::<Vec<_>>(), ["Claude Code", "Codex"]);
+        assert_eq!(
+            agents.iter().map(|a| a.label.as_str()).collect::<Vec<_>>(),
+            ["Claude Code", "Codex"]
+        );
         assert_eq!(agents[0].exe.as_deref(), Some("/C/claude"));
-        let programs: Vec<_> = agents[0].programs.iter().map(|p| (p.grant.as_str(), p.label.as_str(), p.exe.as_deref())).collect();
-        assert_eq!(programs, [("g1", "spesa.txt (Blocco)", Some("/A/Blocco")), ("g2", "Rhino", None)]);
+        let programs: Vec<_> = agents[0]
+            .programs
+            .iter()
+            .map(|p| (p.grant.as_str(), p.label.as_str(), p.exe.as_deref()))
+            .collect();
+        assert_eq!(
+            programs,
+            [
+                ("g1", "spesa.txt (Blocco)", Some("/A/Blocco")),
+                ("g2", "Rhino", None)
+            ]
+        );
         assert!(agents[1].programs.is_empty());
     }
 }

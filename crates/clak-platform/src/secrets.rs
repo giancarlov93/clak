@@ -63,7 +63,11 @@ pub struct FileBox<C: BlobCipher> {
 
 impl<C: BlobCipher> FileBox<C> {
     pub fn new(path: impl Into<PathBuf>, cipher: C) -> Self {
-        Self { path: path.into(), cipher, gate: Mutex::new(()) }
+        Self {
+            path: path.into(),
+            cipher,
+            gate: Mutex::new(()),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -82,7 +86,8 @@ impl<C: BlobCipher> FileBox<C> {
     }
 
     fn write(&self, all: &serde_json::Map<String, serde_json::Value>) -> Result<(), SecretError> {
-        let failed = |e: std::io::Error| SecretError(format!("Couldn't write {}: {e}", self.path.display()));
+        let failed =
+            |e: std::io::Error| SecretError(format!("Couldn't write {}: {e}", self.path.display()));
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).map_err(failed)?;
         }
@@ -121,7 +126,10 @@ impl<C: BlobCipher> SecretBox for FileBox<C> {
             }
             Some(secret) => {
                 let sealed = self.cipher.protect(secret.as_bytes())?;
-                all.insert(id.to_string(), serde_json::Value::String(BASE64.encode(sealed)));
+                all.insert(
+                    id.to_string(),
+                    serde_json::Value::String(BASE64.encode(sealed)),
+                );
             }
         }
         self.write(&all)
@@ -141,17 +149,27 @@ impl MemoryBox {
 
     /// Everything inside, to search it for a secret that mustn't be there.
     pub fn all(&self) -> HashMap<String, String> {
-        self.secrets.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.secrets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
 impl SecretBox for MemoryBox {
     fn secret(&self, id: &str) -> Option<String> {
-        self.secrets.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+        self.secrets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 
     fn has_secret(&self, id: &str) -> bool {
-        self.secrets.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id)
+        self.secrets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(id)
     }
 
     fn set_secret(&self, id: &str, secret: Option<&str>, _label: &str) -> Result<(), SecretError> {
@@ -180,7 +198,9 @@ impl SecretBox for NoBox {
     fn set_secret(&self, _id: &str, secret: Option<&str>, _label: &str) -> Result<(), SecretError> {
         match secret {
             None => Ok(()),
-            Some(_) => Err(SecretError("This system has no secret store: tokens can't be saved".into())),
+            Some(_) => Err(SecretError(
+                "This system has no secret store: tokens can't be saved".into(),
+            )),
         }
     }
 }
@@ -304,12 +324,19 @@ mod tests {
         let path = dir.join("connectors.secrets");
         let secrets = FileBox::new(&path, Reverse);
         assert_eq!(secrets.secret("cn_1"), None);
-        secrets.set_secret("cn_1", Some("abc"), "Clak: uno").unwrap();
-        secrets.set_secret("cn_1#oauth", Some("{\"a\":1}"), "").unwrap();
+        secrets
+            .set_secret("cn_1", Some("abc"), "Clak: uno")
+            .unwrap();
+        secrets
+            .set_secret("cn_1#oauth", Some("{\"a\":1}"), "")
+            .unwrap();
         assert_eq!(secrets.secret("cn_1").as_deref(), Some("abc"));
         assert!(secrets.has_secret("cn_1#oauth"));
         let text = std::fs::read_to_string(&path).unwrap();
-        assert_eq!(text, "{\n  \"cn_1\": \"Y2Jh\",\n  \"cn_1#oauth\": \"fTE6ImEiew==\"\n}");
+        assert_eq!(
+            text,
+            "{\n  \"cn_1\": \"Y2Jh\",\n  \"cn_1#oauth\": \"fTE6ImEiew==\"\n}"
+        );
         assert!(!dir.join("connectors.secrets.tmp").exists());
 
         secrets.set_secret("cn_1", None, "").unwrap();
@@ -317,7 +344,11 @@ mod tests {
         assert!(!secrets.has_secret("cn_1"));
 
         // A blob that can't be decrypted (copied from another user) is a missing secret.
-        std::fs::write(&path, "\u{FEFF}{\"cn_2\": \"IXg=\", \"cn_3\": 5, \"cn_4\": \"%%%\"}").unwrap();
+        std::fs::write(
+            &path,
+            "\u{FEFF}{\"cn_2\": \"IXg=\", \"cn_3\": 5, \"cn_4\": \"%%%\"}",
+        )
+        .unwrap();
         assert_eq!(secrets.secret("cn_2"), None);
         assert_eq!(secrets.secret("cn_3"), None);
         assert_eq!(secrets.secret("cn_4"), None);
@@ -352,7 +383,11 @@ mod tests {
         let secrets = default_box(&dir, "apis.secrets");
         secrets.set_secret("api_1", Some("k123"), "").unwrap();
         assert_eq!(secrets.secret("api_1").as_deref(), Some("k123"));
-        assert!(std::fs::read_to_string(dir.join("apis.secrets")).unwrap().contains("\"api_1\": \"AQAAANCMnd8BFdERjHoAwE/Cl+s"));
+        assert!(
+            std::fs::read_to_string(dir.join("apis.secrets"))
+                .unwrap()
+                .contains("\"api_1\": \"AQAAANCMnd8BFdERjHoAwE/Cl+s")
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

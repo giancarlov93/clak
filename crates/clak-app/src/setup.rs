@@ -14,7 +14,12 @@ pub fn autostart_on() -> bool {
 
 pub fn set_autostart(on: bool) -> Result<(), String> {
     let autostart = Autostart::new(exe());
-    if on { autostart.enable() } else { autostart.disable() }.map_err(|e| e.0)
+    if on {
+        autostart.enable()
+    } else {
+        autostart.disable()
+    }
+    .map_err(|e| e.0)
 }
 
 /// `--setup` and `--uninstall`, from the installer: they do their work, log it, and exit.
@@ -43,10 +48,12 @@ fn run(folder: &std::path::Path, uninstall: bool) -> Result<Vec<String>, String>
     let autostart = Autostart::new(exe());
     let scheme = UriScheme::new(exe());
     if uninstall {
-        clak_setup::installation::cleanup(folder, &places, &path, &autostart, &scheme).map_err(|e| e.0)
+        clak_setup::installation::cleanup(folder, &places, &path, &autostart, &scheme)
+            .map_err(|e| e.0)
     } else {
         let preferences = Preferences::new(clak_wire::location::home());
-        clak_setup::installation::setup(folder, &places, &path, &autostart, &scheme, &preferences).map_err(|e| e.0)
+        clak_setup::installation::setup(folder, &places, &path, &autostart, &scheme, &preferences)
+            .map_err(|e| e.0)
     }
 }
 

@@ -9,21 +9,25 @@ use std::time::Duration;
 
 use windows_sys::Wdk::System::Threading::NtQueryInformationProcess;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE, INVALID_HANDLE_VALUE, LocalFree, TRUST_E_NOSIGNATURE,
-    TRUST_E_PROVIDER_UNKNOWN, TRUST_E_SUBJECT_FORM_UNKNOWN, UNICODE_STRING,
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
+    TRUST_E_NOSIGNATURE, TRUST_E_PROVIDER_UNKNOWN, TRUST_E_SUBJECT_FORM_UNKNOWN, UNICODE_STRING,
 };
-use windows_sys::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_CONNECTIONS};
+use windows_sys::Win32::NetworkManagement::IpHelper::{
+    GetExtendedTcpTable, TCP_TABLE_OWNER_PID_CONNECTIONS,
+};
 use windows_sys::Win32::Networking::WinSock::AF_INET;
 use windows_sys::Win32::Security::Cryptography::{
-    CERT_FIND_SUBJECT_CERT, CERT_INFO, CERT_NAME_STR_REVERSE_FLAG, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-    CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE, CERT_X500_NAME_STR, CMSG_SIGNER_INFO, CMSG_SIGNER_INFO_PARAM,
-    CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CertCloseStore, CertFindCertificateInStore, CertFreeCertificateContext,
-    CertNameToStrW, CryptMsgClose, CryptMsgGetParam, CryptProtectData, CryptQueryObject, CryptUnprotectData, HCERTSTORE,
-    PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+    CERT_FIND_SUBJECT_CERT, CERT_INFO, CERT_NAME_STR_REVERSE_FLAG,
+    CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY,
+    CERT_QUERY_OBJECT_FILE, CERT_X500_NAME_STR, CMSG_SIGNER_INFO, CMSG_SIGNER_INFO_PARAM,
+    CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CertCloseStore, CertFindCertificateInStore,
+    CertFreeCertificateContext, CertNameToStrW, CryptMsgClose, CryptMsgGetParam, CryptProtectData,
+    CryptQueryObject, CryptUnprotectData, HCERTSTORE, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
 };
 use windows_sys::Win32::Security::WinTrust::{
-    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE,
-    WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WinVerifyTrust,
+    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
+    WTD_REVOCATION_CHECK_NONE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
+    WTD_UI_NONE, WinVerifyTrust,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
@@ -31,7 +35,8 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
 use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
 use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
 use windows_sys::Win32::System::Threading::{
-    GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    GetProcessTimes, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    QueryFullProcessImageNameW,
 };
 
 use crate::provenance::{ProcessEntry, ProcessLookup};
@@ -57,7 +62,10 @@ impl Drop for Handle {
 }
 
 fn wide(text: &str) -> Vec<u16> {
-    std::ffi::OsStr::new(text).encode_wide().chain(Some(0)).collect()
+    std::ffi::OsStr::new(text)
+        .encode_wide()
+        .chain(Some(0))
+        .collect()
 }
 
 // --- processes -----------------------------------------------------------------------
@@ -65,8 +73,14 @@ fn wide(text: &str) -> Vec<u16> {
 /// The start time of a process, as a FILETIME, or None if it doesn't exist (or can't be read).
 pub fn start_time(pid: u32) -> Option<i64> {
     let process = Handle::process(pid)?;
-    let mut created = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
-    let mut other = [FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 }; 3];
+    let mut created = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut other = [FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    }; 3];
     let [exit, kernel, user] = &mut other;
     let ok = unsafe { GetProcessTimes(process.0, &mut created, exit, kernel, user) };
     (ok != 0).then_some(((created.dwHighDateTime as i64) << 32) | created.dwLowDateTime as i64)
@@ -77,7 +91,14 @@ pub fn exe_of(pid: u32) -> Option<String> {
     let process = Handle::process(pid)?;
     let mut buffer = vec![0u16; 32768];
     let mut size = buffer.len() as u32;
-    let ok = unsafe { QueryFullProcessImageNameW(process.0, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size) };
+    let ok = unsafe {
+        QueryFullProcessImageNameW(
+            process.0,
+            PROCESS_NAME_WIN32,
+            buffer.as_mut_ptr(),
+            &mut size,
+        )
+    };
     (ok != 0).then(|| String::from_utf16_lossy(&buffer[..size as usize]))
 }
 
@@ -104,7 +125,8 @@ pub fn command_line(pid: u32) -> Option<String> {
             if text.Buffer.is_null() {
                 return None;
             }
-            let chars = unsafe { std::slice::from_raw_parts(text.Buffer, text.Length as usize / 2) };
+            let chars =
+                unsafe { std::slice::from_raw_parts(text.Buffer, text.Length as usize / 2) };
             return Some(String::from_utf16_lossy(chars));
         }
         if needed <= size {
@@ -127,9 +149,19 @@ fn process_table() -> HashMap<u32, ProcessEntry> {
     entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
     let mut more = unsafe { Process32FirstW(snapshot.0, &mut entry) } != 0;
     while more {
-        let length = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+        let length = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
         let name = String::from_utf16_lossy(&entry.szExeFile[..length]);
-        table.insert(entry.th32ProcessID, ProcessEntry { parent: entry.th32ParentProcessID, name });
+        table.insert(
+            entry.th32ProcessID,
+            ProcessEntry {
+                parent: entry.th32ParentProcessID,
+                name,
+            },
+        );
         more = unsafe { Process32NextW(snapshot.0, &mut entry) } != 0;
     }
     table
@@ -143,7 +175,9 @@ pub struct Processes {
 
 impl Processes {
     pub fn snapshot() -> Self {
-        Self { table: process_table() }
+        Self {
+            table: process_table(),
+        }
     }
 }
 
@@ -179,13 +213,29 @@ pub fn pipe_client_pid(pipe: HANDLE) -> Option<u32> {
 /// port is the local one.
 pub fn tcp_owner(local_port: u16, remote_port: u16) -> Option<u32> {
     let mut size = 0u32;
-    unsafe { GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 0, AF_INET as u32, TCP_TABLE_OWNER_PID_CONNECTIONS, 0) };
+    unsafe {
+        GetExtendedTcpTable(
+            std::ptr::null_mut(),
+            &mut size,
+            0,
+            AF_INET as u32,
+            TCP_TABLE_OWNER_PID_CONNECTIONS,
+            0,
+        )
+    };
     // Between asking "how big" and reading, the table may grow.
     for _ in 0..4 {
         size += 4096;
         let mut buffer = vec![0u32; (size as usize).div_ceil(4)];
         let status = unsafe {
-            GetExtendedTcpTable(buffer.as_mut_ptr().cast(), &mut size, 0, AF_INET as u32, TCP_TABLE_OWNER_PID_CONNECTIONS, 0)
+            GetExtendedTcpTable(
+                buffer.as_mut_ptr().cast(),
+                &mut size,
+                0,
+                AF_INET as u32,
+                TCP_TABLE_OWNER_PID_CONNECTIONS,
+                0,
+            )
         };
         if status == ERROR_INSUFFICIENT_BUFFER {
             continue;
@@ -224,12 +274,17 @@ fn unknown() -> Signature {
 /// Who signed an executable: ("valid" | "invalid" | "unsigned" | "unknown", signer).
 /// Cached by path, time and size.
 pub fn signature(exe: &str) -> Signature {
-    let Ok(metadata) = std::fs::metadata(exe) else { return unknown() };
+    let Ok(metadata) = std::fs::metadata(exe) else {
+        return unknown();
+    };
     if !metadata.is_file() {
         return unknown();
     }
-    let modified =
-        metadata.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
     let key = (exe.to_string(), modified, metadata.len());
     if let Some(known) = signatures().lock().ok().and_then(|s| s.get(&key).cloned()) {
         return known;
@@ -237,9 +292,10 @@ pub fn signature(exe: &str) -> Signature {
     let read = read_signature(exe);
     // An "I don't know" may be a PowerShell that was late: it isn't cached.
     if read.0 != "unknown"
-        && let Ok(mut known) = signatures().lock() {
-            known.insert(key, read.clone());
-        }
+        && let Ok(mut known) = signatures().lock()
+    {
+        known.insert(key, read.clone());
+    }
     read
 }
 
@@ -250,7 +306,9 @@ pub fn signature(exe: &str) -> Signature {
 fn read_signature(exe: &str) -> Signature {
     match verify_embedded(exe) {
         0 => ("valid".into(), embedded_signer(exe)),
-        TRUST_E_NOSIGNATURE | TRUST_E_SUBJECT_FORM_UNKNOWN | TRUST_E_PROVIDER_UNKNOWN => ask_powershell(exe),
+        TRUST_E_NOSIGNATURE | TRUST_E_SUBJECT_FORM_UNKNOWN | TRUST_E_PROVIDER_UNKNOWN => {
+            ask_powershell(exe)
+        }
         _ => ("invalid".into(), embedded_signer(exe)),
     }
 }
@@ -273,9 +331,21 @@ fn verify_embedded(exe: &str) -> i32 {
     // We ask who signed, not whether the certificate was revoked this morning: no network.
     data.dwProvFlags = WTD_REVOCATION_CHECK_NONE;
     let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    let verdict = unsafe { WinVerifyTrust(std::ptr::null_mut(), &mut action, (&mut data as *mut WINTRUST_DATA).cast()) };
+    let verdict = unsafe {
+        WinVerifyTrust(
+            std::ptr::null_mut(),
+            &mut action,
+            (&mut data as *mut WINTRUST_DATA).cast(),
+        )
+    };
     data.dwStateAction = WTD_STATEACTION_CLOSE;
-    unsafe { WinVerifyTrust(std::ptr::null_mut(), &mut action, (&mut data as *mut WINTRUST_DATA).cast()) };
+    unsafe {
+        WinVerifyTrust(
+            std::ptr::null_mut(),
+            &mut action,
+            (&mut data as *mut WINTRUST_DATA).cast(),
+        )
+    };
     verdict
 }
 
@@ -308,11 +378,29 @@ fn embedded_signer(exe: &str) -> Option<String> {
     }
     let subject = (|| {
         let mut size = 0u32;
-        if unsafe { CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, std::ptr::null_mut(), &mut size) } == 0 {
+        if unsafe {
+            CryptMsgGetParam(
+                message,
+                CMSG_SIGNER_INFO_PARAM,
+                0,
+                std::ptr::null_mut(),
+                &mut size,
+            )
+        } == 0
+        {
             return None;
         }
         let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
-        if unsafe { CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, buffer.as_mut_ptr().cast(), &mut size) } == 0 {
+        if unsafe {
+            CryptMsgGetParam(
+                message,
+                CMSG_SIGNER_INFO_PARAM,
+                0,
+                buffer.as_mut_ptr().cast(),
+                &mut size,
+            )
+        } == 0
+        {
             return None;
         }
         let signer = unsafe { &*(buffer.as_ptr() as *const CMSG_SIGNER_INFO) };
@@ -334,9 +422,11 @@ fn embedded_signer(exe: &str) -> Option<String> {
         }
         let name = unsafe { &(*(*certificate).pCertInfo).Subject } as *const CRYPT_INTEGER_BLOB;
         let kind = CERT_X500_NAME_STR | CERT_NAME_STR_REVERSE_FLAG;
-        let length = unsafe { CertNameToStrW(X509_ASN_ENCODING, name, kind, std::ptr::null_mut(), 0) };
+        let length =
+            unsafe { CertNameToStrW(X509_ASN_ENCODING, name, kind, std::ptr::null_mut(), 0) };
         let mut text = vec![0u16; length.max(1) as usize];
-        let written = unsafe { CertNameToStrW(X509_ASN_ENCODING, name, kind, text.as_mut_ptr(), length) };
+        let written =
+            unsafe { CertNameToStrW(X509_ASN_ENCODING, name, kind, text.as_mut_ptr(), length) };
         unsafe { CertFreeCertificateContext(certificate) };
         (written > 1).then(|| String::from_utf16_lossy(&text[..written as usize - 1]))
     })();
@@ -355,7 +445,11 @@ fn ask_powershell(exe: &str) -> Signature {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     // The full path: a "powershell.exe" left in the working directory must not be able to answer in its place.
     let shell = system_directory()
-        .map(|dir| dir.join("WindowsPowerShell").join("v1.0").join("powershell.exe"))
+        .map(|dir| {
+            dir.join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe")
+        })
         .filter(|path| path.is_file())
         .map(|path| path.into_os_string())
         .unwrap_or_else(|| "powershell".into());
@@ -367,8 +461,12 @@ fn ask_powershell(exe: &str) -> Signature {
         .stderr(std::process::Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
-    let Ok(mut child) = child else { return unknown() };
-    let Some(mut stdout) = child.stdout.take() else { return unknown() };
+    let Ok(mut child) = child else {
+        return unknown();
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        return unknown();
+    };
     let (sender, receiver) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut output = Vec::new();
@@ -385,13 +483,24 @@ fn ask_powershell(exe: &str) -> Signature {
     };
     let _ = child.wait();
     let text = String::from_utf8_lossy(&output);
-    let lines: Vec<&str> = text.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = text
+        .split('\n')
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     match lines.first() {
         None => unknown(),
         Some(&"NotSigned") => ("unsigned".into(), None),
         Some(status) => (
-            if *status == "Valid" { "valid" } else { "invalid" }.into(),
-            lines.get(1).and_then(|subject| crate::provenance::common_name_of(subject)),
+            if *status == "Valid" {
+                "valid"
+            } else {
+                "invalid"
+            }
+            .into(),
+            lines
+                .get(1)
+                .and_then(|subject| crate::provenance::common_name_of(subject)),
         ),
     }
 }
@@ -414,9 +523,18 @@ const ENTROPY: &[u8] = b"clak/connectors";
 /// CryptProtectData / CryptUnprotectData with user scope, like
 /// `ProtectedData` with `DataProtectionScope.CurrentUser`.
 pub fn dpapi(input: &[u8], protect: bool) -> Result<Vec<u8>, SecretError> {
-    let data = CRYPT_INTEGER_BLOB { cbData: input.len() as u32, pbData: input.as_ptr() as *mut u8 };
-    let entropy = CRYPT_INTEGER_BLOB { cbData: ENTROPY.len() as u32, pbData: ENTROPY.as_ptr() as *mut u8 };
-    let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+    let data = CRYPT_INTEGER_BLOB {
+        cbData: input.len() as u32,
+        pbData: input.as_ptr() as *mut u8,
+    };
+    let entropy = CRYPT_INTEGER_BLOB {
+        cbData: ENTROPY.len() as u32,
+        pbData: ENTROPY.as_ptr() as *mut u8,
+    };
+    let mut output = CRYPT_INTEGER_BLOB {
+        cbData: 0,
+        pbData: std::ptr::null_mut(),
+    };
     let ok = unsafe {
         if protect {
             CryptProtectData(
@@ -448,7 +566,8 @@ pub fn dpapi(input: &[u8], protect: bool) -> Result<Vec<u8>, SecretError> {
             format!("Windows didn't decrypt the token: {error}")
         }));
     }
-    let result = unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
+    let result =
+        unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();
     unsafe { LocalFree(output.pbData.cast()) };
     Ok(result)
 }
@@ -463,7 +582,10 @@ mod tests {
         // Catalog-only signature: there's nothing in the file, PowerShell knows.
         let notepad = system.join("notepad.exe");
         if notepad.is_file() {
-            assert_eq!(signature(notepad.to_str().unwrap()), ("valid".into(), Some("Microsoft Windows".into())));
+            assert_eq!(
+                signature(notepad.to_str().unwrap()),
+                ("valid".into(), Some("Microsoft Windows".into()))
+            );
         }
         // No signature: this very test executable.
         let me = std::env::current_exe().unwrap();
@@ -475,7 +597,11 @@ mod tests {
     #[test]
     fn la_firma_di_dotnet_e_di_dotnet() {
         // A .NET runtime DLL, if present: the Microsoft signature says ".NET".
-        let Ok(versions) = std::fs::read_dir(r"C:\Program Files\dotnet\shared\Microsoft.NETCore.App") else { return };
+        let Ok(versions) =
+            std::fs::read_dir(r"C:\Program Files\dotnet\shared\Microsoft.NETCore.App")
+        else {
+            return;
+        };
         let Some(corelib) = versions
             .filter_map(Result::ok)
             .map(|v| v.path().join("System.Private.CoreLib.dll"))
@@ -483,7 +609,10 @@ mod tests {
         else {
             return;
         };
-        assert_eq!(signature(corelib.to_str().unwrap()), ("valid".into(), Some(".NET".into())));
+        assert_eq!(
+            signature(corelib.to_str().unwrap()),
+            ("valid".into(), Some(".NET".into()))
+        );
     }
 
     #[test]
@@ -496,7 +625,12 @@ mod tests {
             r"C:\Program Files\dotnet\dotnet.exe",
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
         ];
-        let Some(exe) = candidates.iter().find(|p| std::path::Path::new(p).is_file()) else { return };
+        let Some(exe) = candidates
+            .iter()
+            .find(|p| std::path::Path::new(p).is_file())
+        else {
+            return;
+        };
         assert_eq!(verify_embedded(exe), 0, "{exe}");
         let (signed, signer) = signature(exe);
         assert_eq!(signed, "valid");
@@ -516,7 +650,11 @@ mod tests {
 
     /// Runs a script in Windows PowerShell (i.e. .NET Framework) and returns its output.
     fn powershell(script: &str, env: &[(&str, &str)]) -> String {
-        let shell = system_directory().unwrap().join("WindowsPowerShell").join("v1.0").join("powershell.exe");
+        let shell = system_directory()
+            .unwrap()
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe");
         let output = std::process::Command::new(shell)
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .envs(env.iter().copied())
@@ -558,7 +696,17 @@ mod tests {
         let exe = exe_of(me).unwrap();
         // Only the name: inside an MSIX package the path seen from here is the virtualized one.
         let current = std::env::current_exe().unwrap();
-        assert!(exe.to_lowercase().ends_with(&current.file_name().unwrap().to_str().unwrap().to_lowercase()), "{exe}");
+        assert!(
+            exe.to_lowercase().ends_with(
+                &current
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_lowercase()
+            ),
+            "{exe}"
+        );
         assert!(!command_line(me).unwrap().is_empty());
         assert!(start_time(me).unwrap() > 0);
         assert!(process_table().contains_key(&me));

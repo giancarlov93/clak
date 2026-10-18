@@ -50,7 +50,9 @@ pub fn ask(
 ) -> Result<Object, HubUnavailable> {
     request.insert("type".into(), "request".into());
     if request.get("cwd").is_none_or(Value::is_null) {
-        let cwd = std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
+        let cwd = std::env::current_dir()
+            .map(|d| d.to_string_lossy().into_owned())
+            .unwrap_or_default();
         request.insert("cwd".into(), Value::String(cwd));
     }
     let closed = || HubUnavailable("Clak closed the connection without answering.".into());
@@ -58,7 +60,10 @@ pub fn ask(
     let mut stream = connect(home)?;
     let reader = stream.try_clone().map_err(|_| closed())?;
     let line = clak_wire::json::encode_line(&Value::Object(request));
-    stream.write_all(&line).and_then(|()| stream.flush()).map_err(|_| closed())?;
+    stream
+        .write_all(&line)
+        .and_then(|()| stream.flush())
+        .map_err(|_| closed())?;
     // Closed on exit no matter what: a read still in progress ends, and the hub sees the
     // connection closed (that is how an expired question is withdrawn).
     let _guard = Shutdown(&stream);
@@ -70,7 +75,10 @@ pub fn ask(
         let mut reader = BufReader::with_capacity(65536, reader);
         loop {
             let mut line = Vec::new();
-            match (&mut reader).take(MAX_LINE as u64).read_until(b'\n', &mut line) {
+            match (&mut reader)
+                .take(MAX_LINE as u64)
+                .read_until(b'\n', &mut line)
+            {
                 Ok(0) | Err(_) => return,
                 Ok(_) => {
                     if lines.send(line).is_err() {
@@ -90,11 +98,16 @@ pub fn ask(
         }
         match incoming.recv_timeout(left) {
             Ok(line) => {
-                let Some(message) = clak_wire::json::object(trim_line(&line)) else { continue };
+                let Some(message) = clak_wire::json::object(trim_line(&line)) else {
+                    continue;
+                };
                 match message.get("type").and_then(Value::as_str) {
                     Some("response") => return Ok(message),
                     Some("progress") => {
-                        stage = message.get("stage").and_then(Value::as_str).map(str::to_owned);
+                        stage = message
+                            .get("stage")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
                         progress(&message);
                     }
                     _ => {}
@@ -163,11 +176,14 @@ fn connect(home: &Path) -> Result<ipc::Stream, HubUnavailable> {
         if !started {
             if location::pause_flag(home).exists() {
                 return Err(HubUnavailable(
-                    "Clak was closed by the user: until they reopen it, no program can be reached.".into(),
+                    "Clak was closed by the user: until they reopen it, no program can be reached."
+                        .into(),
                 ));
             }
             if !launcher::start() {
-                return Err(HubUnavailable("Clak is not running, and I cannot start it.".into()));
+                return Err(HubUnavailable(
+                    "Clak is not running, and I cannot start it.".into(),
+                ));
             }
             started = true;
         }
@@ -211,30 +227,53 @@ mod tests {
 
     #[test]
     fn se_il_tempo_scade_mentre_si_aspetta_l_utente_e_no_answer_e_la_domanda_si_ritira() {
-        let hub = FakeHub::new(vec![FakeHub::progress("consent", "waiting for the user to answer…")]);
+        let hub = FakeHub::new(vec![FakeHub::progress(
+            "consent",
+            "waiting for the user to answer…",
+        )]);
         let request = json!({"op": "list"}).as_object().cloned().unwrap();
         let response = ask(request, Duration::from_millis(300), &hub.home, |_| {}).unwrap();
         assert_eq!(response["code"], "no_answer");
-        assert!(response["error"].as_str().unwrap().contains("whether they are at the computer"));
+        assert!(
+            response["error"]
+                .as_str()
+                .unwrap()
+                .contains("whether they are at the computer")
+        );
         // The hub sees the connection closed: that is how it withdraws the question to the user.
-        assert!(hub.wait_closed(1, Duration::from_secs(3)), "the hub did not see the connection close");
+        assert!(
+            hub.wait_closed(1, Duration::from_secs(3)),
+            "the hub did not see the connection close"
+        );
     }
 
     #[test]
     fn se_il_tempo_scade_mentre_si_aspetta_il_programma_e_wait_timeout() {
         // After the user's yes, the wait is for the program: it may have acted anyway.
-        for script in [vec![FakeHub::progress("consent", "…"), FakeHub::progress("allowed", "…")], vec![]] {
+        for script in [
+            vec![
+                FakeHub::progress("consent", "…"),
+                FakeHub::progress("allowed", "…"),
+            ],
+            vec![],
+        ] {
             let hub = FakeHub::new(script);
             let request = json!({"op": "call"}).as_object().cloned().unwrap();
             let response = ask(request, Duration::from_millis(300), &hub.home, |_| {}).unwrap();
             assert_eq!(response["code"], "wait_timeout");
-            assert!(response["error"].as_str().unwrap().contains("check whether it took effect"));
+            assert!(
+                response["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("check whether it took effect")
+            );
         }
     }
 
     #[test]
     fn l_hub_chiuso_dall_utente_non_si_riapre() {
-        let home = std::env::temp_dir().join(format!("clak-paused-{}", clak_wire::json::random_hex(4)));
+        let home =
+            std::env::temp_dir().join(format!("clak-paused-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(location::pause_flag(&home), b"").unwrap();
         let error = ask(Object::new(), Duration::from_secs(1), &home, |_| {}).unwrap_err();

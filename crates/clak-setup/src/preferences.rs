@@ -9,7 +9,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 /// The preferences file, in the hub's folder.
-pub const FILE_NAME: &str = if cfg!(windows) { "win.json" } else { "mac.json" };
+pub const FILE_NAME: &str = if cfg!(windows) {
+    "win.json"
+} else {
+    "mac.json"
+};
 
 /// The preferences file of this hub folder.
 pub fn file(home: &Path) -> PathBuf {
@@ -24,7 +28,10 @@ pub struct Preferences {
 
 impl Preferences {
     pub fn new(home: impl Into<PathBuf>) -> Preferences {
-        Preferences { home: home.into(), lock: Mutex::new(()) }
+        Preferences {
+            home: home.into(),
+            lock: Mutex::new(()),
+        }
     }
 
     pub fn path(&self) -> PathBuf {

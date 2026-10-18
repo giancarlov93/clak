@@ -2,7 +2,9 @@
 //! that connects: here they are cleaned up and shortened, because they end up in a window
 //! that asks for a permission.
 
-use crate::consent::{AgentIdentity, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, SettingsChange};
+use crate::consent::{
+    AgentIdentity, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, SettingsChange,
+};
 use crate::core::AppConn;
 use crate::wire::{ResourceDef, ToolDef, origin_label};
 use chrono::{Local, TimeZone};
@@ -19,25 +21,43 @@ pub fn session(id: String, agent: &AgentIdentity, cwd: Option<&str>) -> ConsentR
         what: vec![],
         tools: vec![],
         warning: None,
-        note: "Valid while this process stays open. Using a program will need separate consent.".into(),
+        note: "Valid while this process stays open. Using a program will need separate consent."
+            .into(),
     }
 }
 
 fn tools_of(app: &AppConn) -> Vec<ConsentTool> {
     app.tools
         .iter()
-        .map(|t| ConsentTool { name: t.name.clone(), description: clean(Some(&t.description), 400), note: None })
+        .map(|t| ConsentTool {
+            name: t.name.clone(),
+            description: clean(Some(&t.description), 400),
+            note: None,
+        })
         .collect()
 }
 
-pub fn use_app(id: String, agent: &AgentIdentity, cwd: Option<&str>, new_session: bool, app: &AppConn) -> ConsentRequest {
-    let also = if new_session { " If you allow, the agent also connects to Clak." } else { "" };
+pub fn use_app(
+    id: String,
+    agent: &AgentIdentity,
+    cwd: Option<&str>,
+    new_session: bool,
+    app: &AppConn,
+) -> ConsentRequest {
+    let also = if new_session {
+        " If you allow, the agent also connects to Clak."
+    } else {
+        ""
+    };
     if app.is_hub() {
         return ConsentRequest {
             id,
             kind: ConsentKind::Use,
             title: format!("{} wants to use Clak's settings", agent.name),
-            question: format!("Allow {} to see the MCP servers and REST APIs of Clak, and to propose changes?", agent.name),
+            question: format!(
+                "Allow {} to see the MCP servers and REST APIs of Clak, and to propose changes?",
+                agent.name
+            ),
             who: who(agent, cwd),
             what: what(app),
             tools: tools_of(app),
@@ -71,24 +91,43 @@ pub fn use_app(id: String, agent: &AgentIdentity, cwd: Option<&str>, new_session
 
 /// An MCP server asks for confirmation halfway through a command. The message is its own:
 /// it is cleaned up, and the hub says who launched it.
-pub fn confirm(id: String, app: &AppConn, agent: Option<&AgentIdentity>, cwd: Option<&str>, message: &str) -> ConsentRequest {
+pub fn confirm(
+    id: String,
+    app: &AppConn,
+    agent: Option<&AgentIdentity>,
+    cwd: Option<&str>,
+    message: &str,
+) -> ConsentRequest {
     let text = clean(Some(message), 600);
     ConsentRequest {
         id,
         kind: ConsentKind::Confirm,
-        title: format!("{} asks for confirmation", clean(Some(&app.resource.app), 80)),
-        question: if text.is_empty() { "Confirm?".into() } else { text },
+        title: format!(
+            "{} asks for confirmation",
+            clean(Some(&app.resource.app), 80)
+        ),
+        question: if text.is_empty() {
+            "Confirm?".into()
+        } else {
+            text
+        },
         who: agent.map(|a| who(a, cwd)).unwrap_or_default(),
         what: what(app),
         tools: vec![],
         warning: insecure(app),
-        note: "Your answer applies to this command only. If you cancel, the server doesn't run it.".into(),
+        note: "Your answer applies to this command only. If you cancel, the server doesn't run it."
+            .into(),
     }
 }
 
 /// An agent proposes a change to the settings: the hub says what changes, line by line;
 /// names and addresses come from the agent (or from an OpenAPI), and are cleaned up.
-pub fn change(id: String, agent: Option<&AgentIdentity>, cwd: Option<&str>, change: &SettingsChange) -> ConsentRequest {
+pub fn change(
+    id: String,
+    agent: Option<&AgentIdentity>,
+    cwd: Option<&str>,
+    change: &SettingsChange,
+) -> ConsentRequest {
     ConsentRequest {
         id,
         kind: ConsentKind::Change,
@@ -98,7 +137,11 @@ pub fn change(id: String, agent: Option<&AgentIdentity>, cwd: Option<&str>, chan
             Some(agent) => format!("Allow {} to {}?", agent.name, change.action),
         },
         who: agent.map(|a| who(a, cwd)).unwrap_or_default(),
-        what: change.lines.iter().map(|l| ConsentLine::new(l.label.clone(), clean(Some(&l.value), 300))).collect(),
+        what: change
+            .lines
+            .iter()
+            .map(|l| ConsentLine::new(l.label.clone(), clean(Some(&l.value), 300)))
+            .collect(),
         tools: change
             .tools
             .iter()
@@ -113,12 +156,23 @@ pub fn change(id: String, agent: Option<&AgentIdentity>, cwd: Option<&str>, chan
     }
 }
 
-pub fn tool(id: String, agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn, tool: &ToolDef, changed: bool) -> ConsentRequest {
+pub fn tool(
+    id: String,
+    agent: &AgentIdentity,
+    cwd: Option<&str>,
+    app: &AppConn,
+    tool: &ToolDef,
+    changed: bool,
+) -> ConsentRequest {
     let title = clean(Some(&app.resource.title), 80);
     ConsentRequest {
         id,
         kind: ConsentKind::Tool,
-        title: if changed { format!("“{title}” changed a command") } else { format!("“{title}” has a new command") },
+        title: if changed {
+            format!("“{title}” changed a command")
+        } else {
+            format!("“{title}” has a new command")
+        },
         question: format!("Allow {} to use “{}”?", agent.name, tool.name),
         who: who(agent, cwd),
         what: what(app),
@@ -143,13 +197,25 @@ pub fn tool(id: String, agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn,
     }
 }
 
-pub fn app(id: String, resource: &ResourceDef, origin: &Value, tools: &[ToolDef], remembered: bool) -> ConsentRequest {
+pub fn app(
+    id: String,
+    resource: &ResourceDef,
+    origin: &Value,
+    tools: &[ToolDef],
+    remembered: bool,
+) -> ConsentRequest {
     let exe = origin.get("exe").and_then(Value::as_str);
-    let mut who = vec![ConsentLine::new("Executable", exe.unwrap_or("not identified"))];
+    let mut who = vec![ConsentLine::new(
+        "Executable",
+        exe.unwrap_or("not identified"),
+    )];
     if exe.is_some() {
         who.push(ConsentLine::new(
             "Signature",
-            signature_text(origin.get("signed").and_then(Value::as_str), origin.get("signer").and_then(Value::as_str)),
+            signature_text(
+                origin.get("signed").and_then(Value::as_str),
+                origin.get("signer").and_then(Value::as_str),
+            ),
         ));
     }
     if let Some(pid) = origin.get("pid").filter(|p| !p.is_null()) {
@@ -178,7 +244,11 @@ pub fn app(id: String, resource: &ResourceDef, origin: &Value, tools: &[ToolDef]
         what: vec![ConsentLine::new("Program", format!("{program} — {title}"))],
         tools: tools
             .iter()
-            .map(|t| ConsentTool { name: t.name.clone(), description: clean(Some(&t.description), 400), note: None })
+            .map(|t| ConsentTool {
+                name: t.name.clone(),
+                description: clean(Some(&t.description), 400),
+                note: None,
+            })
             .collect(),
         warning,
         note: if remembered {
@@ -192,22 +262,35 @@ pub fn app(id: String, resource: &ResourceDef, origin: &Value, tools: &[ToolDef]
 fn who(agent: &AgentIdentity, cwd: Option<&str>) -> Vec<ConsentLine> {
     let process = match agent.started_at {
         Some(at) if agent.started > 0 => match Local.timestamp_opt(at as i64, 0).single() {
-            Some(local) => format!("pid {}, started {}", agent.pid, local.format("%b %-d %H:%M")),
+            Some(local) => format!(
+                "pid {}, started {}",
+                agent.pid,
+                local.format("%b %-d %H:%M")
+            ),
             None => format!("pid {}", agent.pid),
         },
         _ => format!("pid {}", agent.pid),
     };
     let mut lines = vec![
         ConsentLine::new("Agent", agent.name.clone()),
-        ConsentLine::new("Executable", agent.exe.clone().unwrap_or_else(|| "not identified".into())),
-        ConsentLine::new("Signature", signature_text(Some(&agent.signed), agent.signer.as_deref())),
+        ConsentLine::new(
+            "Executable",
+            agent.exe.clone().unwrap_or_else(|| "not identified".into()),
+        ),
+        ConsentLine::new(
+            "Signature",
+            signature_text(Some(&agent.signed), agent.signer.as_deref()),
+        ),
         ConsentLine::new("Process", process),
     ];
     if agent.chain.len() > 1 {
         lines.push(ConsentLine::new("Chain", agent.chain.join(" ← ")));
     }
     if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {
-        lines.push(ConsentLine::new("Folder", format!("{} (declared)", clean(Some(cwd), 160))));
+        lines.push(ConsentLine::new(
+            "Folder",
+            format!("{} (declared)", clean(Some(cwd), 160)),
+        ));
     }
     lines
 }
@@ -216,10 +299,18 @@ fn what(app: &AppConn) -> Vec<ConsentLine> {
     let mut lines = vec![
         ConsentLine::new(
             "Program",
-            format!("{} — {}", clean(Some(&app.resource.app), 80), clean(Some(&app.resource.title), 80)),
+            format!(
+                "{} — {}",
+                clean(Some(&app.resource.app), 80),
+                clean(Some(&app.resource.title), 80)
+            ),
         ),
         ConsentLine::new(
-            if app.is_connector() || app.is_hub() { "Service" } else { "Executable" },
+            if app.is_connector() || app.is_hub() {
+                "Service"
+            } else {
+                "Executable"
+            },
             origin_label(&app.origin),
         ),
     ];

@@ -39,16 +39,31 @@ impl AppPermissions {
             .and_then(|v| v.get("apps").and_then(Value::as_array).cloned())
         {
             for item in list.iter().filter_map(Value::as_object) {
-                let Some(key) = item.get("key").and_then(Value::as_str).filter(|k| !k.is_empty()) else {
+                let Some(key) = item
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .filter(|k| !k.is_empty())
+                else {
                     continue;
                 };
                 entries.insert(
                     key.to_owned(),
                     Entry {
                         key: key.to_owned(),
-                        exe: item.get("exe").and_then(Value::as_str).unwrap_or("").to_owned(),
-                        name: item.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
-                        signer: item.get("signer").and_then(Value::as_str).map(str::to_owned),
+                        exe: item
+                            .get("exe")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned(),
+                        name: item
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_owned(),
+                        signer: item
+                            .get("signer")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
                         since: item.get("since").and_then(Value::as_f64).unwrap_or(0.0),
                     },
                 );
@@ -67,8 +82,14 @@ impl AppPermissions {
     /// The key a program is remembered by, or nothing if it cannot be remembered.
     /// Slow for an unsigned executable (its content is read): never under the lock.
     pub fn key_for(platform: &dyn Platform, origin: &Value, name: &str) -> Option<String> {
-        let exe = origin.get("exe").and_then(Value::as_str).filter(|e| !e.is_empty())?;
-        let signer = origin.get("signer").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let exe = origin
+            .get("exe")
+            .and_then(Value::as_str)
+            .filter(|e| !e.is_empty())?;
+        let signer = origin
+            .get("signer")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
         let identity = match (origin.get("signed").and_then(Value::as_str), signer) {
             (Some("valid"), Some(signer)) => format!("firma:{signer}"),
             _ => format!("sha256:{}", platform.executable_hash(exe)?),
@@ -86,9 +107,20 @@ impl AppPermissions {
             key.to_owned(),
             Entry {
                 key: key.to_owned(),
-                exe: origin.get("exe").and_then(Value::as_str).unwrap_or("").to_owned(),
+                exe: origin
+                    .get("exe")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
                 name: name.to_owned(),
-                signer: if signed { origin.get("signer").and_then(Value::as_str).map(str::to_owned) } else { None },
+                signer: if signed {
+                    origin
+                        .get("signer")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                } else {
+                    None
+                },
                 since: json::now(),
             },
         );

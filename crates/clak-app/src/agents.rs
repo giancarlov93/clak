@@ -50,19 +50,35 @@ struct Setup {
 
 /// The app folder: `clak` and the shim sit next to it, as the installer puts them.
 fn app_directory() -> PathBuf {
-    std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)).unwrap_or_default()
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_default()
 }
 
 impl Setup {
     fn new(home: &Path) -> Setup {
         let places = Places::real();
         let folder = app_directory();
-        let cli = Some(folder.join(installation::CLI)).filter(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned());
+        let cli = Some(folder.join(installation::CLI))
+            .filter(|p| p.is_file())
+            .map(|p| p.to_string_lossy().into_owned());
         let shim = shim::locate(&folder, home);
-        let skills = cli.iter().flat_map(|cli| Skill::agents(&places, cli.clone())).collect();
-        let command = shim.clone().unwrap_or_else(|| vec![shim::FILE_NAME.to_owned()]);
+        let skills = cli
+            .iter()
+            .flat_map(|cli| Skill::agents(&places, cli.clone()))
+            .collect();
+        let command = shim
+            .clone()
+            .unwrap_or_else(|| vec![shim::FILE_NAME.to_owned()]);
         let clients = clients::all(&places, &command);
-        Setup { places, cli, shim, skills, clients }
+        Setup {
+            places,
+            cli,
+            shim,
+            skills,
+            clients,
+        }
     }
 
     /// A path inside the home, written as the user would write it (on the Mac).
@@ -100,7 +116,12 @@ impl Setup {
         Some(Row {
             id: "path".into(),
             name: "clak".into(),
-            state: if inside { "In PATH" } else { "Not in PATH · optional, the skill uses the full path" }.into(),
+            state: if inside {
+                "In PATH"
+            } else {
+                "Not in PATH · optional, the skill uses the full path"
+            }
+            .into(),
             tone: if inside { "ok" } else { "off" },
             path: cli.clone(),
             primary: (!inside).then_some("Add to PATH"),
@@ -118,11 +139,26 @@ impl Setup {
         let status = link.status();
         let folder = self.show(Path::new(link.folder()));
         let (state, tone) = match status.state {
-            S::NoFolder => (format!("No {folder} · optional, the skill uses the full path"), "off"),
-            S::Absent => ("Not in PATH · optional, the skill uses the full path".to_owned(), "off"),
+            S::NoFolder => (
+                format!("No {folder} · optional, the skill uses the full path"),
+                "off",
+            ),
+            S::Absent => (
+                "Not in PATH · optional, the skill uses the full path".to_owned(),
+                "off",
+            ),
             S::Ok => (format!("In PATH, linked from {folder}"), "ok"),
-            S::Stale => (format!("Links to another copy: {}", status.target.as_deref().unwrap_or("?")), "warn"),
-            S::Foreign => (format!("Another “clak” in {folder}, not ours: left alone"), "err"),
+            S::Stale => (
+                format!(
+                    "Links to another copy: {}",
+                    status.target.as_deref().unwrap_or("?")
+                ),
+                "warn",
+            ),
+            S::Foreign => (
+                format!("Another “clak” in {folder}, not ours: left alone"),
+                "err",
+            ),
         };
         let help = (status.state == S::NoFolder).then(|| {
             format!(
@@ -148,14 +184,28 @@ impl Setup {
 
     #[cfg(unix)]
     fn link(&self) -> Option<clak_setup::user_path::PathLink> {
-        self.cli.as_ref().map(|cli| clak_setup::user_path::PathLink::user_bin(&self.places, cli.clone()))
+        self.cli
+            .as_ref()
+            .map(|cli| clak_setup::user_path::PathLink::user_bin(&self.places, cli.clone()))
     }
 
     /// The agents on this computer; with none of them, Claude Code, to say it's missing.
     fn skill_rows(&self) -> Vec<Row> {
-        let present: Vec<Row> =
-            self.skills.iter().filter(|s| s.status().state != SkillState::NotInstalled).map(|s| self.skill_row(s)).collect();
-        if present.is_empty() { self.skills.first().map(|s| self.skill_row(s)).into_iter().collect() } else { present }
+        let present: Vec<Row> = self
+            .skills
+            .iter()
+            .filter(|s| s.status().state != SkillState::NotInstalled)
+            .map(|s| self.skill_row(s))
+            .collect();
+        if present.is_empty() {
+            self.skills
+                .first()
+                .map(|s| self.skill_row(s))
+                .into_iter()
+                .collect()
+        } else {
+            present
+        }
     }
 
     fn skill_row(&self, skill: &Skill) -> Row {
@@ -165,7 +215,10 @@ impl Setup {
             SkillState::Absent => ("not installed".to_owned(), "off"),
             SkillState::Ok => ("installed".to_owned(), "ok"),
             SkillState::Stale => ("outdated".to_owned(), "warn"),
-            SkillState::Foreign => ("another “clak” skill, not ours: left alone".to_owned(), "err"),
+            SkillState::Foreign => (
+                "another “clak” skill, not ours: left alone".to_owned(),
+                "err",
+            ),
         };
         Row {
             id: format!("skill:{}", skill.name()),
@@ -205,18 +258,24 @@ impl Setup {
                 ClientState::Absent if writable => Some("Add"),
                 _ => None,
             },
-            remove: matches!(status.state, ClientState::Ok | ClientState::Stale).then_some("Remove"),
+            remove: matches!(status.state, ClientState::Ok | ClientState::Stale)
+                .then_some("Remove"),
             help: None,
             copy: writable,
         }
     }
 
     fn skill(&self, id: &str) -> Option<&Skill> {
-        self.skills.iter().find(|s| format!("skill:{}", s.name()) == id)
+        self.skills
+            .iter()
+            .find(|s| format!("skill:{}", s.name()) == id)
     }
 
     fn client(&self, id: &str) -> Option<&dyn McpClient> {
-        self.clients.iter().find(|c| format!("client:{}", c.name()) == id).map(|c| c.as_ref())
+        self.clients
+            .iter()
+            .find(|c| format!("client:{}", c.name()) == id)
+            .map(|c| c.as_ref())
     }
 
     /// Adds (or updates) what the row says, and returns what to tell the user.
@@ -255,28 +314,42 @@ impl Setup {
 
     #[cfg(windows)]
     fn add_path(&self) -> Result<String, String> {
-        let cli = self.cli.as_ref().ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
-        clak_setup::user_path::UserPath::new(parent_of(cli)).add().map_err(|e| e.0)?;
+        let cli = self
+            .cli
+            .as_ref()
+            .ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
+        clak_setup::user_path::UserPath::new(parent_of(cli))
+            .add()
+            .map_err(|e| e.0)?;
         Ok("Added to PATH: it applies to programs started from now on.".into())
     }
 
     #[cfg(windows)]
     fn remove_path(&self) -> Result<String, String> {
-        let cli = self.cli.as_ref().ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
-        clak_setup::user_path::UserPath::new(parent_of(cli)).remove().map_err(|e| e.0)?;
+        let cli = self
+            .cli
+            .as_ref()
+            .ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
+        clak_setup::user_path::UserPath::new(parent_of(cli))
+            .remove()
+            .map_err(|e| e.0)?;
         Ok("Removed from PATH.".into())
     }
 
     #[cfg(unix)]
     fn add_path(&self) -> Result<String, String> {
-        let link = self.link().ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
+        let link = self
+            .link()
+            .ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
         link.add().map_err(|e| e.0)?;
         Ok("Added · applies to new shells".into())
     }
 
     #[cfg(unix)]
     fn remove_path(&self) -> Result<String, String> {
-        let link = self.link().ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
+        let link = self
+            .link()
+            .ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
         link.remove().map_err(|e| e.0)?;
         Ok("Removed from PATH".into())
     }
@@ -297,12 +370,19 @@ impl Setup {
 
 #[cfg(windows)]
 fn parent_of(cli: &str) -> PathBuf {
-    Path::new(cli).parent().map(Path::to_path_buf).unwrap_or_default()
+    Path::new(cli)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
 }
 
 /// The work on disk, registry and `claude mcp`, off the main thread.
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-    tokio::task::spawn_blocking(work).await.map_err(|e| e.to_string())
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 fn home(app: &AppHandle) -> PathBuf {
@@ -344,14 +424,23 @@ pub async fn agents_choose_shim(app: AppHandle) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let mut dialog = app.dialog().file().set_title("Where is the shim?");
-    dialog = if cfg!(windows) { dialog.add_filter("Clak shim", &["exe"]) } else { dialog };
+    dialog = if cfg!(windows) {
+        dialog.add_filter("Clak shim", &["exe"])
+    } else {
+        dialog
+    };
     dialog.pick_file(move |file| {
         let _ = sender.send(file);
     });
-    let Some(file) = receiver.await.ok().flatten() else { return Ok(false) };
+    let Some(file) = receiver.await.ok().flatten() else {
+        return Ok(false);
+    };
     let path = file.into_path().map_err(|e| e.to_string())?;
     let home = home(&app);
-    blocking(move || shim::remember(&home, &[path.to_string_lossy().into_owned()]).map_err(|e| e.0)).await??;
+    blocking(move || {
+        shim::remember(&home, &[path.to_string_lossy().into_owned()]).map_err(|e| e.0)
+    })
+    .await??;
     Ok(true)
 }
 
@@ -367,8 +456,17 @@ pub async fn agents_repair(app: AppHandle) -> Result<Value, String> {
 #[cfg(unix)]
 pub fn repair(home: &Path) -> Value {
     let setup = Setup::new(home);
-    let (Some(cli), Some(shim)) = (setup.cli.as_ref(), setup.shim.as_ref().and_then(|s| s.first())) else { return json!({}) };
-    json!(installation::repair_gone(&setup.places, Path::new(cli), Path::new(shim)))
+    let (Some(cli), Some(shim)) = (
+        setup.cli.as_ref(),
+        setup.shim.as_ref().and_then(|s| s.first()),
+    ) else {
+        return json!({});
+    };
+    json!(installation::repair_gone(
+        &setup.places,
+        Path::new(cli),
+        Path::new(shim)
+    ))
 }
 
 #[cfg(windows)]
@@ -413,7 +511,9 @@ pub async fn settings_status(app: AppHandle) -> Result<Value, String> {
 /// be a different one.
 fn installed(exe: &Path) -> bool {
     if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(PathBuf::from).is_some_and(|local| exe.starts_with(local.join("Programs")))
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .is_some_and(|local| exe.starts_with(local.join("Programs")))
     } else {
         exe.starts_with("/Applications/")
     }
@@ -427,14 +527,23 @@ pub async fn settings_open(app: AppHandle, target: String) -> Result<(), String>
         ("startup", true) => "ms-settings:startupapps",
         ("startup", false) => "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
         ("notifications", true) => "ms-settings:notifications",
-        ("notifications", false) => "x-apple.systempreferences:com.apple.Notifications-Settings.extension",
+        ("notifications", false) => {
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+        }
         ("home", _) => {
             let home = home(&app);
             let folder = home.clone();
-            blocking(move || std::fs::create_dir_all(&folder)).await?.map_err(|e| e.to_string())?;
-            return app.opener().open_path(home.to_string_lossy(), None::<&str>).map_err(|e| e.to_string());
+            blocking(move || std::fs::create_dir_all(&folder))
+                .await?
+                .map_err(|e| e.to_string())?;
+            return app
+                .opener()
+                .open_path(home.to_string_lossy(), None::<&str>)
+                .map_err(|e| e.to_string());
         }
         _ => return Err(format!("unknown target: {target}")),
     };
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }

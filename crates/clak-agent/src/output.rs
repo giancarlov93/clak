@@ -75,7 +75,9 @@ pub fn fit(text: &str, invocation: &Invocation, extension: &str) -> String {
         return text.to_owned();
     }
     // Better a text truncated by the agent than no text.
-    let Ok(path) = attachments::spill(text, invocation, extension) else { return text.to_owned() };
+    let Ok(path) = attachments::spill(text, invocation, extension) else {
+        return text.to_owned();
+    };
     let mut start = utf16_prefix(text, PREVIEW);
     // Up to the last whole line, if not too much is lost: a start cut midway confuses.
     if let Some(cut) = start.rfind('\n')
@@ -98,7 +100,9 @@ pub fn fit_json(json: &str, invocation: &Invocation) -> String {
     if length <= LIMIT {
         return json.to_owned();
     }
-    let Ok(path) = attachments::spill(json, invocation, ".json") else { return json.to_owned() };
+    let Ok(path) = attachments::spill(json, invocation, ".json") else {
+        return json.to_owned();
+    };
     pretty(&json!({
         "ok": true,
         "exit": Exit::OK,
@@ -110,7 +114,8 @@ pub fn fit_json(json: &str, invocation: &Invocation) -> String {
 /// The help of `clak -h`. The two lines that differ between systems are the file folder
 /// and what breaks the process chain from which the hub works out who is asking.
 pub fn help() -> String {
-    HELP.replace("{folder}", HELP_FOLDER).replace("{chain}", HELP_CHAIN)
+    HELP.replace("{folder}", HELP_FOLDER)
+        .replace("{chain}", HELP_CHAIN)
 }
 
 #[cfg(windows)]
@@ -119,7 +124,8 @@ const HELP_FOLDER: &str = r"%TEMP%\clak";
 const HELP_FOLDER: &str = "$TMPDIR/clak";
 
 #[cfg(windows)]
-const HELP_CHAIN: &str = "not inside timeout or xargs (in Git Bash they break the chain). For time limits use --wait.";
+const HELP_CHAIN: &str =
+    "not inside timeout or xargs (in Git Bash they break the chain). For time limits use --wait.";
 #[cfg(not(windows))]
 const HELP_CHAIN: &str = "not detached from the shell (in the background with &, with nohup or setsid), because an\n\
                           orphaned process breaks the chain. For time limits use --wait.";
@@ -172,18 +178,34 @@ mod tests {
     #[test]
     fn la_busta_di_json_e_sempre_la_stessa_e_un_risultato_json_resta_json() {
         let ok = clak_wire::json::parse_str(&success(Some(json!({"muri": 3})))).unwrap();
-        assert_eq!(clak_wire::json::text(&ok), r#"{"ok":true,"exit":0,"result":{"muri":3}}"#);
+        assert_eq!(
+            clak_wire::json::text(&ok),
+            r#"{"ok":true,"exit":0,"result":{"muri":3}}"#
+        );
         let ko = clak_wire::json::parse_str(&failure(7, Some("no_answer"), "nessuno")).unwrap();
-        assert_eq!(clak_wire::json::text(&ko), r#"{"ok":false,"exit":7,"code":"no_answer","error":"nessuno"}"#);
+        assert_eq!(
+            clak_wire::json::text(&ko),
+            r#"{"ok":false,"exit":7,"code":"no_answer","error":"nessuno"}"#
+        );
         // Indented by two spaces.
-        assert_eq!(success(Some(json!(1))), "{\n  \"ok\": true,\n  \"exit\": 0,\n  \"result\": 1\n}");
+        assert_eq!(
+            success(Some(json!(1))),
+            "{\n  \"ok\": true,\n  \"exit\": 0,\n  \"result\": 1\n}"
+        );
 
         // A text that is JSON becomes JSON; other text stays text; a value that isn't blocks stays as is.
-        let blocks = clak_wire::json::parse_str(r#"[{"type":"text","text":"{\"muri\": 3}"}]"#).unwrap();
-        assert_eq!(clak_wire::json::text(&value(Some(&blocks), r#"{"muri": 3}"#)), r#"{"muri":3}"#);
+        let blocks =
+            clak_wire::json::parse_str(r#"[{"type":"text","text":"{\"muri\": 3}"}]"#).unwrap();
+        assert_eq!(
+            clak_wire::json::text(&value(Some(&blocks), r#"{"muri": 3}"#)),
+            r#"{"muri":3}"#
+        );
         assert_eq!(value(Some(&json!("ciao")), "ciao"), json!("ciao"));
         assert_eq!(value(None, "{non è JSON"), json!("{non è JSON"));
-        assert_eq!(clak_wire::json::text(&value(Some(&json!({"a": 1})), "")), r#"{"a":1}"#);
+        assert_eq!(
+            clak_wire::json::text(&value(Some(&json!({"a": 1})), "")),
+            r#"{"a":1}"#
+        );
     }
 
     #[test]
@@ -191,7 +213,10 @@ mod tests {
         let invocation = Invocation::call("revit", "run_python");
         assert_eq!(fit("corto", &invocation, ".txt"), "corto");
 
-        let text = (0..5000).map(|i| format!("riga {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..5000)
+            .map(|i| format!("riga {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.len() > LIMIT);
         let notice = fit(&text, &invocation, ".txt");
         assert!(notice.starts_with(&format!("The result is long ({} characters", text.len())));
@@ -230,8 +255,12 @@ mod tests {
     #[test]
     fn l_aiuto_dice_comandi_uscite_e_dove_finiscono_i_file() {
         let help = help();
-        assert!(help.starts_with("clak — use the programs open on the user's computer that are connected to Clak.\n\n"));
-        assert!(help.ends_with("6 the program did not answer in time · 7 the user did not answer\n"));
+        assert!(help.starts_with(
+            "clak — use the programs open on the user's computer that are connected to Clak.\n\n"
+        ));
+        assert!(
+            help.ends_with("6 the program did not answer in time · 7 the user did not answer\n")
+        );
         assert!(!help.contains('{') || help.contains(r#"'{"name": "value"}'"#));
         assert!(!help.contains("{folder}") && !help.contains("{chain}"));
         #[cfg(windows)]

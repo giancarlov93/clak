@@ -50,7 +50,9 @@ pub(crate) fn same_exe(a: &str, b: &str) -> bool {
         if p.trim().is_empty() {
             return None;
         }
-        std::path::absolute(p).ok().map(|p| p.to_string_lossy().to_lowercase())
+        std::path::absolute(p)
+            .ok()
+            .map(|p| p.to_string_lossy().to_lowercase())
     };
     match (full(&crate::registry::expand(a)), full(b)) {
         (Some(a), Some(b)) => a == b,
@@ -87,7 +89,10 @@ mod windows {
 
         /// Under another HKCU key: for the tests.
         pub fn with_root(exe: impl Into<PathBuf>, root: impl Into<String>) -> Autostart {
-            Autostart { exe: exe.into(), root: root.into() }
+            Autostart {
+                exe: exe.into(),
+                root: root.into(),
+            }
         }
 
         fn run_key(&self) -> String {
@@ -109,7 +114,9 @@ mod windows {
         }
 
         pub fn state(&self) -> AutostartState {
-            let Some(registered) = self.registered() else { return AutostartState::Off };
+            let Some(registered) = self.registered() else {
+                return AutostartState::Off;
+            };
             if !same_exe(&registered, &self.exe.to_string_lossy()) {
                 return AutostartState::Elsewhere;
             }
@@ -117,7 +124,11 @@ mod windows {
             let disabled = registry::open(&self.approved_key(), false)
                 .and_then(|k| k.binary(Some(NAME)))
                 .is_some_and(|flags| flags.first().is_some_and(|b| b & 1 == 1));
-            if disabled { AutostartState::DisabledBySystem } else { AutostartState::On }
+            if disabled {
+                AutostartState::DisabledBySystem
+            } else {
+                AutostartState::On
+            }
         }
 
         pub fn enable(&self) -> Result<()> {
@@ -174,14 +185,24 @@ mod unix {
             let folder = if cfg!(target_os = "macos") {
                 home.join("Library").join("LaunchAgents")
             } else {
-                dirs::config_dir().unwrap_or_else(|| home.join(".config")).join("autostart")
+                dirs::config_dir()
+                    .unwrap_or_else(|| home.join(".config"))
+                    .join("autostart")
             };
-            Autostart { exe: exe.into(), folder, system: true }
+            Autostart {
+                exe: exe.into(),
+                folder,
+                system: true,
+            }
         }
 
         /// In another folder, without asking the system anything: for the tests.
         pub fn with_folder(exe: impl Into<PathBuf>, folder: impl Into<PathBuf>) -> Autostart {
-            Autostart { exe: exe.into(), folder: folder.into(), system: false }
+            Autostart {
+                exe: exe.into(),
+                folder: folder.into(),
+                system: false,
+            }
         }
 
         pub fn exe(&self) -> &Path {
@@ -212,11 +233,17 @@ mod unix {
         }
 
         pub fn state(&self) -> AutostartState {
-            let Some(registered) = self.registered() else { return AutostartState::Off };
+            let Some(registered) = self.registered() else {
+                return AutostartState::Off;
+            };
             if !crate::clients::same_path_text(&registered, &self.exe.to_string_lossy()) {
                 return AutostartState::Elsewhere;
             }
-            if self.system && disabled_by_system() { AutostartState::DisabledBySystem } else { AutostartState::On }
+            if self.system && disabled_by_system() {
+                AutostartState::DisabledBySystem
+            } else {
+                AutostartState::On
+            }
         }
 
         pub fn enable(&self) -> Result<()> {
@@ -237,7 +264,9 @@ mod unix {
                     escape(&exe)
                 )
             } else {
-                format!("[Desktop Entry]\nType=Application\nName=Clak\nExec=\"{exe}\"\nX-GNOME-Autostart-enabled=true\n")
+                format!(
+                    "[Desktop Entry]\nType=Application\nName=Clak\nExec=\"{exe}\"\nX-GNOME-Autostart-enabled=true\n"
+                )
             };
             let file = self.file();
             let write = || -> std::io::Result<()> {
@@ -257,17 +286,26 @@ mod unix {
             match std::fs::remove_file(self.file()) {
                 Ok(()) => Ok(()),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                Err(e) => Err(SetupError(format!("Can't remove {}: {e}", self.file().display()))),
+                Err(e) => Err(SetupError(format!(
+                    "Can't remove {}: {e}",
+                    self.file().display()
+                ))),
             }
         }
     }
 
     fn escape(text: &str) -> String {
-        text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
     }
 
     fn unescape(text: &str) -> String {
-        text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+        text.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
     }
 
     /// `gui/<uid>`, the launchd domain of the user's session.
@@ -277,7 +315,10 @@ mod unix {
     }
 
     fn launchctl(args: &[&str]) -> Option<String> {
-        let output = std::process::Command::new("/bin/launchctl").args(args).output().ok()?;
+        let output = std::process::Command::new("/bin/launchctl")
+            .args(args)
+            .output()
+            .ok()?;
         Some(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
@@ -286,7 +327,9 @@ mod unix {
         if !cfg!(target_os = "macos") {
             return false;
         }
-        let Some(text) = launchctl(&["print-disabled", &domain()]) else { return false };
+        let Some(text) = launchctl(&["print-disabled", &domain()]) else {
+            return false;
+        };
         let needle = format!("\"{LABEL}\" =>");
         text.lines().any(|line| {
             let line = line.trim();

@@ -28,7 +28,11 @@ pub struct ClakHost {
 
 impl ClakHost {
     /// Starts the hub on this folder, or nothing if there is one already.
-    pub async fn try_start(home: &Path, options: HubOptions, log: Option<LogSink>) -> std::io::Result<Option<ClakHost>> {
+    pub async fn try_start(
+        home: &Path,
+        options: HubOptions,
+        log: Option<LogSink>,
+    ) -> std::io::Result<Option<ClakHost>> {
         let timing = options.connector_timing;
         // `Hub::try_start` takes the options: what's needed later is read before.
         let with_settings = options.settings;
@@ -44,7 +48,8 @@ impl ClakHost {
         let apis = match ApiHub::start(hub.broker().clone(), home) {
             Ok(apis) => Some(apis),
             Err(e) => {
-                hub.broker().run(|c| c.log(format!("REST APIs unavailable: {e}")));
+                hub.broker()
+                    .run(|c| c.log(format!("REST APIs unavailable: {e}")));
                 None
             }
         };
@@ -52,13 +57,19 @@ impl ClakHost {
         // APIs they don't start, because half of their commands would have nowhere to go.
         let settings = match (&apis, with_settings) {
             (Some(apis), true) => {
-                let settings = HubSettings::new(hub.broker().clone(), connectors.clone(), apis.clone());
+                let settings =
+                    HubSettings::new(hub.broker().clone(), connectors.clone(), apis.clone());
                 settings.start();
                 Some(settings)
             }
             _ => None,
         };
-        Ok(Some(ClakHost { hub, connectors, apis, settings }))
+        Ok(Some(ClakHost {
+            hub,
+            connectors,
+            apis,
+            settings,
+        }))
     }
 
     pub fn broker(&self) -> &Broker {
