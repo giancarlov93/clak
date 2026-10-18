@@ -44,15 +44,14 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             test: true
-            files: nsis/*-setup.exe
           - os: macos-latest
             target: aarch64-apple-darwin
             test: true
-            files: dmg/*.dmg
+            arch: aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
             test: false
-            files: dmg/*.dmg
+            arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -94,10 +93,12 @@ jobs:
         run: cargo test
 
       # The Mac: signed with the Developer ID if the repository has the secrets (without them,
-      # signed ad hoc as before).
+      # signed ad hoc as before). With the updater key, the files for the updater too.
       - name: Installer
         shell: bash
         env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Tauri imports the certificate (.p12 in base64) into a keychain of its own.
           APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
@@ -129,10 +130,30 @@ jobs:
           echo "Notarization of ${{ matrix.target }} sent to Apple: \`$id\`" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Check it with \`xcrun notarytool info $id\`." >> "$GITHUB_STEP_SUMMARY"
 
+      # The two Mac builds both make Clak.app.tar.gz: named by architecture, like the dmg.
+      - name: Files
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          bundle="target/${{ matrix.target }}/release/bundle"
+          mkdir -p dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "$bundle"/nsis/*-setup.exe* dist/
+          else
+            cp "$bundle"/dmg/*.dmg dist/
+            for file in Clak.app.tar.gz Clak.app.tar.gz.sig; do
+              if [ -f "$bundle/macos/$file" ]; then
+                cp "$bundle/macos/$file" "dist/${file/Clak/Clak_${VERSION}_${{ matrix.arch }}}"
+              fi
+            done
+          fi
+          ls -l dist
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: clak-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/bundle/${{ matrix.files }}
+          path: dist/*
           if-no-files-found: error
 
   release:
@@ -141,7 +162,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          sparse-checkout: CHANGELOG.md
+          sparse-checkout: |
+            CHANGELOG.md
+            scripts/updater-manifest.mjs
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -150,6 +173,7 @@ jobs:
           merge-multiple: true
 
       # The notes: the changelog's Unreleased section first, then what GitHub generates.
+      # latest.json is what the installed apps' updater reads.
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -157,6 +181,7 @@ jobs:
         run: |
           ls -l dist
           awk '/^## \[Unreleased\]/ { on = 1; next } /^## \[/ { on = 0 } on' CHANGELOG.md > notes.md
+          node scripts/updater-manifest.mjs dist "$VERSION" "${{ github.repository }}" notes.md
           gh release create "v$VERSION" dist/* \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \

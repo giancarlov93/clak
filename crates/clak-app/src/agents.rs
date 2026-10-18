@@ -486,6 +486,7 @@ pub async fn settings_status(app: AppHandle) -> Result<Value, String> {
     let consent_sound = bridge.prefs.consent_sound();
     let connection_sound = bridge.prefs.connection_sound();
     let update_check = bridge.prefs.update_check();
+    let auto_update = bridge.prefs.auto_update();
     let home = bridge.home().to_string_lossy().into_owned();
     let version = app.package_info().version.to_string();
     let autostart = blocking(|| {
@@ -506,6 +507,7 @@ pub async fn settings_status(app: AppHandle) -> Result<Value, String> {
         "consent_sound": consent_sound,
         "connection_sound": connection_sound,
         "update_check": update_check,
+        "auto_update": auto_update,
         "update": crate::updates::update_status(),
         "home": home,
         "version": version,

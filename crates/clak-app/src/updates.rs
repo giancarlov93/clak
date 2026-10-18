@@ -1,8 +1,9 @@
-//! Whether a newer Clak is out: the latest GitHub release, read now and then. It only tells
-//! the user (a notification, and the Settings tab with a link to the release page); nothing
-//! is downloaded or installed.
+//! Whether a newer Clak is out: the latest GitHub release, read now and then. The user is
+//! told (a notification, the Settings tab), and the update installs through Tauri's updater:
+//! on request, or by itself when the user opted in and no agent is connected. The updater
+//! only accepts files signed with Clak's key (the public half is in tauri.conf.json).
 
-use crate::bridge;
+use crate::{bridge, notices};
 use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -15,6 +16,8 @@ const RELEASES: &str = "https://github.com/giancarlov93/clak/releases/";
 const OPT_OUT: &str = "CLAK_NO_UPDATE_CHECK";
 const FIRST: Duration = Duration::from_secs(30);
 const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// An automatic install waits for a moment without agents: it looks again this often.
+const IDLE_RETRY: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
@@ -29,6 +32,7 @@ struct Seen {
     /// The version already notified: once per version.
     notified: Option<String>,
     etag: Option<String>,
+    installing: bool,
 }
 
 static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
@@ -45,15 +49,29 @@ fn enabled(app: &AppHandle) -> bool {
         && bridge::of(app).prefs.update_check()
 }
 
-/// Checks a little after the start, then every few hours.
+/// Whether an automatic install goes ahead now: opted in, something newer, nobody connected.
+pub fn install_now(auto: bool, newer: bool, busy: usize) -> bool {
+    auto && newer && busy == 0
+}
+
+/// Checks a little after the start, then every few hours; more often while an automatic
+/// install waits for the agents to go.
 pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FIRST).await;
         loop {
+            let mut waiting = false;
             if enabled(&app) {
                 check(&app).await;
+                let bridge = bridge::of(&app);
+                let auto = bridge.prefs.auto_update();
+                let newer = with(|seen| seen.newer.is_some());
+                if install_now(auto, newer, notices::connected(&bridge.state())) {
+                    let _ = install(&app).await;
+                }
+                waiting = auto && newer;
             }
-            tokio::time::sleep(EVERY).await;
+            tokio::time::sleep(if waiting { IDLE_RETRY } else { EVERY }).await;
         }
     });
 }
@@ -82,7 +100,11 @@ async fn check(app: &AppHandle) {
             .notification()
             .builder()
             .title(format!("Clak {} is available", release.version))
-            .body("Download it from Settings › About.")
+            .body(if bridge::of(app).prefs.auto_update() {
+                "It installs by itself when no agent is connected."
+            } else {
+                "Install it from Settings › About."
+            })
             .show();
     }
 }
@@ -174,6 +196,85 @@ pub fn update_open(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Downloads, checks the signature and installs: agents and programs are disconnected,
+/// then Clak starts again on the new copy (on Windows the installer reopens it).
+#[tauri::command]
+pub async fn update_install(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    if notices::connected(&bridge::of(&app).state()) > 0 {
+        let (answer, asked) = tokio::sync::oneshot::channel();
+        app.dialog()
+            .message(
+                "Agents and programs are disconnected while Clak updates, then it starts again.",
+            )
+            .title("Install the update now?")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Install".into(),
+                "Cancel".into(),
+            ))
+            .show(move |yes| {
+                let _ = answer.send(yes);
+            });
+        if !asked.await.unwrap_or(false) {
+            return Ok(());
+        }
+    }
+    install(&app).await
+}
+
+async fn install(app: &AppHandle) -> Result<(), String> {
+    if with(|seen| std::mem::replace(&mut seen.installing, true)) {
+        return Err("An update is already being installed.".into());
+    }
+    let result = download_and_install(app).await;
+    with(|seen| seen.installing = false);
+    if let Err(e) = &result {
+        let _ = app.emit("update-progress", json!({ "error": e }));
+    }
+    result
+}
+
+async fn download_and_install(app: &AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let text = |e: tauri_plugin_updater::Error| e.to_string();
+    // On Windows the installer's own hook (--setup) reopens Clak: the updater mustn't as well.
+    let updater = app
+        .updater_builder()
+        .restart_after_install(false)
+        .build()
+        .map_err(text)?;
+    let update = updater
+        .check()
+        .await
+        .map_err(text)?
+        .ok_or("Clak is already up to date.")?;
+    let version = update.version.clone();
+    let mut downloaded = 0u64;
+    let bytes = update
+        .download(
+            |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = app.emit(
+                    "update-progress",
+                    json!({ "version": version, "downloaded": downloaded, "total": total }),
+                );
+            },
+            || {},
+        )
+        .await
+        .map_err(text)?;
+    let _ = app.emit(
+        "update-progress",
+        json!({ "version": version, "installing": true }),
+    );
+    bridge::of(app).stop().await;
+    // On Windows this starts the installer and exits. On the Mac it replaces the app; if it
+    // fails, the old copy is still there: either way Clak starts again.
+    let _ = update.install(&bytes);
+    app.restart();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,6 +289,14 @@ mod tests {
             assert!(latest.url.starts_with(RELEASES));
             assert_eq!(fetch("0.0.1").await.unwrap(), None);
         });
+    }
+
+    #[test]
+    fn an_automatic_install_needs_the_opt_in_something_newer_and_no_agent() {
+        assert!(install_now(true, true, 0));
+        assert!(!install_now(false, true, 0));
+        assert!(!install_now(true, false, 0));
+        assert!(!install_now(true, true, 2));
     }
 
     #[test]

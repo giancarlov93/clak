@@ -97,6 +97,7 @@ pub fn prefs_get(app: AppHandle) -> Value {
         "consent_sound": bridge.prefs.consent_sound(),
         "connection_sound": bridge.prefs.connection_sound(),
         "update_check": bridge.prefs.update_check(),
+        "auto_update": bridge.prefs.auto_update(),
         "autostart": crate::setup::autostart_on(),
     })
 }
@@ -109,6 +110,7 @@ pub fn prefs_set(app: AppHandle, name: String, value: bool) -> Result<(), String
         "consent_sound" => bridge.prefs.set_consent_sound(value).map_err(|e| e.0),
         "connection_sound" => bridge.prefs.set_connection_sound(value).map_err(|e| e.0),
         "update_check" => bridge.prefs.set_update_check(value).map_err(|e| e.0),
+        "auto_update" => bridge.prefs.set_auto_update(value).map_err(|e| e.0),
         "autostart" => {
             crate::setup::set_autostart(value)?;
             bridge.prefs.set_autostart(Some(value)).map_err(|e| e.0)

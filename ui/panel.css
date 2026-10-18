@@ -170,6 +170,7 @@ html.mac .empty { border: none; background: var(--inset); border-radius: var(--r
 .bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 6px; border: 1px solid var(--stroke); background: var(--card); }
 .bar > .glyph { align-self: flex-start; margin-top: 2px; }
 .bar .text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.bar > .actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .bar.info > .glyph { color: var(--accent); }
 .bar.warn { background: var(--caution-bg); }
 .bar.warn > .glyph { color: var(--caution); }

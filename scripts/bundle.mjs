@@ -14,6 +14,10 @@
 // APPLE_API_KEY_PATH Tauri also notarizes it. In CI they come from the secrets
 // (release.yml); here, if they aren't in the environment, from .secrets/apple.env
 // (KEY=value lines, ignored by git).
+//
+// The updater files (the installer's .sig, on the Mac Clak.app.tar.gz and its .sig) are made
+// only with the signing key: TAURI_SIGNING_PRIVATE_KEY and its password, in CI from the
+// secrets, here from .secrets/updater.key and .secrets/updater.password.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join, dirname, isAbsolute } from "node:path";
@@ -32,7 +36,7 @@ if (!process.env.CARGO_TARGET_DIR) {
 const target = process.env.CARGO_TARGET_DIR;
 
 // A secret missing in CI (a fork, a repository without them) arrives empty: as if absent.
-for (const name of ["APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD", "APPLE_SIGNING_IDENTITY", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH"]) {
+for (const name of ["TAURI_SIGNING_PRIVATE_KEY", "TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD", "APPLE_SIGNING_IDENTITY", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH"]) {
   if (process.env[name] === "") delete process.env[name];
 }
 const secrets = join(root, ".secrets", "apple.env");
@@ -43,6 +47,14 @@ if (process.platform === "darwin" && existsSync(secrets)) {
     process.env[m[1]] = m[1].endsWith("_PATH") && !isAbsolute(m[2]) ? join(root, m[2]) : m[2];
   }
 }
+const updaterKey = join(root, ".secrets", "updater.key");
+if (process.env.TAURI_SIGNING_PRIVATE_KEY === undefined && existsSync(updaterKey)) {
+  process.env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(updaterKey, "utf8").trim();
+  const password = join(root, ".secrets", "updater.password");
+  if (existsSync(password)) process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = readFileSync(password, "utf8").trim();
+}
+const updater = !!process.env.TAURI_SIGNING_PRIVATE_KEY;
+console.log(`updater files: ${updater ? "yes" : "no (no signing key)"}`);
 if (process.platform === "darwin") {
   const identity = process.env.APPLE_SIGNING_IDENTITY;
   const notarize = process.env.APPLE_API_KEY && process.env.APPLE_API_ISSUER && process.env.APPLE_API_KEY_PATH;
@@ -69,5 +81,6 @@ for (const name of ["clak", "clak-shim"]) {
 run(process.execPath, [join(root, "scripts", "notices.mjs"), "--target", triple, "--out", join(app, "THIRD-PARTY-NOTICES.txt")]);
 
 const bundles = windows ? "nsis" : process.platform === "darwin" ? "app,dmg" : "deb";
-run("cargo", ["tauri", "build", "--config", "tauri.bundle.json", "--bundles", bundles, ...targetArgs], app);
+const updaterArgs = updater ? ["--config", JSON.stringify({ bundle: { createUpdaterArtifacts: true } })] : [];
+run("cargo", ["tauri", "build", "--config", "tauri.bundle.json", ...updaterArgs, "--bundles", bundles, ...targetArgs], app);
 console.log(`\ninstallers in ${join(release, "bundle")}`);

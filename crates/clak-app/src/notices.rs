@@ -203,10 +203,34 @@ pub fn busy(state: &Value) -> usize {
     list(state, "sessions").len() + list(state, "resources").len()
 }
 
+/// The agents, and the programs connected from outside: what a restart cuts off. The hub's
+/// own programs and the connectors come back by themselves.
+pub fn connected(state: &Value) -> usize {
+    let programs = list(state, "resources")
+        .iter()
+        .filter(|r| r["origin"].get("kind").is_none())
+        .count();
+    list(state, "sessions").len() + programs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_hub_s_own_programs_and_connectors_are_not_connections() {
+        let idle = json!({"sessions": [], "resources": [
+            {"id": "r1", "origin": {"kind": "hub"}},
+            {"id": "r2", "origin": {"kind": "connector", "protocol": "mcp"}},
+        ]});
+        assert_eq!(connected(&idle), 0);
+        let busy = json!({"sessions": [{"id": "s1"}], "resources": [
+            {"id": "r1", "origin": {"kind": "hub"}},
+            {"id": "r3", "origin": {"exe": r"C:\Program Files\Blender\blender.exe"}},
+        ]});
+        assert_eq!(connected(&busy), 2);
+    }
 
     #[test]
     fn only_new_agent_sessions_trigger_connection_feedback() {
