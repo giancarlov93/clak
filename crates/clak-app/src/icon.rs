@@ -72,7 +72,7 @@ fn stroke(width: f32) -> Stroke {
 }
 
 /// The color icon, like the executable's: for the Windows tray.
-pub fn windows(kind: Kind, pixels: u32) -> Drawn {
+pub fn windows(kind: Kind, pixels: u32, click: bool) -> Drawn {
     let mut map = Pixmap::new(pixels, pixels).expect("size");
     let scale = Transform::from_scale(pixels as f32 / 32.0, pixels as f32 / 32.0);
     let body = if kind == Kind::Offline {
@@ -102,6 +102,9 @@ pub fn windows(kind: Kind, pixels: u32) -> Drawn {
     if let Some(prompt) = pb.finish() {
         map.stroke_path(&prompt, &white, &stroke(3.2), scale, None);
     }
+    if click {
+        impact(&mut map, &body, scale, false);
+    }
     if let Some(dot) = dot(kind) {
         if let Some(rim) = circle(25.0, 25.0, 7.0) {
             map.fill_path(&rim, &white, FillRule::Winding, scale, None);
@@ -118,8 +121,8 @@ pub fn windows(kind: Kind, pixels: u32) -> Drawn {
 }
 
 /// The icon for the Mac menu bar: black (template) when there is no dot.
-pub fn macos(kind: Kind, pixels: u32) -> Drawn {
-    let mut map = macos_head(kind, pixels);
+pub fn macos(kind: Kind, pixels: u32, click: bool) -> Drawn {
+    let mut map = macos_head(kind, pixels, click);
     let dot = dot(kind);
     if let Some(color) = dot {
         map.draw_pixmap(
@@ -142,16 +145,16 @@ pub fn macos(kind: Kind, pixels: u32) -> Drawn {
 /// draws it in two layers (menubar.rs), the head in the color of the bar's text and the
 /// dot as it is. PNG: head, dot.
 #[cfg(target_os = "macos")]
-pub fn macos_layers(kind: Kind, pixels: u32) -> Option<(Vec<u8>, Vec<u8>)> {
+pub fn macos_layers(kind: Kind, pixels: u32, click: bool) -> Option<(Vec<u8>, Vec<u8>)> {
     let color = dot(kind)?;
     Some((
-        macos_head(kind, pixels).encode_png().ok()?,
+        macos_head(kind, pixels, click).encode_png().ok()?,
         macos_dot(color, pixels).encode_png().ok()?,
     ))
 }
 
 /// The head, black, with the prompt and, if there is a dot, its place punched out.
-fn macos_head(kind: Kind, pixels: u32) -> Pixmap {
+fn macos_head(kind: Kind, pixels: u32, click: bool) -> Pixmap {
     let mut map = Pixmap::new(pixels, pixels).expect("size");
     // The Mac's 18 grid, with the y axis pointing down (in AppKit it points up).
     let s = pixels as f32 / 18.0;
@@ -169,6 +172,9 @@ fn macos_head(kind: Kind, pixels: u32) -> Pixmap {
     }
     if let Some(head) = round_rect(1.1, flip(14.6), 15.8, 14.0, 3.9) {
         map.fill_path(&head, &ink, FillRule::Winding, scale, None);
+    }
+    if click {
+        impact(&mut map, &ink, scale, true);
     }
     // The prompt is a hole in the head.
     let mut clear = paint((0, 0, 0), 255);
@@ -229,10 +235,61 @@ fn unpremultiply(map: Pixmap) -> Vec<u8> {
 }
 
 /// The right icon for this system.
-pub fn current(kind: Kind) -> Drawn {
+pub fn current(kind: Kind, click: bool) -> Drawn {
     if cfg!(target_os = "macos") {
-        macos(kind, 36)
+        macos(kind, 36, click)
     } else {
-        windows(kind, 32)
+        windows(kind, 32, click)
+    }
+}
+
+/// Three compact strokes beside the antenna, inside the original icon box.
+fn impact(map: &mut Pixmap, ink: &Paint<'_>, scale: Transform, mac: bool) {
+    let rays = if mac {
+        [
+            (11.9, 0.5, 11.6, 1.4),
+            (13.5, 1.0, 12.7, 1.8),
+            (14.5, 2.5, 13.5, 2.6),
+        ]
+    } else {
+        [
+            (21.5, 0.9, 21.0, 2.6),
+            (24.0, 1.5, 22.8, 3.0),
+            (25.8, 4.0, 24.0, 4.3),
+        ]
+    };
+    let mut pb = PathBuilder::new();
+    for (x1, y1, x2, y2) in rays {
+        pb.move_to(x1, y1);
+        pb.line_to(x2, y2);
+    }
+    if let Some(path) = pb.finish() {
+        map.stroke_path(
+            &path,
+            ink,
+            &stroke(if mac { 0.85 } else { 1.5 }),
+            scale,
+            None,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn click_changes_only_the_area_beside_the_antenna() {
+        for kind in [Kind::Idle, Kind::Pending, Kind::Linked] {
+            for mac in [false, true] {
+                let render = if mac { macos } else { windows };
+                let idle = render(kind, 64, false);
+                let click = render(kind, 64, true);
+                assert_eq!(idle.template, click.template);
+                assert_ne!(idle.rgba, click.rgba);
+                // Everything below the antenna, including the status dot, stays unchanged.
+                assert_eq!(&idle.rgba[64 * 12 * 4..], &click.rgba[64 * 12 * 4..]);
+            }
+        }
     }
 }
