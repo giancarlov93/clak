@@ -68,8 +68,6 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      # The Tauri CLI already built, from Tauri's releases: compiling it took 5 to 20 minutes
-      # a run. Pinned like the toolchain: move it along with the tauri crate in Cargo.lock.
       - name: Tauri CLI
         shell: bash
         env:
