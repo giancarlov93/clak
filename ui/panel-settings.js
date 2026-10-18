@@ -108,13 +108,23 @@
       : el("div", { class: "card about" }, logo, el("div", null, `Clak ${data.version}`));
   };
 
+  const download = () => Clak.invoke("update_open").catch((e) => {
+    message = String(e);
+    draw();
+  });
+
+  const updates = () =>
+    el("div", { class: "card group settings" },
+      setting("refresh", "#5856d6", "Check for updates", null, Kit.toggle(data.update_check, "Check for updates", setPreference("update_check"))),
+      data.update ? Kit.bar("info", `Clak ${data.update.version} is available`, el("button", { class: "accent", onclick: download }, "Download")) : null);
+
   const draw = () => {
     if (!page || !data) return;
     Kit.replace(body,
       Kit.section("Startup"), startup(),
       Kit.section("Alerts"), alerts(),
       Kit.section("Hub"), hub(),
-      Clak.mac ? null : Kit.section("About"), about());
+      Clak.mac ? null : Kit.section("About"), about(), updates());
   };
 
   Panel.tab({
@@ -127,6 +137,11 @@
       body = el("div");
       page.append(Kit.title("Settings"), body);
       window.addEventListener("focus", () => !page.classList.contains("hidden") && refresh());
+      Clak.listen("update", (update) => {
+        if (!data) return;
+        data.update = update;
+        draw();
+      });
       refresh();
     },
     shown() {

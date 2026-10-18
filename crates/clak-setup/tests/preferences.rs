@@ -19,3 +19,12 @@ fn connection_sound_is_opt_in_and_independent_of_other_preferences() {
     reloaded.set_connection_sound(false).unwrap();
     assert!(!Preferences::new(&home).connection_sound());
 }
+
+#[test]
+fn the_update_check_is_on_until_turned_off() {
+    let sandbox = Sandbox::new();
+    let home = sandbox.dir(&["hub"]);
+    assert!(Preferences::new(&home).update_check());
+    Preferences::new(&home).set_update_check(false).unwrap();
+    assert!(!Preferences::new(&home).update_check());
+}
