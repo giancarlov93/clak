@@ -24,7 +24,11 @@ pub fn executable_hash(path: &str) -> Option<String> {
     if !metadata.is_file() {
         return None;
     }
-    let modified = metadata.modified().ok().and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
     let key = (path.to_string(), modified, metadata.len());
     if let Some(known) = cache().lock().ok().and_then(|c| c.get(&key).cloned()) {
         return Some(known);
@@ -68,7 +72,10 @@ mod tests {
             executable_hash(path).as_deref(),
             Some("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589")
         );
-        assert_eq!(executable_hash(dir.join("non-esiste").to_str().unwrap()), None);
+        assert_eq!(
+            executable_hash(dir.join("non-esiste").to_str().unwrap()),
+            None
+        );
         assert_eq!(executable_hash(dir.to_str().unwrap()), None);
         std::fs::remove_dir_all(&dir).ok();
     }

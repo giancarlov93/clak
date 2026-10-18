@@ -25,24 +25,39 @@ pub async fn app_icon(path: String, size: u32) -> Option<String> {
     if let Some(found) = CACHE.lock().unwrap_or_else(|p| p.into_inner()).get(&key) {
         return found.clone();
     }
-    let found = tauri::async_runtime::spawn_blocking(move || read(Path::new(&path), size)).await.ok().flatten();
-    CACHE.lock().unwrap_or_else(|p| p.into_inner()).insert(key, found.clone());
+    let found = tauri::async_runtime::spawn_blocking(move || read(Path::new(&path), size))
+        .await
+        .ok()
+        .flatten();
+    CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(key, found.clone());
     found
 }
 
 /// The same icon as PNG bytes, for the tray menu. Blocking: off the main thread.
 pub fn png(path: &str, size: u32) -> Option<Vec<u8>> {
     let key = (size, path.to_owned());
-    let cached = CACHE.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
+    let cached = CACHE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&key)
+        .cloned();
     let url = match cached {
         Some(found) => found,
         None => {
             let found = read(Path::new(path), size);
-            CACHE.lock().unwrap_or_else(|p| p.into_inner()).insert(key, found.clone());
+            CACHE
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(key, found.clone());
             found
         }
     }?;
-    base64::engine::general_purpose::STANDARD.decode(url.strip_prefix("data:image/png;base64,")?).ok()
+    base64::engine::general_purpose::STANDARD
+        .decode(url.strip_prefix("data:image/png;base64,")?)
+        .ok()
 }
 
 fn read(path: &Path, size: u32) -> Option<String> {
@@ -50,7 +65,10 @@ fn read(path: &Path, size: u32) -> Option<String> {
         return None;
     }
     let png = png_of(path, size)?;
-    Some(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png)
+    ))
 }
 
 #[cfg(windows)]
@@ -72,8 +90,8 @@ mod windows {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
     use windows_sys::Win32::Graphics::Gdi::{
-        BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDIBits,
-        GetObjectW, HBITMAP, HDC,
+        BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC,
+        DeleteObject, GetDIBits, GetObjectW, HBITMAP, HDC,
     };
     use windows_sys::Win32::UI::Shell::{ExtractIconExW, SHDefExtractIconW};
     use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
@@ -84,12 +102,23 @@ mod windows {
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         // Without icons of its own the shell would hand out the generic one.
         // SAFETY: a NUL-terminated path; index -1 only counts the icons.
-        if unsafe { ExtractIconExW(wide.as_ptr(), -1, std::ptr::null_mut(), std::ptr::null_mut(), 0) } == 0 {
+        if unsafe {
+            ExtractIconExW(
+                wide.as_ptr(),
+                -1,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0,
+            )
+        } == 0
+        {
             return None;
         }
         let mut icon: HICON = std::ptr::null_mut();
         // SAFETY: a NUL-terminated path, and a place for one icon; S_OK (0) only when there is one.
-        let result = unsafe { SHDefExtractIconW(wide.as_ptr(), 0, 0, &mut icon, std::ptr::null_mut(), size) };
+        let result = unsafe {
+            SHDefExtractIconW(wide.as_ptr(), 0, 0, &mut icon, std::ptr::null_mut(), size)
+        };
         if result != 0 || icon.is_null() {
             return None;
         }
@@ -115,7 +144,12 @@ mod windows {
             // An icon without an alpha channel says what is transparent with its mask.
             if color.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
                 let mask = unsafe { bits(dc, info.hbmMask, width, height) }?;
-                for (pixel, m) in color.as_chunks_mut::<4>().0.iter_mut().zip(mask.as_chunks::<4>().0) {
+                for (pixel, m) in color
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(mask.as_chunks::<4>().0)
+                {
                     pixel[3] = if m[0] == 0 { 255 } else { 0 };
                 }
             }
@@ -140,8 +174,15 @@ mod windows {
     /// SAFETY: `bitmap` is a valid bitmap handle.
     unsafe fn dimensions(bitmap: HBITMAP) -> Option<(i32, i32)> {
         let mut info: BITMAP = unsafe { std::mem::zeroed() };
-        let read = unsafe { GetObjectW(bitmap, size_of::<BITMAP>() as i32, (&mut info as *mut BITMAP).cast()) };
-        (read != 0 && info.bmWidth > 0 && info.bmHeight > 0).then_some((info.bmWidth, info.bmHeight))
+        let read = unsafe {
+            GetObjectW(
+                bitmap,
+                size_of::<BITMAP>() as i32,
+                (&mut info as *mut BITMAP).cast(),
+            )
+        };
+        (read != 0 && info.bmWidth > 0 && info.bmHeight > 0)
+            .then_some((info.bmWidth, info.bmHeight))
     }
 
     /// The bitmap as 32-bit BGRA rows, top to bottom.
@@ -159,7 +200,17 @@ mod windows {
             ..unsafe { std::mem::zeroed() }
         };
         let mut data = vec![0u8; (width * height * 4) as usize];
-        let lines = unsafe { GetDIBits(dc, bitmap, 0, height as u32, data.as_mut_ptr().cast(), &mut info, DIB_RGB_COLORS) };
+        let lines = unsafe {
+            GetDIBits(
+                dc,
+                bitmap,
+                0,
+                height as u32,
+                data.as_mut_ptr().cast(),
+                &mut info,
+                DIB_RGB_COLORS,
+            )
+        };
         (lines == height).then_some(data)
     }
 }
@@ -186,18 +237,27 @@ fn png_of(path: &Path, size: u32) -> Option<Vec<u8>> {
     let contents = bundle.join("Contents");
     let plist = contents.join("Info.plist");
     let key = |name: &str| -> Option<String> {
-        let out = Command::new("/usr/bin/plutil").args(["-extract", name, "raw", "-o", "-"]).arg(&plist).output().ok()?;
+        let out = Command::new("/usr/bin/plutil")
+            .args(["-extract", name, "raw", "-o", "-"])
+            .arg(&plist)
+            .output()
+            .ok()?;
         let value = String::from_utf8(out.stdout).ok()?.trim().to_owned();
         (out.status.success() && !value.is_empty()).then_some(value)
     };
     // An app without an icon of its own would get the generic one: better the symbol.
     let name = key("CFBundleIconFile").or_else(|| key("CFBundleIconName"))?;
-    let file = if name.ends_with(".icns") { name } else { format!("{name}.icns") };
+    let file = if name.ends_with(".icns") {
+        name
+    } else {
+        format!("{name}.icns")
+    };
     let icns = contents.join("Resources").join(file);
     if !icns.is_file() {
         return None;
     }
-    let out = std::env::temp_dir().join(format!("clak-icon-{}.png", clak_wire::json::random_hex(8)));
+    let out =
+        std::env::temp_dir().join(format!("clak-icon-{}.png", clak_wire::json::random_hex(8)));
     let status = Command::new("/usr/bin/sips")
         .args(["-s", "format", "png", "-Z", &size.to_string()])
         .arg(&icns)
@@ -205,7 +265,11 @@ fn png_of(path: &Path, size: u32) -> Option<Vec<u8>> {
         .arg(&out)
         .output()
         .ok()?;
-    let png = status.status.success().then(|| std::fs::read(&out).ok()).flatten();
+    let png = status
+        .status
+        .success()
+        .then(|| std::fs::read(&out).ok())
+        .flatten();
     let _ = std::fs::remove_file(&out);
     png
 }
@@ -225,7 +289,11 @@ mod tests {
         let notepad = Path::new(&windir).join("System32").join("notepad.exe");
         let png = png_of(&notepad, 48).expect("notepad has an icon");
         assert!(png.starts_with(b"\x89PNG"));
-        assert!(read(&notepad, 48).unwrap().starts_with("data:image/png;base64,"));
+        assert!(
+            read(&notepad, 48)
+                .unwrap()
+                .starts_with("data:image/png;base64,")
+        );
         // Cargo has no icons of its own.
         assert_eq!(png_of(Path::new(env!("CARGO")), 32), None);
         assert_eq!(read(Path::new("relative.exe"), 32), None);

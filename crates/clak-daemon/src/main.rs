@@ -16,7 +16,11 @@ use tokio_util::sync::CancellationToken;
 
 fn log(text: &str) {
     // Launched without a stderr to write to: the hub works anyway.
-    let _ = writeln!(std::io::stderr(), "[daemon {}] {text}", chrono::Local::now().format("%H:%M:%S"));
+    let _ = writeln!(
+        std::io::stderr(),
+        "[daemon {}] {text}",
+        chrono::Local::now().format("%H:%M:%S")
+    );
 }
 
 #[tokio::main]
@@ -26,10 +30,19 @@ async fn main() {
     if std::env::args().any(|a| a == "--ask") {
         options.consent = Some(Arc::new(ConsolePrompt::new()));
     }
-    let host = match clak_host::ClakHost::try_start(&home, options, Some(Arc::new(|line: String| log(&line)))).await {
+    let host = match clak_host::ClakHost::try_start(
+        &home,
+        options,
+        Some(Arc::new(|line: String| log(&line))),
+    )
+    .await
+    {
         Ok(Some(host)) => host,
         Ok(None) => {
-            log(&format!("there's already a hub on {}: exiting", clak_wire::location::computed_control(&home)));
+            log(&format!(
+                "there's already a hub on {}: exiting",
+                clak_wire::location::computed_control(&home)
+            ));
             return;
         }
         Err(e) => {
@@ -90,12 +103,18 @@ impl ConsolePrompt {
                 }
             })
             .expect("thread");
-        ConsolePrompt { lines: Arc::new(Mutex::new(receiver)) }
+        ConsolePrompt {
+            lines: Arc::new(Mutex::new(receiver)),
+        }
     }
 }
 
 impl ConsentPrompt for ConsolePrompt {
-    fn ask(&self, request: ConsentRequest, cancel: CancellationToken) -> BoxFuture<Result<bool, String>> {
+    fn ask(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<bool, String>> {
         let lines = self.lines.clone();
         Box::pin(async move {
             // One question at a time: whoever holds the receiver is the one on screen.
@@ -108,13 +127,23 @@ impl ConsentPrompt for ConsolePrompt {
                 text.push_str(&format!("    {}: {}\n", line.label, line.value));
             }
             for tool in &request.tools {
-                let note = tool.note.as_deref().map(|n| format!(" ({n})")).unwrap_or_default();
-                text.push_str(&format!("    • {}{note} — {}\n", tool.name, tool.description));
+                let note = tool
+                    .note
+                    .as_deref()
+                    .map(|n| format!(" ({n})"))
+                    .unwrap_or_default();
+                text.push_str(&format!(
+                    "    • {}{note} — {}\n",
+                    tool.name, tool.description
+                ));
             }
             if let Some(warning) = &request.warning {
                 text.push_str(&format!("    WARNING: {warning}\n"));
             }
-            text.push_str(&format!("    {}\n{} [y/n] ", request.note, request.question));
+            text.push_str(&format!(
+                "    {}\n{} [y/n] ",
+                request.note, request.question
+            ));
             let _ = write!(std::io::stderr(), "{text}");
             loop {
                 let line = tokio::select! {

@@ -37,7 +37,12 @@ fn to_platform(agent: &AgentIdentity) -> clak_platform::AgentIdentity {
 }
 
 impl Platform for SystemPlatform {
-    fn agent_of(&self, pid: Option<u32>, _request: &Map<String, Value>, authorized: &HashSet<String>) -> Option<AgentIdentity> {
+    fn agent_of(
+        &self,
+        pid: Option<u32>,
+        _request: &Map<String, Value>,
+        authorized: &HashSet<String>,
+    ) -> Option<AgentIdentity> {
         clak_platform::agent_of(pid, authorized).map(to_hub)
     }
 

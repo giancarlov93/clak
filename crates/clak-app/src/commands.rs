@@ -14,8 +14,19 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
-    const ALLOWED: [&str; 6] = ["revoke", "forget_session", "forget_app", "describe", "history", "call"];
-    if message.get("type").and_then(Value::as_str).is_some_and(|t| ALLOWED.contains(&t)) {
+    const ALLOWED: [&str; 6] = [
+        "revoke",
+        "forget_session",
+        "forget_app",
+        "describe",
+        "history",
+        "call",
+    ];
+    if message
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| ALLOWED.contains(&t))
+    {
         bridge::of(&app).send(message);
     }
 }
@@ -63,10 +74,13 @@ pub fn app_launch(app: AppHandle, key: String) -> Result<(), String> {
         .ok_or("this application is no longer among the allowed ones")?;
     // On the Mac the app, not the executable inside it: opening that would start a Terminal.
     #[cfg(target_os = "macos")]
-    let target = crate::app_icon::bundle_of(std::path::Path::new(exe)).map_or(exe.to_owned(), |b| b.to_string_lossy().into_owned());
+    let target = crate::app_icon::bundle_of(std::path::Path::new(exe))
+        .map_or(exe.to_owned(), |b| b.to_string_lossy().into_owned());
     #[cfg(not(target_os = "macos"))]
     let target = exe.to_owned();
-    app.opener().open_path(target, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_path(target, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

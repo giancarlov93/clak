@@ -54,7 +54,11 @@ impl Invocation {
 
     /// A program's command, for tests and for whoever builds the request themselves.
     pub fn call(program: &str, command: &str) -> Invocation {
-        Invocation { program: Some(program.to_owned()), command: Some(command.to_owned()), ..Invocation::new("call") }
+        Invocation {
+            program: Some(program.to_owned()),
+            command: Some(command.to_owned()),
+            ..Invocation::new("call")
+        }
     }
 
     /// Understands the command line, or says why it can't.
@@ -62,7 +66,11 @@ impl Invocation {
     /// `stdin` reads all of standard input, or gives nothing if it is not redirected
     /// (there is nothing to read, and waiting for the keyboard would block the agent). It
     /// is used at most once. `shell` is the shell the line comes from, to spot its traps.
-    pub fn parse<S: AsRef<str>>(args: &[S], stdin: impl FnOnce() -> Option<String>, shell: &Shell) -> Result<Invocation, String> {
+    pub fn parse<S: AsRef<str>>(
+        args: &[S],
+        stdin: impl FnOnce() -> Option<String>,
+        shell: &Shell,
+    ) -> Result<Invocation, String> {
         let args: Vec<&str> = args.iter().map(AsRef::as_ref).collect();
         let mut stdin = Some(stdin);
         let mut notes: Vec<String> = Vec::new();
@@ -86,8 +94,14 @@ impl Invocation {
                      Pipe the text in, or write it to a file and use {what} @file"
                 )),
                 Some(text) if text.is_empty() => {
-                    let empty = if what == "--args" { String::new() } else { format!("; for empty text: {what}=") };
-                    Err(format!("{what} -: standard input is empty. {EMPTY_REMEDY} write it to a file and use {what} @file{empty}"))
+                    let empty = if what == "--args" {
+                        String::new()
+                    } else {
+                        format!("; for empty text: {what}=")
+                    };
+                    Err(format!(
+                        "{what} -: standard input is empty. {EMPTY_REMEDY} write it to a file and use {what} @file{empty}"
+                    ))
                 }
                 Some(text) => {
                     if let Some(warning) = shell.mangled(&text, what) {
@@ -126,11 +140,16 @@ impl Invocation {
                     let text = match next() {
                         None => None,
                         Some(source) if source == "-" => Some(read_stdin("--args", &mut notes)?),
-                        Some(source) if source.starts_with('@') => Some(read_text(&source[1..], "--args")?),
+                        Some(source) if source.starts_with('@') => {
+                            Some(read_text(&source[1..], "--args")?)
+                        }
                         Some(source) => Some(source),
                     };
                     let Some(text) = text else {
-                        return Err("--args needs a JSON object, '-' to read it from stdin, or @file".into());
+                        return Err(
+                            "--args needs a JSON object, '-' to read it from stdin, or @file"
+                                .into(),
+                        );
                     };
                     match clak_wire::json::parse_str(&text) {
                         Ok(Value::Object(parsed)) => arguments = Some(parsed),
@@ -144,7 +163,10 @@ impl Invocation {
                 _ if arg.len() > 2 && arg.starts_with("--") => {
                     let body = &arg[2..];
                     let (name, mut value) = match body.find('=') {
-                        Some(equals) if equals > 0 => (body[..equals].to_owned(), Some(body[equals + 1..].to_owned())),
+                        Some(equals) if equals > 0 => (
+                            body[..equals].to_owned(),
+                            Some(body[equals + 1..].to_owned()),
+                        ),
                         _ => (body.to_owned(), next()),
                     };
                     let what = format!("--{name}");
@@ -153,7 +175,11 @@ impl Invocation {
                         Some(given) if given.len() > 1 && given.starts_with('@') => {
                             // "@@" is a real @: the only way to pass a value that starts with @.
                             let rest = &given[1..];
-                            value = Some(if rest.starts_with('@') { rest.to_owned() } else { read_text(rest, &what)? });
+                            value = Some(if rest.starts_with('@') {
+                                rest.to_owned()
+                            } else {
+                                read_text(rest, &what)?
+                            });
                         }
                         Some(given) => {
                             if let Some(warning) = shell.converted(given, &what) {
@@ -174,8 +200,17 @@ impl Invocation {
             i += 1;
         }
 
-        let mut options = Invocation { json, output, wait, help, warnings: notes, ..Invocation::new("help") };
-        let Some(first) = positional.first().cloned() else { return Ok(options) };
+        let mut options = Invocation {
+            json,
+            output,
+            wait,
+            help,
+            warnings: notes,
+            ..Invocation::new("help")
+        };
+        let Some(first) = positional.first().cloned() else {
+            return Ok(options);
+        };
 
         if matches!(first.as_str(), "list" | "status" | "help" | "version") {
             if positional.len() > 1 {
@@ -239,10 +274,15 @@ const UTF8_REMEDY: &str = "";
 fn parse_seconds(text: &str) -> Option<f64> {
     let text = text.trim();
     // Rust would accept "inf" and "nan": an infinite wait is not a wait.
-    if !text.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E')) {
+    if !text
+        .chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+    {
         return None;
     }
-    text.parse::<f64>().ok().filter(|s| s.is_finite() && *s > 0.0)
+    text.parse::<f64>()
+        .ok()
+        .filter(|s| s.is_finite() && *s > 0.0)
 }
 
 /// The text of a file. UTF-8, with or without BOM; UTF-16 if it has its BOM (that is
@@ -276,7 +316,12 @@ pub fn read_text(path: &str, what: &str) -> Result<String, String> {
 
 /// A UTF-16 text without its BOM, in the given byte order.
 pub(crate) fn utf16(bytes: &[u8], order: fn([u8; 2]) -> u16) -> String {
-    let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| order(*pair)).collect();
+    let units: Vec<u16> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| order(*pair))
+        .collect();
     String::from_utf16_lossy(&units)
 }
 
@@ -324,25 +369,47 @@ mod tests {
     #[test]
     fn i_comandi_di_un_programma_e_la_ricerca() {
         let word = p("word");
-        assert_eq!((word.op.as_str(), word.program.as_deref(), word.query.as_deref()), ("tools", Some("word"), None));
+        assert_eq!(
+            (
+                word.op.as_str(),
+                word.program.as_deref(),
+                word.query.as_deref()
+            ),
+            ("tools", Some("word"), None)
+        );
         let list = p("word list");
-        assert_eq!((list.op.as_str(), list.program.as_deref()), ("tools", Some("word")));
+        assert_eq!(
+            (list.op.as_str(), list.program.as_deref()),
+            ("tools", Some("word"))
+        );
         assert!(!list.help);
         // A program's help: -h, --help or help, always the commands with the instructions in front.
         for line in ["word -h", "word --help", "word help", "word list -h"] {
             let help = p(line);
             assert_eq!(
-                (help.op.as_str(), help.program.as_deref(), help.command.as_deref(), help.help),
+                (
+                    help.op.as_str(),
+                    help.program.as_deref(),
+                    help.command.as_deref(),
+                    help.help
+                ),
                 ("tools", Some("word"), None, true),
                 "{line}"
             );
         }
         let call_help = p("word call help");
-        assert_eq!((call_help.op.as_str(), call_help.command.as_deref()), ("call", Some("help")));
+        assert_eq!(
+            (call_help.op.as_str(), call_help.command.as_deref()),
+            ("call", Some("help"))
+        );
         assert!(error(&["word", "help", "altro"]).contains("nothing after it"));
         let search = p("word search testo grassetto");
         assert_eq!(
-            (search.op.as_str(), search.program.as_deref(), search.query.as_deref()),
+            (
+                search.op.as_str(),
+                search.program.as_deref(),
+                search.query.as_deref()
+            ),
             ("tools", Some("word"), Some("testo grassetto"))
         );
         assert!(error(&["word", "search"]).contains("search for"));
@@ -352,7 +419,11 @@ mod tests {
     fn un_comando_con_parametri_con_nome_e_senza() {
         let call = p("word append_text --text ciao --times=3 --force libero");
         assert_eq!(
-            (call.op.as_str(), call.program.as_deref(), call.command.as_deref()),
+            (
+                call.op.as_str(),
+                call.program.as_deref(),
+                call.command.as_deref()
+            ),
             ("call", Some("word"), Some("append_text"))
         );
         assert_eq!(
@@ -379,14 +450,22 @@ mod tests {
         assert_eq!(p("list").wait, Invocation::DEFAULT_WAIT);
         // -h after a command is that command's help.
         let help = p("word append_text -h");
-        assert_eq!((help.op.as_str(), help.command.as_deref()), ("tools", Some("append_text")));
+        assert_eq!(
+            (help.op.as_str(), help.command.as_deref()),
+            ("tools", Some("append_text"))
+        );
     }
 
     #[test]
     fn il_testo_lungo_arriva_da_stdin_una_volta_sola() {
         let call = parse("word append_text --text -", "riga uno\nriga due");
-        assert_eq!(flags(&call), r#"[{"name":"text","value":"riga uno\nriga due"}]"#);
-        assert!(error_with(Some("x"), &["word", "t", "--a", "-", "--b", "-"]).contains("only once"));
+        assert_eq!(
+            flags(&call),
+            r#"[{"name":"text","value":"riga uno\nriga due"}]"#
+        );
+        assert!(
+            error_with(Some("x"), &["word", "t", "--a", "-", "--b", "-"]).contains("only once")
+        );
     }
 
     #[test]
@@ -400,12 +479,16 @@ mod tests {
         #[cfg(windows)]
         assert!(empty.contains("PowerShell 5.1"));
         assert!(empty.contains("--text="));
-        assert_eq!(flags(&parse_args(&["word", "t", "--text="])), r#"[{"name":"text","value":""}]"#);
+        assert_eq!(
+            flags(&parse_args(&["word", "t", "--text="])),
+            r#"[{"name":"text","value":""}]"#
+        );
     }
 
     #[test]
     fn un_valore_da_un_file_arriva_intero_anche_con_le_lettere_accentate() {
-        let folder = std::env::temp_dir().join(format!("clak-at-{}", clak_wire::json::random_hex(4)));
+        let folder =
+            std::env::temp_dir().join(format!("clak-at-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
         let file = |name: &str, bytes: &[u8]| -> String {
             let path = folder.join(name);
@@ -413,31 +496,64 @@ mod tests {
             path.to_string_lossy().into_owned()
         };
         let script = file("script.py", "print(\"perché è così\")\n".as_bytes());
-        let bom = file("bom.txt", &[&[0xEF, 0xBB, 0xBF][..], "città".as_bytes()].concat());
-        let utf16le: Vec<u8> = [0xFF, 0xFE].into_iter().chain("più".encode_utf16().flat_map(u16::to_le_bytes)).collect();
+        let bom = file(
+            "bom.txt",
+            &[&[0xEF, 0xBB, 0xBF][..], "città".as_bytes()].concat(),
+        );
+        let utf16le: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain("più".encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
         let utf16 = file("ps.txt", &utf16le); // ">" in PowerShell 5.1
         let ansi = file("ansi.txt", &[0x63, 0x69, 0x74, 0x74, 0xE0]); // "città" in Windows-1252
         let json = file("args.json", r#"{"code":"è"}"#.as_bytes());
 
-        let call = parse_args(&["revit", "run_python", "--code", &format!("@{script}"), "--a", &format!("@{bom}"), &format!("--b=@{utf16}")]);
+        let call = parse_args(&[
+            "revit",
+            "run_python",
+            "--code",
+            &format!("@{script}"),
+            "--a",
+            &format!("@{bom}"),
+            &format!("--b=@{utf16}"),
+        ]);
         assert_eq!(
             flags(&call),
             r#"[{"name":"code","value":"print(\"perché è così\")\n"},{"name":"a","value":"città"},{"name":"b","value":"più"}]"#
         );
-        let arguments = parse_args(&["revit", "run_python", "--args", &format!("@{json}")]).arguments.unwrap();
+        let arguments = parse_args(&["revit", "run_python", "--args", &format!("@{json}")])
+            .arguments
+            .unwrap();
         assert_eq!(arguments["code"], "è");
 
         // @@ is a real @; a lone @ is just an @.
         assert_eq!(
-            flags(&parse_args(&["chat", "send", "--to", "@@giulia", "--x", "@"])),
+            flags(&parse_args(&[
+                "chat", "send", "--to", "@@giulia", "--x", "@"
+            ])),
             r#"[{"name":"to","value":"@giulia"},{"name":"x","value":"@"}]"#
         );
 
-        let absent = error(&["revit", "run_python", "--code", &format!("@{}", folder.join("manca.py").display())]);
+        let absent = error(&[
+            "revit",
+            "run_python",
+            "--code",
+            &format!("@{}", folder.join("manca.py").display()),
+        ]);
         assert!(absent.contains("file not found"));
         assert!(absent.contains("@@"));
-        assert!(error(&["revit", "run_python", "--args", &format!("@{}", folder.join("manca.json").display())]).contains("file not found"));
-        assert!(error(&["revit", "run_python", "--code", &format!("@{ansi}")]).contains("is not UTF-8"));
+        assert!(
+            error(&[
+                "revit",
+                "run_python",
+                "--args",
+                &format!("@{}", folder.join("manca.json").display())
+            ])
+            .contains("file not found")
+        );
+        assert!(
+            error(&["revit", "run_python", "--code", &format!("@{ansi}")]).contains("is not UTF-8")
+        );
 
         let _ = std::fs::remove_dir_all(&folder);
     }
@@ -446,7 +562,14 @@ mod tests {
     fn le_trappole_di_git_bash_e_di_powershell_si_dicono_quando_scattano() {
         let git = Shell::new(true, Some("C:/Program Files/Git".into()), || false);
         let call = Invocation::parse(
-            &["acad", "run", "--switch", "I:/", "--path=C:/Program Files/Git/usr/x", "C:/Users/a.dwg"],
+            &[
+                "acad",
+                "run",
+                "--switch",
+                "I:/",
+                "--path=C:/Program Files/Git/usr/x",
+                "C:/Users/a.dwg",
+            ],
             || None,
             &git,
         )
@@ -455,27 +578,53 @@ mod tests {
         assert!(call.warnings[0].contains("'I:/' looks like '/i'"));
         assert!(call.warnings[1].contains("'C:/Program Files/Git/usr/x' looks like '/usr/x'"));
         assert!(call.warnings[1].contains("MSYS_NO_PATHCONV=1"));
-        assert!(Invocation::parse(&["acad", "run", "--switch", "I:/"], || None, &Shell::none()).unwrap().warnings.is_empty());
+        assert!(
+            Invocation::parse(&["acad", "run", "--switch", "I:/"], || None, &Shell::none())
+                .unwrap()
+                .warnings
+                .is_empty()
+        );
         assert!(git.advice().iter().any(|line| line.contains("Git Bash")));
         assert!(Shell::none().advice().is_empty());
 
         // PowerShell 5.1: only ASCII with some "?" means letters lost along the way.
         let powershell = Shell::new(false, None, || true);
-        let mangled = Invocation::parse(&["word", "t", "--text", "-"], || Some("perch? ? cos?".into()), &powershell).unwrap();
+        let mangled = Invocation::parse(
+            &["word", "t", "--text", "-"],
+            || Some("perch? ? cos?".into()),
+            &powershell,
+        )
+        .unwrap();
         assert_eq!(mangled.warnings.len(), 1);
         assert!(mangled.warnings[0].contains("Windows PowerShell 5.1"));
-        let accented = Invocation::parse(&["word", "t", "--text", "-"], || Some("perché? è così".into()), &powershell).unwrap();
+        let accented = Invocation::parse(
+            &["word", "t", "--text", "-"],
+            || Some("perché? è così".into()),
+            &powershell,
+        )
+        .unwrap();
         assert!(accented.warnings.is_empty());
-        let plain = Invocation::parse(&["word", "t", "--text", "-"], || Some("come stai?".into()), &Shell::none()).unwrap();
+        let plain = Invocation::parse(
+            &["word", "t", "--text", "-"],
+            || Some("come stai?".into()),
+            &Shell::none(),
+        )
+        .unwrap();
         assert!(plain.warnings.is_empty());
     }
 
     #[test]
     fn gli_argomenti_json_interi() {
         let call = p(r#"word append_text --args {"text":"ciao"}"#);
-        assert_eq!(clak_wire::json::text(&Value::Object(call.arguments.unwrap())), r#"{"text":"ciao"}"#);
+        assert_eq!(
+            clak_wire::json::text(&Value::Object(call.arguments.unwrap())),
+            r#"{"text":"ciao"}"#
+        );
         let piped = parse("word t --args -", r#"{"n":1}"#);
-        assert_eq!(clak_wire::json::text(&Value::Object(piped.arguments.unwrap())), r#"{"n":1}"#);
+        assert_eq!(
+            clak_wire::json::text(&Value::Object(piped.arguments.unwrap())),
+            r#"{"n":1}"#
+        );
         assert!(error(&["word", "t", "--args", "[1]"]).contains("JSON object"));
     }
 

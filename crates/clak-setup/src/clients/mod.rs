@@ -56,11 +56,26 @@ pub struct ClientStatus {
 
 impl ClientStatus {
     pub fn new(state: ClientState, path: impl Into<PathBuf>) -> ClientStatus {
-        ClientStatus { state, path: path.into(), detail: String::new(), command: None }
+        ClientStatus {
+            state,
+            path: path.into(),
+            detail: String::new(),
+            command: None,
+        }
     }
 
-    pub fn with(state: ClientState, path: impl Into<PathBuf>, detail: impl Into<String>, command: Option<String>) -> ClientStatus {
-        ClientStatus { state, path: path.into(), detail: detail.into(), command }
+    pub fn with(
+        state: ClientState,
+        path: impl Into<PathBuf>,
+        detail: impl Into<String>,
+        command: Option<String>,
+    ) -> ClientStatus {
+        ClientStatus {
+            state,
+            path: path.into(),
+            detail: detail.into(),
+            command,
+        }
     }
 }
 
@@ -89,8 +104,12 @@ pub trait McpClient: Send + Sync {
 /// On Windows forward or back slashes, trailing slash and case don't count; on the Mac
 /// `//`, `.`, `..` and the trailing slash.
 pub(crate) fn same(command: &[String], executable: Option<&str>, args: &[String]) -> bool {
-    let Some(executable) = executable else { return false };
-    let Some(ours) = command.first() else { return false };
+    let Some(executable) = executable else {
+        return false;
+    };
+    let Some(ours) = command.first() else {
+        return false;
+    };
     same_exe_text(executable, ours) && args == &command[1..]
 }
 
@@ -132,7 +151,9 @@ pub(crate) mod safe_file {
     use std::path::{Path, PathBuf};
 
     fn name(path: &Path) -> String {
-        path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
     }
 
     /// The text, and whether it started with a BOM (so it can be put back). A missing
@@ -141,18 +162,23 @@ pub(crate) mod safe_file {
         if !path.exists() {
             return Ok((String::new(), false));
         }
-        let bytes = std::fs::read(path).map_err(|e| SetupError(format!("{} can't be read: {e}", name(path))))?;
+        let bytes = std::fs::read(path)
+            .map_err(|e| SetupError(format!("{} can't be read: {e}", name(path))))?;
         let bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
         let body = if bom { bytes[3..].to_vec() } else { bytes };
-        let text = String::from_utf8(body).map_err(|_| SetupError(format!("{} isn't UTF-8: not touching it.", name(path))))?;
+        let text = String::from_utf8(body)
+            .map_err(|_| SetupError(format!("{} isn't UTF-8: not touching it.", name(path))))?;
         Ok((text, bom))
     }
 
     pub fn write(path: &Path, text: &str, bom: bool) -> Result<()> {
         // A configuration file can be a link (dotfiles managed with stow or similar):
         // we write where it points, not over the link.
-        let target: PathBuf =
-            if cfg!(unix) && path.exists() { std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()) } else { path.to_path_buf() };
+        let target: PathBuf = if cfg!(unix) && path.exists() {
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        } else {
+            path.to_path_buf()
+        };
         let attempt = || -> std::io::Result<()> {
             let backup = suffixed(&target, ".clak-bak");
             if target.exists() && !backup.exists() {
@@ -160,7 +186,11 @@ pub(crate) mod safe_file {
             }
             std::fs::create_dir_all(parent(&target))?;
             let draft = suffixed(&target, ".clak-tmp");
-            let mut bytes = if bom { vec![0xEF, 0xBB, 0xBF] } else { Vec::new() };
+            let mut bytes = if bom {
+                vec![0xEF, 0xBB, 0xBF]
+            } else {
+                Vec::new()
+            };
             bytes.extend_from_slice(text.as_bytes());
             std::fs::write(&draft, bytes)?;
             // A configuration can contain keys and secrets (the servers' environment

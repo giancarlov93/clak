@@ -43,23 +43,70 @@ fn program_icon(icons: &Icons, exe: Option<&String>) -> Image<'static> {
     exe.and_then(|exe| icons.get(exe))
         .and_then(|png| Image::from_bytes(png).ok())
         .map(|image| image.to_owned())
-        .unwrap_or_else(|| Image::new_owned(vec![0; (ICON_PIXELS * ICON_PIXELS * 4) as usize], ICON_PIXELS, ICON_PIXELS))
+        .unwrap_or_else(|| {
+            Image::new_owned(
+                vec![0; (ICON_PIXELS * ICON_PIXELS * 4) as usize],
+                ICON_PIXELS,
+                ICON_PIXELS,
+            )
+        })
 }
 
 /// Each agent as a heading, and under it the programs it may use, each with its "Revoke".
-fn menu<R: Runtime>(app: &AppHandle<R>, headline: &str, agents: &[Agent], icons: &Icons) -> tauri::Result<Menu<R>> {
+fn menu<R: Runtime>(
+    app: &AppHandle<R>,
+    headline: &str,
+    agents: &[Agent],
+    icons: &Icons,
+) -> tauri::Result<Menu<R>> {
     let menu = Menu::new(app)?;
-    menu.append(&MenuItem::with_id(app, "headline", headline, false, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(app, "open", "Open the panel", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "headline",
+        headline,
+        false,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "open",
+        "Open the panel",
+        true,
+        None::<&str>,
+    )?)?;
     for (i, agent) in agents.iter().enumerate() {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
-        menu.append(&MenuItem::with_id(app, format!("agent:{i}"), &agent.label, false, None::<&str>)?)?;
+        menu.append(&MenuItem::with_id(
+            app,
+            format!("agent:{i}"),
+            &agent.label,
+            false,
+            None::<&str>,
+        )?)?;
         if agent.programs.is_empty() {
-            menu.append(&MenuItem::with_id(app, format!("agent:{i}:none"), "No program yet", false, None::<&str>)?)?;
+            menu.append(&MenuItem::with_id(
+                app,
+                format!("agent:{i}:none"),
+                "No program yet",
+                false,
+                None::<&str>,
+            )?)?;
         }
         for program in &agent.programs {
-            let revoke = MenuItem::with_id(app, format!("revoke:{}", program.grant), "Revoke permission", true, None::<&str>)?;
-            let submenu = Submenu::with_id_and_items(app, format!("program:{}", program.grant), &program.label, true, &[&revoke])?;
+            let revoke = MenuItem::with_id(
+                app,
+                format!("revoke:{}", program.grant),
+                "Revoke permission",
+                true,
+                None::<&str>,
+            )?;
+            let submenu = Submenu::with_id_and_items(
+                app,
+                format!("program:{}", program.grant),
+                &program.label,
+                true,
+                &[&revoke],
+            )?;
             submenu.set_icon(Some(program_icon(icons, program.exe.as_ref())))?;
             menu.append(&submenu)?;
         }
@@ -76,7 +123,11 @@ pub fn create(app: &AppHandle) -> tauri::Result<TrayIcon> {
         .icon(Image::new_owned(drawn.rgba, drawn.size, drawn.size))
         .icon_as_template(template)
         .tooltip("Clak — not running");
-    let builder = if NATIVE_MENU { builder.menu(&menu(app, "Not running", &[], &Icons::new())?) } else { builder };
+    let builder = if NATIVE_MENU {
+        builder.menu(&menu(app, "Not running", &[], &Icons::new())?)
+    } else {
+        builder
+    };
     builder
         .show_menu_on_left_click(false)
         .on_menu_event(on_menu)
@@ -103,13 +154,26 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
 fn on_icon(tray: &TrayIcon, event: TrayIconEvent) {
     let app = tray.app_handle();
     match event {
-        TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } => {
+        TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            rect,
+            ..
+        } => {
             windows::toggle_flyout(app, rect);
         }
-        TrayIconEvent::Click { button: MouseButton::Right, button_state: MouseButtonState::Up, rect, .. } if !NATIVE_MENU => {
+        TrayIconEvent::Click {
+            button: MouseButton::Right,
+            button_state: MouseButtonState::Up,
+            rect,
+            ..
+        } if !NATIVE_MENU => {
             windows::toggle_flyout(app, rect);
         }
-        TrayIconEvent::DoubleClick { button: MouseButton::Left, .. } if !cfg!(target_os = "macos") => {
+        TrayIconEvent::DoubleClick {
+            button: MouseButton::Left,
+            ..
+        } if !cfg!(target_os = "macos") => {
             windows::hide_flyout(app);
             windows::panel(app, None);
         }
@@ -128,8 +192,16 @@ pub fn update(app: &AppHandle, state: &Value, offline: bool) {
     } else {
         Kind::Idle
     };
-    let headline = if offline { "Not running".to_owned() } else { notices::headline(state) };
-    let agents = if offline { Vec::new() } else { notices::agents(state) };
+    let headline = if offline {
+        "Not running".to_owned()
+    } else {
+        notices::headline(state)
+    };
+    let agents = if offline {
+        Vec::new()
+    } else {
+        notices::agents(state)
+    };
     let shown = (kind, headline.clone(), agents.clone());
     let generation = {
         let mut last = SHOWN.lock().unwrap_or_else(|p| p.into_inner());
@@ -159,7 +231,9 @@ pub fn update(app: &AppHandle, state: &Value, offline: bool) {
             if GENERATION.load(Ordering::SeqCst) != generation {
                 return;
             }
-            let Some(tray) = app2.tray_by_id(ID) else { return };
+            let Some(tray) = app2.tray_by_id(ID) else {
+                return;
+            };
             let drawn = icon::current(kind);
             let template = drawn.template;
             let _ = tray.set_icon(Some(image(kind)));
@@ -173,7 +247,11 @@ pub fn update(app: &AppHandle, state: &Value, offline: bool) {
                     }
                 });
             }
-            let tip = if offline { "Clak — not running".to_owned() } else { format!("Clak — {headline}") };
+            let tip = if offline {
+                "Clak — not running".to_owned()
+            } else {
+                format!("Clak — {headline}")
+            };
             let _ = tray.set_tooltip(Some(tip));
             if NATIVE_MENU && let Ok(menu) = menu(&app2, &headline, &agents, &icons) {
                 let _ = tray.set_menu(Some(menu));

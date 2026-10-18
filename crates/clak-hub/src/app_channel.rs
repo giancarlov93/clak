@@ -5,19 +5,19 @@
 //! whole HTTP server for a single `101` would be extra surface on a port that any web page
 //! can probe.
 
+use crate::consent::Verdict;
 use crate::core::{Broker, Outbox};
 use crate::permissions::AppPermissions;
 use crate::texts;
 use crate::wire::{self, Malformed, ResourceDef, ToolDef};
-use crate::consent::Verdict;
 use clak_wire::json::{self, MAX_MESSAGE_BYTES};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
-use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -34,7 +34,12 @@ pub async fn bind() -> std::io::Result<(TcpListener, u16)> {
     Ok((listener, port))
 }
 
-pub async fn accept(listener: TcpListener, broker: Broker, tracker: TaskTracker, stop: CancellationToken) {
+pub async fn accept(
+    listener: TcpListener,
+    broker: Broker,
+    tracker: TaskTracker,
+    stop: CancellationToken,
+) {
     loop {
         let accepted = tokio::select! {
             accepted = listener.accept() => accepted,
@@ -48,12 +53,16 @@ pub async fn accept(listener: TcpListener, broker: Broker, tracker: TaskTracker,
 
 async fn serve(stream: TcpStream, broker: Broker, stop: CancellationToken) {
     let _ = stream.set_nodelay(true);
-    let (Ok(peer), Ok(local)) = (stream.peer_addr(), stream.local_addr()) else { return };
+    let (Ok(peer), Ok(local)) = (stream.peer_addr(), stream.local_addr()) else {
+        return;
+    };
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE_BYTES))
         .max_frame_size(Some(MAX_MESSAGE_BYTES));
     let handshake = tokio_tungstenite::accept_async_with_config(stream, Some(config));
-    let Ok(Ok(socket)) = tokio::time::timeout(HANDSHAKE_LIMIT, handshake).await else { return };
+    let Ok(Ok(socket)) = tokio::time::timeout(HANDSHAKE_LIMIT, handshake).await else {
+        return;
+    };
     let (mut sink, mut source) = socket.split();
 
     let (outbox, mut queue) = Outbox::channel();
@@ -118,8 +127,19 @@ async fn serve(stream: TcpStream, broker: Broker, stop: CancellationToken) {
             }
             Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
         };
-        let Ok(Value::Object(message)) = json::parse(&raw) else { break };
-        match handle(&broker, &outbox, &mut app, &message, peer.port(), local.port()).await {
+        let Ok(Value::Object(message)) = json::parse(&raw) else {
+            break;
+        };
+        match handle(
+            &broker,
+            &outbox,
+            &mut app,
+            &message,
+            peer.port(),
+            local.port(),
+        )
+        .await
+        {
             Ok(Flow::Continue) => {}
             Ok(Flow::Close(reason)) => {
                 close_reason = reason;
@@ -170,17 +190,28 @@ async fn handle(
         }
         // No version means the first one; one the hub does not know is refused, and is told so.
         if message.get("protocol").map_or(Some(1), Value::as_u64) != Some(clak_wire::PROTOCOL) {
-            let text = format!("unsupported protocol version: this Clak speaks version {}", clak_wire::PROTOCOL);
-            broker.run(|_| outbox.send(json!({ "type": "error", "error": text, "protocol": clak_wire::PROTOCOL })));
+            let text = format!(
+                "unsupported protocol version: this Clak speaks version {}",
+                clak_wire::PROTOCOL
+            );
+            broker.run(|_| {
+                outbox.send(
+                    json!({ "type": "error", "error": text, "protocol": clak_wire::PROTOCOL }),
+                )
+            });
             return Ok(Flow::Drop);
         }
-        let tools = wire::active(wire::parse_tools(wire::required(message, "tools")?)?, message.get("active"))?;
+        let tools = wire::active(
+            wire::parse_tools(wire::required(message, "tools")?)?,
+            message.get("active"),
+        )?;
         let resource = ResourceDef::from_json(wire::required(message, "resource")?)?;
         // Slow, and outside the lock: meanwhile the hub serves the others.
         let platform = broker.options().platform.clone();
-        let origin = tokio::task::spawn_blocking(move || platform.attest_loopback(peer_port, local_port))
-            .await
-            .unwrap_or_else(|_| json!({}));
+        let origin =
+            tokio::task::spawn_blocking(move || platform.attest_loopback(peer_port, local_port))
+                .await
+                .unwrap_or_else(|_| json!({}));
         if !admit(broker, outbox, &resource, &origin, &tools).await {
             return Ok(Flow::Drop);
         }
@@ -194,11 +225,18 @@ async fn handle(
         return Ok(Flow::Continue);
     }
 
-    let Some(conn_id) = app.as_deref() else { return Ok(Flow::Continue) };
+    let Some(conn_id) = app.as_deref() else {
+        return Ok(Flow::Continue);
+    };
     match kind {
         Some("tools_changed" | "register") => {
-            let tools = wire::active(wire::parse_tools(wire::required(message, "tools")?)?, message.get("active"))?;
-            let update = message.contains_key("instructions").then(|| instructions(message));
+            let tools = wire::active(
+                wire::parse_tools(wire::required(message, "tools")?)?,
+                message.get("active"),
+            )?;
+            let update = message
+                .contains_key("instructions")
+                .then(|| instructions(message));
             broker.run(|c| {
                 c.tools_changed(conn_id, tools);
                 if let Some(text) = update {
@@ -213,7 +251,13 @@ async fn handle(
             done
         })?,
         Some("close") => {
-            return Ok(Flow::Close(message.get("reason").and_then(Value::as_str).unwrap_or("resource_closed").to_owned()));
+            return Ok(Flow::Close(
+                message
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("resource_closed")
+                    .to_owned(),
+            ));
         }
         _ => broker.run(|c| c.touch()),
     }
@@ -251,17 +295,31 @@ pub fn instructions(message: &Map<String, Value>) -> Option<String> {
 /// A program gets in only if the user allows it: once per executable, and the hub remembers
 /// it. While the question is open the program knows it (`waiting`); if the user says no it
 /// receives `denied` and the connection closes.
-async fn admit(broker: &Broker, outbox: &Outbox, resource: &ResourceDef, origin: &Value, tools: &[ToolDef]) -> bool {
+async fn admit(
+    broker: &Broker,
+    outbox: &Outbox,
+    resource: &ResourceDef,
+    origin: &Value,
+    tools: &[ToolDef],
+) -> bool {
     let platform = broker.options().platform.clone();
     let (o, name) = (origin.clone(), resource.app.clone());
-    let key = tokio::task::spawn_blocking(move || AppPermissions::key_for(platform.as_ref(), &o, &name)).await.ok().flatten();
+    let key =
+        tokio::task::spawn_blocking(move || AppPermissions::key_for(platform.as_ref(), &o, &name))
+            .await
+            .ok()
+            .flatten();
     if broker.run(|c| c.permissions().allows(key.as_deref())) {
         return true;
     }
 
     outbox.send(json!({ "type": "waiting", "reason": "consent" }));
     let remembered = key.is_some();
-    let consent_key = format!("app:{}", key.clone().unwrap_or_else(|| clak_wire::json::new_id("unknown")));
+    let consent_key = format!(
+        "app:{}",
+        key.clone()
+            .unwrap_or_else(|| clak_wire::json::new_id("unknown"))
+    );
     let (allow_key, allow_origin, allow_name) = (key, origin.clone(), resource.app.clone());
     let stop = broker.stopping();
     let verdict = broker

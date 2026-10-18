@@ -42,12 +42,24 @@ pub struct WindowPrompt {
 }
 
 pub fn label(id: &str) -> String {
-    format!("consent-{}", id.replace(|c: char| !c.is_ascii_alphanumeric(), "-"))
+    format!(
+        "consent-{}",
+        id.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+    )
 }
 
 impl WindowPrompt {
-    pub fn new(app: AppHandle, timeout: std::time::Duration, sound: Arc<dyn Fn() -> bool + Send + Sync>) -> Self {
-        WindowPrompt { app, questions: Arc::default(), timeout, sound }
+    pub fn new(
+        app: AppHandle,
+        timeout: std::time::Duration,
+        sound: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Self {
+        WindowPrompt {
+            app,
+            questions: Arc::default(),
+            timeout,
+            sound,
+        }
     }
 
     fn questions(&self) -> std::sync::MutexGuard<'_, Questions> {
@@ -65,7 +77,11 @@ impl WindowPrompt {
 
     /// The user's answer. Only one: the others don't count.
     pub fn answer(&self, id: &str, allow: bool) {
-        let sender = self.questions().open.get_mut(id).and_then(|o| o.answer.take());
+        let sender = self
+            .questions()
+            .open
+            .get_mut(id)
+            .and_then(|o| o.answer.take());
         if let Some(sender) = sender {
             let _ = sender.send(allow);
         }
@@ -96,7 +112,14 @@ impl WindowPrompt {
     pub fn closed_window(&self, window: &str) {
         let sender = {
             let mut questions = self.questions();
-            let Some(id) = questions.order.iter().find(|id| label(id) == window).cloned() else { return };
+            let Some(id) = questions
+                .order
+                .iter()
+                .find(|id| label(id) == window)
+                .cloned()
+            else {
+                return;
+            };
             questions.order.retain(|o| *o != id);
             questions.open.remove(&id).and_then(|mut o| o.answer.take())
         };
@@ -110,10 +133,26 @@ impl WindowPrompt {
     fn stack(&self) {
         let (order, heights): (Vec<String>, Vec<f64>) = {
             let questions = self.questions();
-            questions.order.iter().map(|id| (id.clone(), questions.open.get(id).map_or(420.0, |o| o.height))).unzip()
+            questions
+                .order
+                .iter()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        questions.open.get(id).map_or(420.0, |o| o.height),
+                    )
+                })
+                .unzip()
         };
-        let Some(first) = order.first().and_then(|id| self.app.get_webview_window(&label(id))) else { return };
-        let Ok(Some(monitor)) = first.primary_monitor() else { return };
+        let Some(first) = order
+            .first()
+            .and_then(|id| self.app.get_webview_window(&label(id)))
+        else {
+            return;
+        };
+        let Ok(Some(monitor)) = first.primary_monitor() else {
+            return;
+        };
         let scale = monitor.scale_factor();
         let area = monitor.work_area();
         let (left, top, right, bottom) = (
@@ -124,9 +163,15 @@ impl WindowPrompt {
         );
         let width = WIDTH * scale;
         let gap = GAP * scale;
-        let mut edge = if cfg!(target_os = "macos") { top + gap } else { bottom - gap };
+        let mut edge = if cfg!(target_os = "macos") {
+            top + gap
+        } else {
+            bottom - gap
+        };
         for (id, height) in order.iter().zip(heights) {
-            let Some(window) = self.app.get_webview_window(&label(id)) else { continue };
+            let Some(window) = self.app.get_webview_window(&label(id)) else {
+                continue;
+            };
             let height = height * scale;
             let _ = window.set_size(PhysicalSize::new(width as u32, height as u32));
             let y = if cfg!(target_os = "macos") {
@@ -144,7 +189,9 @@ impl WindowPrompt {
     }
 
     fn show(&self, id: &str) -> Result<(), String> {
-        let kind = self.request(id).and_then(|r| r["kind"].as_str().map(str::to_owned));
+        let kind = self
+            .request(id)
+            .and_then(|r| r["kind"].as_str().map(str::to_owned));
         let title = match kind.as_deref() {
             Some("confirm") => "Clak — confirmation",
             Some("change") => "Clak — settings",
@@ -172,7 +219,11 @@ impl WindowPrompt {
 }
 
 impl ConsentPrompt for WindowPrompt {
-    fn ask(&self, request: ConsentRequest, cancel: CancellationToken) -> BoxFuture<Result<bool, String>> {
+    fn ask(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<bool, String>> {
         let this = self.clone();
         Box::pin(async move {
             let id = request.id.clone();

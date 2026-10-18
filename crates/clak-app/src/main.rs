@@ -42,7 +42,8 @@ fn has(args: &[String], flag: &str) -> bool {
 }
 
 fn link(args: &[String]) -> Option<&String> {
-    args.iter().find(|a| a.to_ascii_lowercase().starts_with("clak://"))
+    args.iter()
+        .find(|a| a.to_ascii_lowercase().starts_with("clak://"))
 }
 
 /// What a second copy, launched while this one is running, asks for.
@@ -107,10 +108,10 @@ fn main() {
     if has(&args, "--setup") {
         // The installer waits for it to finish: the work, then the app reopens by itself, detached.
         let code = setup::installer(&home, false);
-        if code == 0 {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(exe).spawn();
-            }
+        if code == 0
+            && let Ok(exe) = std::env::current_exe()
+        {
+            let _ = std::process::Command::new(exe).spawn();
         }
         std::process::exit(code);
     }
@@ -127,7 +128,9 @@ fn main() {
 
     let app = tauri::Builder::default()
         // First: a second copy passes its arguments to this one and exits.
-        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| forwarded(app, args)))
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            forwarded(app, args)
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -227,7 +230,9 @@ fn main() {
 
     app.run(|app, event| match event {
         // Closing the last window doesn't quit the app: it lives in the tray.
-        RunEvent::ExitRequested { api, code: None, .. } => api.prevent_exit(),
+        RunEvent::ExitRequested {
+            api, code: None, ..
+        } => api.prevent_exit(),
         #[cfg(target_os = "macos")]
         RunEvent::Opened { urls } => {
             for url in urls {

@@ -21,7 +21,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// This process's command line, with the real streams.
 pub fn main() -> i32 {
-    let args: Vec<String> = std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     // Only if it comes from a pipe or a file: from the terminal it would wait for the
     // keyboard, and the agent would hang.
     let stdin = || {
@@ -37,7 +40,14 @@ pub fn main() -> i32 {
     // user's terminal.
     let mut out = std::io::stdout().lock();
     let mut err = std::io::stderr().lock();
-    let exit = run(&args, stdin, &mut out, &mut err, &clak_wire::location::home(), &Shell::current());
+    let exit = run(
+        &args,
+        stdin,
+        &mut out,
+        &mut err,
+        &clak_wire::location::home(),
+        &Shell::current(),
+    );
     let _ = out.flush();
     let _ = err.flush();
     exit
@@ -72,7 +82,11 @@ pub fn run<S: AsRef<str>>(
         Err(problem) => {
             // There is no invocation, but there is --json: a usage error goes in the envelope too.
             if args.iter().any(|a| a.as_ref() == "--json") {
-                let _ = writeln!(out, "{}", output::failure(Exit::USAGE, Some("bad_request"), &problem));
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    output::failure(Exit::USAGE, Some("bad_request"), &problem)
+                );
             }
             let _ = writeln!(err, "clak: {problem}");
             let _ = writeln!(err, "Help: clak -h");
@@ -116,7 +130,13 @@ pub fn run<S: AsRef<str>>(
         request.insert("query".into(), query.clone().into());
     }
     if invocation.op == "call" {
-        request.insert("tool".into(), invocation.command.clone().map_or(Value::Null, Value::String));
+        request.insert(
+            "tool".into(),
+            invocation
+                .command
+                .clone()
+                .map_or(Value::Null, Value::String),
+        );
         if let Some(arguments) = &invocation.arguments {
             request.insert("arguments".into(), Value::Object(arguments.clone()));
         }
@@ -126,7 +146,12 @@ pub fn run<S: AsRef<str>>(
     }
 
     let json = invocation.json;
-    let fail = |out: &mut dyn Write, err: &mut dyn Write, exit: i32, code: Option<&str>, error: &str| -> i32 {
+    let fail = |out: &mut dyn Write,
+                err: &mut dyn Write,
+                exit: i32,
+                code: Option<&str>,
+                error: &str|
+     -> i32 {
         if json {
             let _ = writeln!(out, "{}", output::failure(exit, code, error));
         }
@@ -143,13 +168,21 @@ pub fn run<S: AsRef<str>>(
     });
     let mut response = match asked {
         Ok(response) => response,
-        Err(HubUnavailable(message)) => return fail(out, err, Exit::UNAVAILABLE, Some("unavailable"), &message),
+        Err(HubUnavailable(message)) => {
+            return fail(out, err, Exit::UNAVAILABLE, Some("unavailable"), &message);
+        }
     };
 
     response.remove("type");
     if !flag(&response, "ok") {
         let code = str_of(&response, "code");
-        return fail(out, err, Exit::of(code), code, str_of(&response, "error").unwrap_or("unknown error"));
+        return fail(
+            out,
+            err,
+            Exit::of(code),
+            code,
+            str_of(&response, "error").unwrap_or("unknown error"),
+        );
     }
     response.remove("ok");
 
@@ -159,14 +192,20 @@ pub fn run<S: AsRef<str>>(
     let mut saved = false; // the files are already in place, -o included
     match invocation.op.as_str() {
         "status" => {
-            let name = response.get("agent").and_then(|a| a.get("name")).and_then(Value::as_str).unwrap_or("");
+            let name = response
+                .get("agent")
+                .and_then(|a| a.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
             text = if flag(&response, "authorized") {
                 format!(
                     "Connected to Clak as {name}. Connected programs: {}. List them: clak list",
                     node_text(response.get("resources"))
                 )
             } else {
-                format!("Not connected yet: the first 'clak list' will ask the user for permission for {name}.")
+                format!(
+                    "Not connected yet: the first 'clak list' will ask the user for permission for {name}."
+                )
             };
             result = Some(Value::Object(response.clone()));
         }
@@ -179,18 +218,28 @@ pub fn run<S: AsRef<str>>(
             let program = invocation.program.as_deref().unwrap_or("");
             let tools = objects(response.get("tools"));
             let Some(usage) = render::command(&response, command) else {
-                let near = clak_wire::names::closest(Some(command), tools.iter().filter_map(|t| str_of(t, "name")));
-                let hint = near.map(|n| format!(": did you mean '{n}'?")).unwrap_or_else(|| ".".into());
+                let near = clak_wire::names::closest(
+                    Some(command),
+                    tools.iter().filter_map(|t| str_of(t, "name")),
+                );
+                let hint = near
+                    .map(|n| format!(": did you mean '{n}'?"))
+                    .unwrap_or_else(|| ".".into());
                 return fail(
                     out,
                     err,
                     Exit::NOT_FOUND,
                     Some("not_found"),
-                    &format!("'{program}' has no command '{command}'{hint} List: clak {program} list"),
+                    &format!(
+                        "'{program}' has no command '{command}'{hint} List: clak {program} list"
+                    ),
                 );
             };
             text = usage;
-            result = tools.into_iter().find(|t| str_of(t, "name") == Some(command)).map(|t| Value::Object(t.clone()));
+            result = tools
+                .into_iter()
+                .find(|t| str_of(t, "name") == Some(command))
+                .map(|t| Value::Object(t.clone()));
         }
         "tools" => {
             text = render::commands(&response, Style::Cli, invocation.help);
@@ -205,17 +254,27 @@ pub fn run<S: AsRef<str>>(
                     let mut files = Vec::new();
                     text = match attachments::save(&blocks, &invocation, Some(&mut files)) {
                         Ok(text) => text,
-                        Err(problem) => return fail(out, err, Exit::USAGE, Some("unwritable"), &problem),
+                        Err(problem) => {
+                            return fail(out, err, Exit::USAGE, Some("unwritable"), &problem);
+                        }
                     };
                     saved = true;
                     let texts: Vec<&str> = blocks
                         .iter()
                         .filter(|b| !render::is_binary(b))
                         .filter_map(|b| {
-                            str_of(b, "text").or_else(|| b.get("resource").and_then(|r| r.get("text")).and_then(Value::as_str))
+                            str_of(b, "text").or_else(|| {
+                                b.get("resource")
+                                    .and_then(|r| r.get("text"))
+                                    .and_then(Value::as_str)
+                            })
                         })
                         .collect();
-                    let joined = if texts.is_empty() { Value::Null } else { Value::String(texts.join("\n")) };
+                    let joined = if texts.is_empty() {
+                        Value::Null
+                    } else {
+                        Value::String(texts.join("\n"))
+                    };
                     result = Some(json!({"text": joined, "files": files}));
                 }
                 _ => {
@@ -229,7 +288,11 @@ pub fn run<S: AsRef<str>>(
     if failed {
         // The program wrote the error: it goes to whoever asked, with a code that says so.
         if json {
-            let _ = writeln!(out, "{}", output::failure(Exit::TOOL_ERROR, Some("tool_error"), &text));
+            let _ = writeln!(
+                out,
+                "{}",
+                output::failure(Exit::TOOL_ERROR, Some("tool_error"), &text)
+            );
         }
         let _ = writeln!(
             err,
@@ -237,7 +300,11 @@ pub fn run<S: AsRef<str>>(
             invocation.program.as_deref().unwrap_or(""),
             invocation.command.as_deref().unwrap_or("")
         );
-        let shown = if screen { text } else { output::fit(&text, &invocation, ".txt") };
+        let shown = if screen {
+            text
+        } else {
+            output::fit(&text, &invocation, ".txt")
+        };
         let _ = writeln!(err, "{shown}");
         return Exit::TOOL_ERROR;
     }
@@ -246,14 +313,29 @@ pub fn run<S: AsRef<str>>(
     match invocation.output.as_deref() {
         Some(path) if !saved => {
             if let Err(e) = std::fs::write(path, printed.as_bytes()) {
-                return fail(out, err, Exit::USAGE, Some("unwritable"), &format!("cannot write {path}: {e}"));
+                return fail(
+                    out,
+                    err,
+                    Exit::USAGE,
+                    Some("unwritable"),
+                    &format!("cannot write {path}: {e}"),
+                );
             }
             let full = crate::util::full_path(path);
-            let _ = writeln!(out, "Written to {} ({} bytes).", full.display(), printed.len());
+            let _ = writeln!(
+                out,
+                "Written to {} ({} bytes).",
+                full.display(),
+                printed.len()
+            );
         }
         _ => {
             if !screen {
-                printed = if json { output::fit_json(&printed, &invocation) } else { output::fit(&printed, &invocation, ".txt") };
+                printed = if json {
+                    output::fit_json(&printed, &invocation)
+                } else {
+                    output::fit(&printed, &invocation, ".txt")
+                };
             }
             let _ = out.write_all(printed.as_bytes());
             if !printed.ends_with('\n') {
@@ -290,8 +372,19 @@ mod tests {
     fn clak_in(home: &Path, args: &[&str], stdin: Option<&str>) -> Ran {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let stdin = stdin.map(str::to_owned);
-        let exit = run(args, move || stdin, &mut out, &mut err, home, &Shell::none());
-        Ran { exit, out: String::from_utf8(out).unwrap(), err: String::from_utf8(err).unwrap() }
+        let exit = run(
+            args,
+            move || stdin,
+            &mut out,
+            &mut err,
+            home,
+            &Shell::none(),
+        );
+        Ran {
+            exit,
+            out: String::from_utf8(out).unwrap(),
+            err: String::from_utf8(err).unwrap(),
+        }
     }
 
     fn clak(hub: &FakeHub, args: &[&str]) -> Ran {
@@ -304,17 +397,32 @@ mod tests {
 
     #[test]
     fn le_righe_di_attesa_vanno_su_stderr_e_senza_risposta_l_uscita_e_7() {
-        let hub = FakeHub::new(vec![FakeHub::progress("consent", "waiting for the user to answer in the Clak window…")]);
+        let hub = FakeHub::new(vec![FakeHub::progress(
+            "consent",
+            "waiting for the user to answer in the Clak window…",
+        )]);
         let ran = clak(&hub, &["list", "--wait", "0.3"]);
         assert_eq!(ran.exit, 7);
-        assert!(ran.err.starts_with("clak: waiting for the user to answer in the Clak window…\n"), "{}", ran.err);
+        assert!(
+            ran.err
+                .starts_with("clak: waiting for the user to answer in the Clak window…\n"),
+            "{}",
+            ran.err
+        );
         assert!(ran.err.contains("clak: The user did not answer"));
         assert!(ran.out.is_empty());
 
         // With --json the envelope says the same, on stdout.
         let json = clak(&hub, &["list", "--wait", "0.3", "--json"]);
         let envelope = parse(&json.out);
-        assert_eq!((envelope["ok"].clone(), envelope["exit"].clone(), envelope["code"].clone()), (json!(false), json!(7), json!("no_answer")));
+        assert_eq!(
+            (
+                envelope["ok"].clone(),
+                envelope["exit"].clone(),
+                envelope["code"].clone()
+            ),
+            (json!(false), json!(7), json!("no_answer"))
+        );
     }
 
     #[test]
@@ -327,7 +435,10 @@ mod tests {
         assert_eq!(ran.exit, 2);
         assert!(ran.err.contains("did you mean --intent?"));
         let request = &hub.requests()[0];
-        assert_eq!(clak_wire::json::text(&request["flags"]), r#"[{"name":"intnet","value":"read"}]"#);
+        assert_eq!(
+            clak_wire::json::text(&request["flags"]),
+            r#"[{"name":"intnet","value":"read"}]"#
+        );
         assert_eq!(request["op"], "call");
         assert_eq!(request["via"], "cli");
         assert_eq!(request["resource"], "revit");
@@ -342,8 +453,15 @@ mod tests {
         }))]);
         let ran = clak(&hub, &["word", "apend_text", "-h"]);
         assert_eq!(ran.exit, 5);
-        assert_eq!(ran.err, "clak: 'word' has no command 'apend_text': did you mean 'append_text'? List: clak word list\n");
-        assert!(clak(&hub, &["word", "zzz", "-h"]).err.contains("no command 'zzz'. List:"));
+        assert_eq!(
+            ran.err,
+            "clak: 'word' has no command 'apend_text': did you mean 'append_text'? List: clak word list\n"
+        );
+        assert!(
+            clak(&hub, &["word", "zzz", "-h"])
+                .err
+                .contains("no command 'zzz'. List:")
+        );
         let help = clak(&hub, &["word", "append_text", "-h"]);
         assert_eq!(help.exit, 0);
         assert!(help.out.starts_with("clak word append_text\n\nd\n"));
@@ -351,16 +469,22 @@ mod tests {
 
     #[test]
     fn con_json_il_risultato_nella_busta_e_un_testo_json_resta_json() {
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "content": [{"type": "text", "text": "{\"muri\": 3}"}]}))]);
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": true, "content": [{"type": "text", "text": "{\"muri\": 3}"}]}),
+        )]);
         let ran = clak(&hub, &["revit", "count_walls", "--json"]);
         assert_eq!(ran.exit, 0);
-        assert_eq!(clak_wire::json::text(&parse(&ran.out)), r#"{"ok":true,"exit":0,"result":{"muri":3}}"#);
+        assert_eq!(
+            clak_wire::json::text(&parse(&ran.out)),
+            r#"{"ok":true,"exit":0,"result":{"muri":3}}"#
+        );
         assert_eq!(clak(&hub, &["revit", "count_walls"]).out, "{\"muri\": 3}\n");
     }
 
     #[test]
     fn i_file_di_un_risultato_con_json_sono_percorsi_non_base64() {
-        let folder = std::env::temp_dir().join(format!("clak-files-{}", clak_wire::json::random_hex(4)));
+        let folder =
+            std::env::temp_dir().join(format!("clak-files-{}", clak_wire::json::random_hex(4)));
         let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "content": [
             {"type": "text", "text": "Ecco la vista."}, {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
         ]}))]);
@@ -369,65 +493,111 @@ mod tests {
         let ran = clak(&hub, &["blender", "capture", "--json", "-o", &output_text]);
         let result = parse(&ran.out)["result"].clone();
         assert_eq!(result["text"], "Ecco la vista.");
-        assert_eq!(result["files"], json!([{"path": output_text, "mime": "image/png", "bytes": 8}]));
+        assert_eq!(
+            result["files"],
+            json!([{"path": output_text, "mime": "image/png", "bytes": 8}])
+        );
         assert!(output.is_file());
         let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
     fn un_risultato_lungo_va_in_un_file_e_meno_o_meno_lo_stampa() {
-        let long = (0..5000).map(|i| format!("riga {i}")).collect::<Vec<_>>().join("\n");
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "content": long}))]);
+        let long = (0..5000)
+            .map(|i| format!("riga {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": true, "content": long}),
+        )]);
         let ran = clak(&hub, &["revit", "dump"]);
-        assert!(ran.out.starts_with(&format!("The result is long ({} characters", long.len())));
+        assert!(
+            ran.out
+                .starts_with(&format!("The result is long ({} characters", long.len()))
+        );
         let start = ran.out.find("It is in ").unwrap() + 9;
         let path = &ran.out[start..ran.out.find(": read it from there").unwrap()];
-        assert!(Path::new(path).starts_with(attachments::folder()) && path.ends_with("-revit-dump.txt"), "{path}");
+        assert!(
+            Path::new(path).starts_with(attachments::folder()) && path.ends_with("-revit-dump.txt"),
+            "{path}"
+        );
         assert_eq!(std::fs::read_to_string(path).unwrap(), long);
         let _ = std::fs::remove_file(path);
 
-        assert_eq!(clak(&hub, &["revit", "dump", "-o", "-"]).out, format!("{long}\n"));
+        assert_eq!(
+            clak(&hub, &["revit", "dump", "-o", "-"]).out,
+            format!("{long}\n")
+        );
     }
 
     #[test]
     fn meno_o_scrive_il_risultato_in_un_file() {
-        let folder = std::env::temp_dir().join(format!("clak-out-{}", clak_wire::json::random_hex(4)));
+        let folder =
+            std::env::temp_dir().join(format!("clak-out-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "content": "perché"}))]);
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": true, "content": "perché"}),
+        )]);
         let file = folder.join("r.txt");
         let ran = clak(&hub, &["revit", "dump", "-o", &file.to_string_lossy()]);
         assert_eq!(ran.exit, 0);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "perché");
-        assert_eq!(ran.out, format!("Written to {} (7 bytes).\n", file.display()));
+        assert_eq!(
+            ran.out,
+            format!("Written to {} (7 bytes).\n", file.display())
+        );
         let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
     fn un_errore_del_programma_e_uscita_1_con_il_testo_su_stderr() {
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "is_error": true, "content": [{"type": "text", "text": "muro non trovato"}]}))]);
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": true, "is_error": true, "content": [{"type": "text", "text": "muro non trovato"}]}),
+        )]);
         let ran = clak(&hub, &["revit", "delete", "--json"]);
         assert_eq!(ran.exit, 1);
-        assert_eq!(ran.err, "clak: 'revit delete' returned an error:\nmuro non trovato\n");
+        assert_eq!(
+            ran.err,
+            "clak: 'revit delete' returned an error:\nmuro non trovato\n"
+        );
         assert_eq!(parse(&ran.out)["code"], "tool_error");
     }
 
     #[test]
     fn lo_stato_e_l_elenco() {
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "agent": {"name": "Claude Code"}, "authorized": true, "resources": 2}))]);
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": true, "agent": {"name": "Claude Code"}, "authorized": true, "resources": 2}),
+        )]);
         let ran = clak(&hub, &["status"]);
-        assert_eq!(ran.out, "Connected to Clak as Claude Code. Connected programs: 2. List them: clak list\n");
+        assert_eq!(
+            ran.out,
+            "Connected to Clak as Claude Code. Connected programs: 2. List them: clak list\n"
+        );
         let json = parse(&clak(&hub, &["status", "--json"]).out);
-        assert_eq!(json["result"], json!({"agent": {"name": "Claude Code"}, "authorized": true, "resources": 2}));
+        assert_eq!(
+            json["result"],
+            json!({"agent": {"name": "Claude Code"}, "authorized": true, "resources": 2})
+        );
 
-        let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "resources": []}))]);
+        let hub = FakeHub::new(vec![FakeHub::response(
+            json!({"ok": true, "resources": []}),
+        )]);
         let ran = clak(&hub, &["list", "--json"]);
-        assert_eq!(clak_wire::json::text(&parse(&ran.out)), r#"{"ok":true,"exit":0,"result":[]}"#);
-        assert!(clak(&hub, &["list"]).out.starts_with("No programs connected to Clak."));
+        assert_eq!(
+            clak_wire::json::text(&parse(&ran.out)),
+            r#"{"ok":true,"exit":0,"result":[]}"#
+        );
+        assert!(
+            clak(&hub, &["list"])
+                .out
+                .starts_with("No programs connected to Clak.")
+        );
     }
 
     #[test]
     fn hub_chiuso_dall_utente_e_uscita_4() {
-        let home = std::env::temp_dir().join(format!("clak-cli-{}", clak_wire::json::random_hex(4)));
+        let home =
+            std::env::temp_dir().join(format!("clak-cli-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&home).unwrap();
         // The "closed by the user" marker: clak doesn't even try to start it.
         std::fs::write(clak_wire::location::pause_flag(&home), b"").unwrap();
@@ -443,7 +613,10 @@ mod tests {
         let hub = FakeHub::new(vec![]);
         let ran = clak(&hub, &["list", "--json", "--wait", "mai"]);
         assert_eq!(ran.exit, 2);
-        assert_eq!(ran.err, "clak: --wait needs a number of seconds\nHelp: clak -h\n");
+        assert_eq!(
+            ran.err,
+            "clak: --wait needs a number of seconds\nHelp: clak -h\n"
+        );
         assert_eq!(parse(&ran.out)["code"], "bad_request");
         assert!(hub.requests().is_empty());
     }

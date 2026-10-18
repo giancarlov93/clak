@@ -54,7 +54,10 @@ mod windows {
 
         /// Under another HKCU key: for the tests.
         pub fn with_root(exe: impl Into<PathBuf>, root: impl Into<String>) -> UriScheme {
-            UriScheme { exe: exe.into(), root: root.into() }
+            UriScheme {
+                exe: exe.into(),
+                root: root.into(),
+            }
         }
 
         fn key(&self) -> String {
@@ -72,16 +75,30 @@ mod windows {
         }
 
         pub fn state(&self) -> UriSchemeState {
-            let Some(key) = registry::open(&self.key(), false) else { return UriSchemeState::Off };
+            let Some(key) = registry::open(&self.key(), false) else {
+                return UriSchemeState::Off;
+            };
             let registered = self.registered();
-            if registered.as_deref().is_some_and(|r| same_exe(r, &self.exe.to_string_lossy())) {
+            if registered
+                .as_deref()
+                .is_some_and(|r| same_exe(r, &self.exe.to_string_lossy()))
+            {
                 return UriSchemeState::On;
             }
             // Ours if the description says so or if another copy of the app opens it.
-            let file = registered.as_deref().and_then(|r| Path::new(r).file_name()).map(|f| f.to_string_lossy().into_owned());
+            let file = registered
+                .as_deref()
+                .and_then(|r| Path::new(r).file_name())
+                .map(|f| f.to_string_lossy().into_owned());
             let ours = key.string_expanded(None).as_deref() == Some(DESCRIPTION)
-                || file.as_deref().is_some_and(|f| f.eq_ignore_ascii_case(TRAY_APP));
-            if ours { UriSchemeState::Elsewhere } else { UriSchemeState::Foreign }
+                || file
+                    .as_deref()
+                    .is_some_and(|f| f.eq_ignore_ascii_case(TRAY_APP));
+            if ours {
+                UriSchemeState::Elsewhere
+            } else {
+                UriSchemeState::Foreign
+            }
         }
 
         pub fn register(&self) -> Result<()> {
@@ -89,7 +106,11 @@ mod windows {
             let key = registry::create(&self.key())?;
             key.set_string(None, DESCRIPTION, STRING)?;
             key.set_string(Some("URL Protocol"), "", STRING)?;
-            registry::create(&format!(r"{}\DefaultIcon", self.key()))?.set_string(None, &format!("\"{exe}\",0"), STRING)?;
+            registry::create(&format!(r"{}\DefaultIcon", self.key()))?.set_string(
+                None,
+                &format!("\"{exe}\",0"),
+                STRING,
+            )?;
             registry::create(&format!(r"{}\shell\open\command", self.key()))?.set_string(
                 None,
                 &format!("\"{exe}\" \"%1\""),

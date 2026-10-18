@@ -9,8 +9,8 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, QueryFullProcessImageNameW,
-    WaitForSingleObject,
+    OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    QueryFullProcessImageNameW, WaitForSingleObject,
 };
 
 /// Set on the copy started below: it only passes `--quit` on to the running one.
@@ -21,16 +21,23 @@ const PATIENCE: Duration = Duration::from_secs(30);
 
 /// Asks the running copies of this exe to quit, and waits until they have.
 pub fn quit_and_wait(args: &[String]) -> i32 {
-    let Ok(exe) = std::env::current_exe() else { return 1 };
+    let Ok(exe) = std::env::current_exe() else {
+        return 1;
+    };
     let running = others(&exe);
     if running.is_empty() {
         return 0;
     }
     // The single-instance plugin passes the arguments on and exits the process: a child does it.
-    let _ = std::process::Command::new(&exe).args(&args[1..]).env(FORWARD, "1").status();
+    let _ = std::process::Command::new(&exe)
+        .args(&args[1..])
+        .env(FORWARD, "1")
+        .status();
     let deadline = Instant::now() + PATIENCE;
     for handle in running {
-        let left = deadline.saturating_duration_since(Instant::now()).as_millis() as u32;
+        let left = deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis() as u32;
         unsafe {
             WaitForSingleObject(handle, left);
             CloseHandle(handle);
@@ -42,7 +49,10 @@ pub fn quit_and_wait(args: &[String]) -> i32 {
 /// The other processes running this very exe, as handles to wait on.
 fn others(exe: &Path) -> Vec<HANDLE> {
     let me = std::process::id();
-    let name = exe.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let name = exe
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     let mut found = Vec::new();
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -53,12 +63,23 @@ fn others(exe: &Path) -> Vec<HANDLE> {
         entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
         let mut more = Process32FirstW(snapshot, &mut entry) != 0;
         while more {
-            let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-            let same_name = String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase() == name;
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            let same_name =
+                String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase() == name;
             if same_name && entry.th32ProcessID != me {
-                let handle = OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
+                let handle = OpenProcess(
+                    PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                    0,
+                    entry.th32ProcessID,
+                );
                 if !handle.is_null() {
-                    if image(handle).is_some_and(|path| path.eq_ignore_ascii_case(&exe.to_string_lossy())) {
+                    if image(handle)
+                        .is_some_and(|path| path.eq_ignore_ascii_case(&exe.to_string_lossy()))
+                    {
                         found.push(handle);
                     } else {
                         CloseHandle(handle);
@@ -75,7 +96,9 @@ fn others(exe: &Path) -> Vec<HANDLE> {
 fn image(process: HANDLE) -> Option<String> {
     let mut buffer = [0u16; 1024];
     let mut size = buffer.len() as u32;
-    let ok = unsafe { QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size) };
+    let ok = unsafe {
+        QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buffer.as_mut_ptr(), &mut size)
+    };
     (ok != 0).then(|| String::from_utf16_lossy(&buffer[..size as usize]))
 }
 
@@ -87,8 +110,13 @@ mod tests {
     #[test]
     fn a_running_copy_is_found() {
         // Another exe stands in for the app: its own copies are what `others` looks for.
-        let cmd = Path::new(&std::env::var("SystemRoot").unwrap()).join("System32").join("cmd.exe");
-        let mut child = std::process::Command::new(&cmd).args(["/c", "ping -n 3 127.0.0.1 >nul"]).spawn().unwrap();
+        let cmd = Path::new(&std::env::var("SystemRoot").unwrap())
+            .join("System32")
+            .join("cmd.exe");
+        let mut child = std::process::Command::new(&cmd)
+            .args(["/c", "ping -n 3 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap();
         let ids: Vec<u32> = others(&cmd)
             .into_iter()
             .map(|handle| unsafe {

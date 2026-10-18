@@ -53,7 +53,10 @@ impl Progress {
     }
 
     pub fn waiting(&self, what: &str) {
-        self.tell("consent", &format!("waiting for the user: Clak is asking them, in its own window, {what}…"));
+        self.tell(
+            "consent",
+            &format!("waiting for the user: Clak is asking them, in its own window, {what}…"),
+        );
     }
 
     pub fn allowed(&self, text: &str) {
@@ -168,11 +171,17 @@ pub fn slim(value: &Value) -> Value {
         },
         Value::Array(items) => Value::Array(items.iter().map(slim).collect()),
         Value::Object(map) => {
-            let media = matches!(map.get("type").and_then(Value::as_str), Some("image" | "audio"));
+            let media = matches!(
+                map.get("type").and_then(Value::as_str),
+                Some("image" | "audio")
+            );
             Value::Object(
                 map.iter()
                     .map(|(k, v)| match (media, k.as_str(), v) {
-                        (true, "data", Value::String(data)) => (k.clone(), Value::String(format!("[{} bytes, base64]", data.len()))),
+                        (true, "data", Value::String(data)) => (
+                            k.clone(),
+                            Value::String(format!("[{} bytes, base64]", data.len())),
+                        ),
                         _ => (k.clone(), slim(v)),
                     })
                     .collect(),
@@ -402,7 +411,9 @@ impl Core {
 
     /// Whoever opens the panel first receives the log backlog, then the state.
     pub fn watch(&mut self, monitor_id: &str, outbox: Outbox) {
-        outbox.send(json!({ "type": "log", "items": self.events.iter().cloned().collect::<Vec<_>>() }));
+        outbox.send(
+            json!({ "type": "log", "items": self.events.iter().cloned().collect::<Vec<_>>() }),
+        );
         outbox.send(self.snapshot());
         self.monitors.insert(monitor_id.to_owned(), outbox);
     }
@@ -438,14 +449,23 @@ impl Core {
     /// The command-line name: the one chosen by the user for a connector, or the one derived
     /// from the program's name. Two documents of the same program become «word» and
     /// «word-2».
-    fn name_for(&self, resource: &ResourceDef, preferred: Option<&str>, own: Option<&str>) -> String {
+    fn name_for(
+        &self,
+        resource: &ResourceDef,
+        preferred: Option<&str>,
+        own: Option<&str>,
+    ) -> String {
         let slug = match preferred {
             Some(p) if !p.is_empty() && cli_names::problem(Some(p)).is_none() => p.to_owned(),
             _ => cli_names::from(&resource.app),
         };
         let mut name = slug.clone();
         let mut n = 2;
-        while self.apps.values().any(|a| Some(a.conn_id.as_str()) != own && a.name == name) {
+        while self
+            .apps
+            .values()
+            .any(|a| Some(a.conn_id.as_str()) != own && a.name == name)
+        {
             name = format!("{slug}-{n}");
             n += 1;
         }
@@ -462,7 +482,9 @@ impl Core {
         preferred: Option<&str>,
     ) -> String {
         // Only the hub takes the reserved name, and only if nobody else already holds it: name_for never gives it out.
-        let name = if origin.get("kind").and_then(Value::as_str) == Some("hub") && self.app(cli_names::SETTINGS).is_none() {
+        let name = if origin.get("kind").and_then(Value::as_str) == Some("hub")
+            && self.app(cli_names::SETTINGS).is_none()
+        {
             cli_names::SETTINGS.to_owned()
         } else {
             self.name_for(&resource, preferred, None)
@@ -487,7 +509,9 @@ impl Core {
             origin_label(&app.origin),
             if count == 1 { "command" } else { "commands" }
         );
-        app.send(json!({ "type": "registered", "name": app.name, "protocol": clak_wire::PROTOCOL }));
+        app.send(
+            json!({ "type": "registered", "name": app.name, "protocol": clak_wire::PROTOCOL }),
+        );
         self.apps.insert(conn_id.clone(), app);
         self.log(line);
         self.touch();
@@ -520,7 +544,9 @@ impl Core {
     }
 
     pub fn tools_changed(&mut self, conn_id: &str, tools: Vec<ToolDef>) {
-        let Some(app) = self.apps.get_mut(conn_id) else { return };
+        let Some(app) = self.apps.get_mut(conn_id) else {
+            return;
+        };
         let before: Vec<String> = app.tools.iter().map(|t| t.name.clone()).collect();
         let after: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
         app.tools = tools;
@@ -567,7 +593,11 @@ impl Core {
         let line = if before == app.name {
             format!("program renamed: {} = {}", app.name, app.resource.label())
         } else {
-            format!("program renamed: {before} → {} = {}", app.name, app.resource.label())
+            format!(
+                "program renamed: {before} → {} = {}",
+                app.name,
+                app.resource.label()
+            )
         };
         self.log(line);
         self.touch();
@@ -575,13 +605,28 @@ impl Core {
 
     /// The program's connection has ended: its permissions end with it.
     pub fn app_closed(&mut self, conn_id: &str, reason: &str) {
-        let Some(app) = self.apps.shift_remove(conn_id) else { return };
+        let Some(app) = self.apps.shift_remove(conn_id) else {
+            return;
+        };
         self.grants.retain(|_, g| g.app_id != conn_id);
-        let routed: Vec<String> = self.calls.iter().filter(|(_, c)| c.conn_id == conn_id).map(|(k, _)| k.clone()).collect();
+        let routed: Vec<String> = self
+            .calls
+            .iter()
+            .filter(|(_, c)| c.conn_id == conn_id)
+            .map(|(k, _)| k.clone())
+            .collect();
         for id in routed {
-            self.complete(&id, failure("the program was closed during the command"), outcome::CLOSED);
+            self.complete(
+                &id,
+                failure("the program was closed during the command"),
+                outcome::CLOSED,
+            );
         }
-        self.log(format!("program disconnected: {} = {} ({reason})", app.name, app.resource.label()));
+        self.log(format!(
+            "program disconnected: {} = {} ({reason})",
+            app.name,
+            app.resource.label()
+        ));
         self.touch();
     }
 
@@ -648,22 +693,39 @@ impl Core {
 
     /// An agent is no longer authorized: it exited, or the user disconnected it.
     pub fn forget_session(&mut self, session_id: Option<&str>, reason: &str) {
-        let Some(key) = self.sessions.iter().find(|(_, s)| Some(s.id.as_str()) == session_id).map(|(k, _)| k.clone()) else {
+        let Some(key) = self
+            .sessions
+            .iter()
+            .find(|(_, s)| Some(s.id.as_str()) == session_id)
+            .map(|(k, _)| k.clone())
+        else {
             return;
         };
         let session = self.sessions.shift_remove(&key).expect("found above");
-        let ended: Vec<String> = self.grants.values().filter(|g| g.session_key == key).map(|g| g.id.clone()).collect();
+        let ended: Vec<String> = self
+            .grants
+            .values()
+            .filter(|g| g.session_key == key)
+            .map(|g| g.id.clone())
+            .collect();
         for grant in ended {
             self.end(&grant, reason, &session);
         }
-        let why = if reason == "harness_gone" { "process ended" } else { reason };
+        let why = if reason == "harness_gone" {
+            "process ended"
+        } else {
+            reason
+        };
         self.log(format!("agent disconnected: {} ({why})", session.label()));
         self.touch();
     }
 
     /// The authorized agents, to check outside the lock whether they are still alive.
     pub fn sessions(&self) -> Vec<(String, AgentIdentity)> {
-        self.sessions.values().map(|s| (s.id.clone(), s.agent.clone())).collect()
+        self.sessions
+            .values()
+            .map(|s| (s.id.clone(), s.agent.clone()))
+            .collect()
     }
 
     // =====================================================================
@@ -671,7 +733,9 @@ impl Core {
     // =====================================================================
 
     pub fn grant_of(&self, session_key: &str, conn_id: &str) -> Option<&GrantEntry> {
-        self.grants.values().find(|g| g.session_key == session_key && g.app_id == conn_id)
+        self.grants
+            .values()
+            .find(|g| g.session_key == session_key && g.app_id == conn_id)
     }
 
     pub fn grant_by_id(&self, grant_id: &str) -> Option<&GrantEntry> {
@@ -694,7 +758,11 @@ impl Core {
             id: new_id("grant"),
             session_key: session_key.to_owned(),
             app_id: conn_id.to_owned(),
-            approved: app.tools.iter().map(|t| (t.name.clone(), t.digest.clone())).collect(),
+            approved: app
+                .tools
+                .iter()
+                .map(|t| (t.name.clone(), t.digest.clone()))
+                .collect(),
             since: now(),
             calls: 0,
             errors: 0,
@@ -714,7 +782,9 @@ impl Core {
     }
 
     fn end(&mut self, grant_id: &str, reason: &str, session: &SessionEntry) {
-        let Some(grant) = self.grants.shift_remove(grant_id) else { return };
+        let Some(grant) = self.grants.shift_remove(grant_id) else {
+            return;
+        };
         if let Some(app) = self.apps.get(&grant.app_id) {
             app.send(json!({
                 "type": "revoked", "grant_id": grant.id, "reason": reason, "harness": session.label(),
@@ -725,11 +795,20 @@ impl Core {
 
     /// Revocation from the panel: whoever looks at the panel is the user.
     pub fn revoke(&mut self, grant_id: Option<&str>) {
-        let Some(grant) = grant_id.and_then(|id| self.grants.get(id)) else { return };
-        let (Some(session), Some(app)) = (self.sessions.get(&grant.session_key), self.apps.get(&grant.app_id)) else {
+        let Some(grant) = grant_id.and_then(|id| self.grants.get(id)) else {
             return;
         };
-        let line = format!("revoked: {} can no longer use {}", session.label(), app.name);
+        let (Some(session), Some(app)) = (
+            self.sessions.get(&grant.session_key),
+            self.apps.get(&grant.app_id),
+        ) else {
+            return;
+        };
+        let line = format!(
+            "revoked: {} can no longer use {}",
+            session.label(),
+            app.name
+        );
         let id = grant.id.clone();
         let label = session.label();
         self.log(line);
@@ -767,17 +846,30 @@ impl Core {
         )
     }
 
-    pub fn describe(&self, session_key: &str, conn_id: &str, query: Option<&str>) -> Option<Map<String, Value>> {
+    pub fn describe(
+        &self,
+        session_key: &str,
+        conn_id: &str,
+        query: Option<&str>,
+    ) -> Option<Map<String, Value>> {
         let app = self.apps.get(conn_id)?;
         let grant = self.grant_of(session_key, conn_id);
-        let terms: Vec<String> = query.unwrap_or("").split(' ').map(str::trim).filter(|t| !t.is_empty()).map(str::to_lowercase).collect();
+        let terms: Vec<String> = query
+            .unwrap_or("")
+            .split(' ')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_lowercase)
+            .collect();
         let tools: Vec<Value> = app
             .tools
             .iter()
             .filter(|t| {
                 let name = t.name.to_lowercase();
                 let description = t.description.to_lowercase();
-                terms.iter().all(|term| name.contains(term) || description.contains(term))
+                terms
+                    .iter()
+                    .all(|term| name.contains(term) || description.contains(term))
             })
             .map(|t| {
                 let mut item = t.to_json();
@@ -807,7 +899,9 @@ impl Core {
                 "instructions": app.instructions,
                 "tools": app.tools.iter().map(ToolDef::to_json).collect::<Vec<_>>(),
             }),
-            None => json!({ "type": "tools", "resource_id": resource_id, "found": false, "tools": [] }),
+            None => {
+                json!({ "type": "tools", "resource_id": resource_id, "found": false, "tools": [] })
+            }
         }
     }
 
@@ -828,7 +922,9 @@ impl Core {
                     "tool": tool, "calls": s.calls, "errors": s.errors, "seconds": round3(s.seconds),
                 })).collect::<Vec<_>>(),
             }),
-            None => json!({ "type": "history", "grant_id": grant_id, "found": false, "calls": [], "stats": [] }),
+            None => {
+                json!({ "type": "history", "grant_id": grant_id, "found": false, "calls": [], "stats": [] })
+            }
         }
     }
 
@@ -853,7 +949,9 @@ impl Core {
                 "arguments": c.detail.as_ref().map(|d| d.arguments.clone()),
                 "result": c.detail.as_ref().map(|d| d.result.clone()),
             }),
-            None => json!({ "type": "call", "grant_id": grant_id, "call_id": call_id, "found": false }),
+            None => {
+                json!({ "type": "call", "grant_id": grant_id, "call_id": call_id, "found": false })
+            }
         }
     }
 
@@ -874,7 +972,11 @@ impl Core {
         grant.calls += 1;
         grant.last_call = Some(started);
         let (conn_id, session_key) = (grant.app_id.clone(), grant.session_key.clone());
-        let label = self.sessions.get(&session_key).map(SessionEntry::label).unwrap_or_default();
+        let label = self
+            .sessions
+            .get(&session_key)
+            .map(SessionEntry::label)
+            .unwrap_or_default();
         let app = self.apps.get(&conn_id)?;
         let routed = new_id("call");
         let (answer, receiver) = oneshot::channel();
@@ -905,15 +1007,24 @@ impl Core {
     }
 
     fn complete(&mut self, routed: &str, result: Value, outcome: &'static str) {
-        let Some(call) = self.calls.remove(routed) else { return };
-        if let Some(grant) = call.grant_id.as_deref().and_then(|id| self.grants.get_mut(id)) {
+        let Some(call) = self.calls.remove(routed) else {
+            return;
+        };
+        if let Some(grant) = call
+            .grant_id
+            .as_deref()
+            .and_then(|id| self.grants.get_mut(id))
+        {
             grant.record(CallRecord {
                 id: routed.to_owned(),
                 tool: call.tool.clone(),
                 at: call.started,
                 seconds: (now() - call.started).max(0.0),
                 outcome,
-                detail: Some(CallDetail { arguments: call.arguments.clone(), result: slim(&result) }),
+                detail: Some(CallDetail {
+                    arguments: call.arguments.clone(),
+                    result: slim(&result),
+                }),
             });
             self.dirty = true;
         }
@@ -934,7 +1045,11 @@ impl Core {
     }
 
     /// A command's outcome, from the program that received it and nobody else.
-    pub fn result(&mut self, conn_id: &str, message: &Map<String, Value>) -> Result<(), crate::wire::Malformed> {
+    pub fn result(
+        &mut self,
+        conn_id: &str,
+        message: &Map<String, Value>,
+    ) -> Result<(), crate::wire::Malformed> {
         let routed = crate::wire::key(Some(crate::wire::required(message, "call_id")?))?;
         let Some(routed) = routed else { return Ok(()) };
         if self.calls.get(routed).is_none_or(|c| c.conn_id != conn_id) {
@@ -958,7 +1073,10 @@ impl Core {
     }
 
     fn progress_of(&self, routed: &str) -> Progress {
-        self.calls.get(routed).map(|c| c.progress.clone()).unwrap_or_default()
+        self.calls
+            .get(routed)
+            .map(|c| c.progress.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -1011,13 +1129,20 @@ impl Broker {
             connectors: json!([]),
             apis: json!([]),
         };
-        Broker(Arc::new(Inner { core: Mutex::new(core), options, stop }))
+        Broker(Arc::new(Inner {
+            core: Mutex::new(core),
+            options,
+            stop,
+        }))
     }
 
     fn lock(&self) -> MutexGuard<'_, Core> {
         // A panic under the lock must not stop the whole hub: the state stays consistent
         // because every step leaves it so before whatever can fail.
-        self.0.core.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.0
+            .core
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// One whole hub step. At the end, if the state changed, watchers receive a snapshot.
@@ -1040,7 +1165,9 @@ impl Broker {
     /// The token, compared in constant time: it is what stops a web page from connecting on
     /// its own.
     pub fn token_matches(&self, offered: Option<&Value>) -> bool {
-        let Some(text) = offered.and_then(Value::as_str) else { return false };
+        let Some(text) = offered.and_then(Value::as_str) else {
+            return false;
+        };
         let token = self.run(|c| c.token.clone());
         let (a, b) = (text.as_bytes(), token.as_bytes());
         if a.len() != b.len() {
@@ -1067,11 +1194,18 @@ impl Broker {
         #[allow(clippy::large_enum_variant)]
         enum Start {
             Now(Verdict),
-            Wait { rx: watch::Receiver<Option<Verdict>>, ask: Option<(ConsentRequest, CancellationToken)>, id: String },
+            Wait {
+                rx: watch::Receiver<Option<Verdict>>,
+                ask: Option<(ConsentRequest, CancellationToken)>,
+                id: String,
+            },
         }
         let allow: Allow = Box::new(allow);
         let start = self.run(|c| {
-            if c.denied.get(key).is_some_and(|until| *until > Instant::now()) {
+            if c.denied
+                .get(key)
+                .is_some_and(|until| *until > Instant::now())
+            {
                 return Start::Now(Verdict::Denied);
             }
             if !c.can_ask {
@@ -1085,12 +1219,25 @@ impl Broker {
                 let cancel = CancellationToken::new();
                 c.log(format!("asking the user: {}", request.title));
                 ask = Some((request.clone(), cancel.clone()));
-                c.pending.insert(key.to_owned(), PendingConsent { request, allow: Some(allow), done, cancel, waiters: 0 });
+                c.pending.insert(
+                    key.to_owned(),
+                    PendingConsent {
+                        request,
+                        allow: Some(allow),
+                        done,
+                        cancel,
+                        waiters: 0,
+                    },
+                );
                 c.touch();
             }
             let pending = c.pending.get_mut(key).expect("inserted above");
             pending.waiters += 1;
-            Start::Wait { rx: pending.done.subscribe(), ask, id: pending.request.id.clone() }
+            Start::Wait {
+                rx: pending.done.subscribe(),
+                ask,
+                id: pending.request.id.clone(),
+            }
         });
         let (mut rx, ask, id) = match start {
             Start::Now(verdict) => return Ok(verdict),
@@ -1176,11 +1323,19 @@ impl Broker {
                 return None;
             }
             let caller = c.caller_of(routed);
-            let asked = build(new_id("ask"), caller.as_ref().map(|(a, _)| a), caller.as_ref().and_then(|(_, cwd)| cwd.as_deref()), c);
+            let asked = build(
+                new_id("ask"),
+                caller.as_ref().map(|(a, _)| a),
+                caller.as_ref().and_then(|(_, cwd)| cwd.as_deref()),
+                c,
+            );
             c.confirms.insert(asked.id.clone(), asked.clone());
             c.log(format!("asking the user: {}", asked.title));
             c.touch();
-            let (is_hub, name) = c.app_by_id(conn_id).map(|a| (a.is_hub(), a.name.clone())).unwrap_or((false, String::new()));
+            let (is_hub, name) = c
+                .app_by_id(conn_id)
+                .map(|a| (a.is_hub(), a.name.clone()))
+                .unwrap_or((false, String::new()));
             Some((asked, c.progress_of(routed), is_hub, name))
         });
         let Some((request, progress, is_hub, name)) = started else {
@@ -1196,7 +1351,8 @@ impl Broker {
         );
 
         let limit = CancellationToken::new();
-        let (watch_cancel, watch_stop, watch_limit) = (cancel.clone(), self.stopping(), limit.clone());
+        let (watch_cancel, watch_stop, watch_limit) =
+            (cancel.clone(), self.stopping(), limit.clone());
         let timeout = self.0.options.consent_timeout;
         let guard = tokio::spawn(async move {
             tokio::select! {
@@ -1226,7 +1382,11 @@ impl Broker {
             c.touch();
         });
         progress.tell(
-            if verdict == Verdict::Allowed { "allowed" } else { "refused" },
+            if verdict == Verdict::Allowed {
+                "allowed"
+            } else {
+                "refused"
+            },
             match verdict {
                 Verdict::Allowed if is_hub => "confirmed: applying the change.",
                 Verdict::Allowed => "confirmed: the command continues.",
@@ -1240,7 +1400,11 @@ impl Broker {
 
 /// What a window's answer means. A «no» that came because the question was withdrawn (the
 /// asker went away, or time ran out) is not a «no» from the user.
-fn verdict_of(broker: &Broker, answer: Option<Result<bool, String>>, cancel: &CancellationToken) -> Verdict {
+fn verdict_of(
+    broker: &Broker,
+    answer: Option<Result<bool, String>>,
+    cancel: &CancellationToken,
+) -> Verdict {
     match answer {
         Some(Ok(true)) => Verdict::Allowed,
         Some(Ok(false)) if !cancel.is_cancelled() => Verdict::Denied,

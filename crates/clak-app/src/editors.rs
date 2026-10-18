@@ -16,16 +16,23 @@
 
 use crate::bridge;
 use clak_apis::model::METHODS;
-use clak_apis::{ApiAuth, ApiDraft, ApiEndpoint, ApiEntry, ApiParameter, AuthKind, BodyKind, ParamIn, ParamType};
+use clak_apis::{
+    ApiAuth, ApiDraft, ApiEndpoint, ApiEntry, ApiParameter, AuthKind, BodyKind, ParamIn, ParamType,
+};
 use clak_connectors::launch::{self, Launch};
-use clak_connectors::{ConnectorCredential, ConnectorEntry, ConnectorHub, ConnectorLink, OAuthClient, OAuthError};
+use clak_connectors::{
+    ConnectorCredential, ConnectorEntry, ConnectorHub, ConnectorLink, OAuthClient, OAuthError,
+};
 use clak_hub::cli_names;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tokio_util::sync::CancellationToken;
 
@@ -133,7 +140,9 @@ fn done(label: &str, turn: u64) {
 }
 
 fn connectors(app: &AppHandle) -> Result<std::sync::Arc<ConnectorHub>, String> {
-    bridge::of(app).connectors().ok_or_else(|| READ_ONLY.to_owned())
+    bridge::of(app)
+        .connectors()
+        .ok_or_else(|| READ_ONLY.to_owned())
 }
 
 fn apis(app: &AppHandle) -> Result<std::sync::Arc<clak_apis::ApiHub>, String> {
@@ -141,12 +150,18 @@ fn apis(app: &AppHandle) -> Result<std::sync::Arc<clak_apis::ApiHub>, String> {
 }
 
 fn trimmed(text: &str) -> Option<String> {
-    Some(text.trim()).filter(|t| !t.is_empty()).map(str::to_owned)
+    Some(text.trim())
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
 }
 
 /// A system alert above the panel: an error that has no dialog of its own.
 fn tell(app: &AppHandle, text: &str) {
-    let mut dialog = app.dialog().message(text).title("Clak").kind(MessageDialogKind::Warning);
+    let mut dialog = app
+        .dialog()
+        .message(text)
+        .title("Clak")
+        .kind(MessageDialogKind::Warning);
     if let Some(panel) = app.get_webview_window(PANEL) {
         dialog = dialog.parent(&panel);
     }
@@ -180,7 +195,9 @@ fn dialog(
     if let Some(parent) = parent {
         builder = builder.parent(parent).map_err(|e| e.to_string())?;
     }
-    let window = crate::look::window(builder).build().map_err(|e| e.to_string())?;
+    let window = crate::look::window(builder)
+        .build()
+        .map_err(|e| e.to_string())?;
     let late = window.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -198,7 +215,11 @@ fn reveal(window: &WebviewWindow) {
         _ => Some(PANEL.to_owned()),
     };
     if let Some(parent) = parent.and_then(|p| window.app_handle().get_webview_window(&p))
-        && let (Ok(at), Ok(size), Ok(own)) = (parent.outer_position(), parent.outer_size(), window.outer_size())
+        && let (Ok(at), Ok(size), Ok(own)) = (
+            parent.outer_position(),
+            parent.outer_size(),
+            window.outer_size(),
+        )
     {
         let x = at.x + (size.width as i32 - own.width as i32) / 2;
         let y = at.y + (size.height as i32 - own.height as i32) / 2;
@@ -274,7 +295,9 @@ pub fn editor_fit(window: WebviewWindow, height: Option<f64>) {
             .ok()
             .flatten()
             .map_or(900.0, |m| m.work_area().size.height as f64 / scale * 0.92);
-        let width = window.inner_size().map_or(560.0, |s| s.width as f64 / scale);
+        let width = window
+            .inner_size()
+            .map_or(560.0, |s| s.width as f64 / scale);
         let _ = window.set_size(LogicalSize::new(width, height.clamp(200.0, screen)));
     }
     if !window.is_visible().unwrap_or(true) {
@@ -319,10 +342,28 @@ fn open_connector(app: &AppHandle, draft: ConnectorDraft) -> Result<(), String> 
         None => hub.find_by_url(&draft.url),
     };
     let had_credential = target.as_ref().is_some_and(|t| hub.has_credential(&t.id));
-    let env_names = target.as_ref().filter(|t| t.is_stdio()).map(|t| hub.env(&t.id).into_keys().collect()).unwrap_or_default();
-    editors().connector = Some(ConnectorOpen { draft, opened: Instant::now(), target, had_credential, env_names });
+    let env_names = target
+        .as_ref()
+        .filter(|t| t.is_stdio())
+        .map(|t| hub.env(&t.id).into_keys().collect())
+        .unwrap_or_default();
+    editors().connector = Some(ConnectorOpen {
+        draft,
+        opened: Instant::now(),
+        target,
+        had_credential,
+        env_names,
+    });
     let panel = app.get_webview_window(PANEL);
-    match dialog(app, CONNECTOR, "connector.html", "Clak — MCP server", (560.0, 640.0), panel.as_ref(), false) {
+    match dialog(
+        app,
+        CONNECTOR,
+        "connector.html",
+        "Clak — MCP server",
+        (560.0, 640.0),
+        panel.as_ref(),
+        false,
+    ) {
         Ok(window) => {
             watch(&window);
             Ok(())
@@ -336,9 +377,25 @@ fn open_connector(app: &AppHandle, draft: ConnectorDraft) -> Result<(), String> 
 
 /// Adding (without `id`), changing, or signing in again (`sign_in`).
 #[tauri::command]
-pub async fn connector_open(app: AppHandle, id: Option<String>, sign_in: bool) -> Result<(), String> {
-    let url = if id.is_none() { "https://".to_owned() } else { String::new() };
-    open_connector(&app, ConnectorDraft { id, url, sign_in, ..ConnectorDraft::default() })
+pub async fn connector_open(
+    app: AppHandle,
+    id: Option<String>,
+    sign_in: bool,
+) -> Result<(), String> {
+    let url = if id.is_none() {
+        "https://".to_owned()
+    } else {
+        String::new()
+    };
+    open_connector(
+        &app,
+        ConnectorDraft {
+            id,
+            url,
+            sign_in,
+            ..ConnectorDraft::default()
+        },
+    )
 }
 
 /// A `clak://connect?…` link: opens the connector window already filled in, on the MCP
@@ -352,7 +409,14 @@ pub fn open_link(app: &AppHandle, uri: &str) {
             Ok(link) => link,
             Err(problem) => return tell(&app, &format!("The link can't be used: {problem}.")),
         };
-        let draft = ConnectorDraft { id: None, name: link.name, url: link.url, token: link.token, from_link: true, sign_in: false };
+        let draft = ConnectorDraft {
+            id: None,
+            name: link.name,
+            url: link.url,
+            token: link.token,
+            from_link: true,
+            sign_in: false,
+        };
         if let Err(problem) = open_connector(&app, draft) {
             tell(&app, &problem);
         }
@@ -491,17 +555,29 @@ impl ConnectorForm {
     fn program_plan(&self, open: &ConnectorOpen) -> ProgramPlan {
         let target = open.target.as_ref();
         let launch = Launch::parse(&self.launch);
-        let env = if self.drop_env { Ok(Some(BTreeMap::new())) } else { self.env() };
+        let env = if self.drop_env {
+            Ok(Some(BTreeMap::new()))
+        } else {
+            self.env()
+        };
         let none = BTreeMap::new();
         let problem = if open.draft.from_link || target.is_some_and(|t| !t.is_stdio()) {
-            Some("A server at an address can't become a program: remove it and add it again.".to_owned())
+            Some(
+                "A server at an address can't become a program: remove it and add it again."
+                    .to_owned(),
+            )
         } else {
             launch
                 .as_ref()
                 .err()
                 .cloned()
                 .or_else(|| env.as_ref().err().cloned())
-                .or_else(|| ConnectorHub::problem_stdio(Some(&self.name), env.as_ref().ok().and_then(Option::as_ref).unwrap_or(&none)))
+                .or_else(|| {
+                    ConnectorHub::problem_stdio(
+                        Some(&self.name),
+                        env.as_ref().ok().and_then(Option::as_ref).unwrap_or(&none),
+                    )
+                })
                 .or_else(|| cli_names::problem(self.command().as_deref()))
         };
         let launch = launch.ok();
@@ -523,22 +599,33 @@ impl ConnectorForm {
         let problem = if open.restricted() {
             None
         } else {
-            ConnectorHub::problem(Some(&self.name), Some(url)).or_else(|| cli_names::problem(self.command().as_deref()))
+            ConnectorHub::problem(Some(&self.name), Some(url))
+                .or_else(|| cli_names::problem(self.command().as_deref()))
         };
         let origin_changed = target.is_some_and(|t| !clak_connectors::same_origin(&t.url, url));
         let url_changed = target.is_some_and(|t| t.url != url);
         let needs_sign_in = self.oauth
-            && target.is_none_or(|t| !t.is_oauth() || origin_changed || self.reauth || !open.had_credential);
+            && target.is_none_or(|t| {
+                !t.is_oauth() || origin_changed || self.reauth || !open.had_credential
+            });
         let token_changes = !self.oauth
-            && target.is_none_or(|t| t.is_oauth() || origin_changed || self.token(open).is_some() || self.drop_token);
+            && target.is_none_or(|t| {
+                t.is_oauth() || origin_changed || self.token(open).is_some() || self.drop_token
+            });
         ConnectorPlan {
             problem,
             origin_changed,
             needs_sign_in,
             token_changes,
-            permissions_restart: target.is_some() && (needs_sign_in || token_changes || url_changed),
-            show_reauth: target.is_some_and(ConnectorEntry::is_oauth) && open.had_credential && !origin_changed && !open.restricted(),
-            keeps_token: target.is_some_and(|t| !t.is_oauth()) && open.had_credential && !origin_changed,
+            permissions_restart: target.is_some()
+                && (needs_sign_in || token_changes || url_changed),
+            show_reauth: target.is_some_and(ConnectorEntry::is_oauth)
+                && open.had_credential
+                && !origin_changed
+                && !open.restricted(),
+            keeps_token: target.is_some_and(|t| !t.is_oauth())
+                && open.had_credential
+                && !origin_changed,
         }
     }
 }
@@ -550,12 +637,18 @@ pub async fn connector_check(window: WebviewWindow, form: ConnectorForm) -> Valu
         return program_check(&window, &form).await;
     }
     let editors = editors();
-    let Some(open) = editors.connector.as_ref().filter(|_| window.label() == CONNECTOR) else {
+    let Some(open) = editors
+        .connector
+        .as_ref()
+        .filter(|_| window.label() == CONNECTOR)
+    else {
         return json!({ "problem": "This window is no longer valid." });
     };
     let plan = form.plan(open);
     let url = form.url();
-    let host = clak_connectors::uri::absolute(url).map(|u| clak_connectors::uri::host(&u)).filter(|h| !h.is_empty());
+    let host = clak_connectors::uri::absolute(url)
+        .map(|u| clak_connectors::uri::host(&u))
+        .filter(|h| !h.is_empty());
     json!({
         "problem": plan.problem,
         "host": host,
@@ -576,7 +669,11 @@ pub async fn connector_check(window: WebviewWindow, form: ConnectorForm) -> Valu
 async fn program_check(window: &WebviewWindow, form: &ConnectorForm) -> Value {
     let (plan, armed) = {
         let editors = editors();
-        let Some(open) = editors.connector.as_ref().filter(|_| window.label() == CONNECTOR) else {
+        let Some(open) = editors
+            .connector
+            .as_ref()
+            .filter(|_| window.label() == CONNECTOR)
+        else {
             return json!({ "problem": "This window is no longer valid." });
         };
         (form.program_plan(open), open.armed())
@@ -586,7 +683,10 @@ async fn program_check(window: &WebviewWindow, form: &ConnectorForm) -> Value {
         None => None,
     };
     let missing = plan.launch.as_ref().filter(|_| program.is_none()).map(|l| {
-        format!("“{}” was not found: neither a file nor a program in the PATH.", l.program)
+        format!(
+            "“{}” was not found: neither a file nor a program in the PATH.",
+            l.program
+        )
     });
     json!({
         "problem": plan.problem.or(missing),
@@ -608,7 +708,11 @@ pub async fn connector_probe(app: AppHandle, window: WebviewWindow, form: Connec
     }
     let token = {
         let editors = editors();
-        match editors.connector.as_ref().filter(|_| window.label() == CONNECTOR) {
+        match editors
+            .connector
+            .as_ref()
+            .filter(|_| window.label() == CONNECTOR)
+        {
             Some(open) if !form.oauth => form.token(open),
             _ => None,
         }
@@ -644,10 +748,18 @@ async fn program_probe(app: &AppHandle, window: &WebviewWindow, form: &Connector
 }
 
 /// Saves a program: new, or with a changed name, command line or variables.
-async fn program_save(hub: &ConnectorHub, window: &WebviewWindow, form: &ConnectorForm) -> Result<(), String> {
+async fn program_save(
+    hub: &ConnectorHub,
+    window: &WebviewWindow,
+    form: &ConnectorForm,
+) -> Result<(), String> {
     let (plan, target, armed) = {
         let editors = editors();
-        let open = editors.connector.as_ref().filter(|_| window.label() == CONNECTOR).ok_or("This window is no longer valid.")?;
+        let open = editors
+            .connector
+            .as_ref()
+            .filter(|_| window.label() == CONNECTOR)
+            .ok_or("This window is no longer valid.")?;
         (form.program_plan(open), open.target.clone(), open.armed())
     };
     if !armed {
@@ -659,8 +771,24 @@ async fn program_save(hub: &ConnectorHub, window: &WebviewWindow, form: &Connect
     let launch = plan.launch.ok_or("A command line is required.")?;
     let command = form.command();
     match target {
-        None => hub.add_stdio(&form.name, &launch, &plan.env.unwrap_or_default(), command.as_deref()).map(|_| ()),
-        Some(target) => hub.edit_stdio(&target.id, &form.name, command.as_deref(), &launch, plan.env).await.map(|_| ()),
+        None => hub
+            .add_stdio(
+                &form.name,
+                &launch,
+                &plan.env.unwrap_or_default(),
+                command.as_deref(),
+            )
+            .map(|_| ()),
+        Some(target) => hub
+            .edit_stdio(
+                &target.id,
+                &form.name,
+                command.as_deref(),
+                &launch,
+                plan.env,
+            )
+            .await
+            .map(|_| ()),
     }?;
     let _ = window.destroy();
     Ok(())
@@ -668,15 +796,29 @@ async fn program_save(hub: &ConnectorHub, window: &WebviewWindow, form: &Connect
 
 /// Saves. First the sign-in, if needed: if it fails, nothing is saved. Once done, the window closes.
 #[tauri::command]
-pub async fn connector_save(app: AppHandle, window: WebviewWindow, form: ConnectorForm) -> Result<(), String> {
+pub async fn connector_save(
+    app: AppHandle,
+    window: WebviewWindow,
+    form: ConnectorForm,
+) -> Result<(), String> {
     let hub = connectors(&app)?;
     if form.stdio {
         return program_save(&hub, &window, &form).await;
     }
     let (plan, target, restricted, token, armed) = {
         let editors = editors();
-        let open = editors.connector.as_ref().filter(|_| window.label() == CONNECTOR).ok_or("This window is no longer valid.")?;
-        (form.plan(open), open.target.clone(), open.restricted(), form.token(open), open.armed())
+        let open = editors
+            .connector
+            .as_ref()
+            .filter(|_| window.label() == CONNECTOR)
+            .ok_or("This window is no longer valid.")?;
+        (
+            form.plan(open),
+            open.target.clone(),
+            open.restricted(),
+            form.token(open),
+            open.armed(),
+        )
     };
     if !armed {
         return Err(String::new());
@@ -694,7 +836,13 @@ pub async fn connector_save(app: AppHandle, window: WebviewWindow, form: Connect
             let _ = status_window.emit_to(CONNECTOR, "connector-status", text);
         };
         let result = hub
-            .sign_in(&url, form.client().as_ref(), target.as_ref().map(|t| t.id.as_str()), Some(&status), &cancel)
+            .sign_in(
+                &url,
+                form.client().as_ref(),
+                target.as_ref().map(|t| t.id.as_str()),
+                Some(&status),
+                &cancel,
+            )
             .await;
         done(CONNECTOR, turn);
         let _ = window.set_focus(); // from the browser, back here
@@ -704,19 +852,37 @@ pub async fn connector_save(app: AppHandle, window: WebviewWindow, form: Connect
             Err(e) => return Err(e.message),
         }
     } else if plan.token_changes {
-        credential = Some(ConnectorCredential { token: if form.drop_token { None } else { token }, grant: None });
+        credential = Some(ConnectorCredential {
+            token: if form.drop_token { None } else { token },
+            grant: None,
+        });
     }
 
     match target {
         None => match credential.as_ref().and_then(|c| c.grant.as_ref()) {
-            Some(grant) => hub.add_oauth(&form.name, &url, grant, command.as_deref()).map(|_| ()),
-            None => hub.add(&form.name, &url, credential.as_ref().and_then(|c| c.token.as_deref()), command.as_deref()).map(|_| ()),
+            Some(grant) => hub
+                .add_oauth(&form.name, &url, grant, command.as_deref())
+                .map(|_| ()),
+            None => hub
+                .add(
+                    &form.name,
+                    &url,
+                    credential.as_ref().and_then(|c| c.token.as_deref()),
+                    command.as_deref(),
+                )
+                .map(|_| ()),
         },
         Some(target) if restricted => match credential.as_ref().and_then(|c| c.grant.as_ref()) {
             Some(grant) => hub.set_oauth(&target.id, grant),
-            None => hub.set_token(&target.id, credential.as_ref().and_then(|c| c.token.as_deref())),
+            None => hub.set_token(
+                &target.id,
+                credential.as_ref().and_then(|c| c.token.as_deref()),
+            ),
         },
-        Some(target) => hub.edit(&target.id, &form.name, command.as_deref(), &url, credential).await.map(|_| ()),
+        Some(target) => hub
+            .edit(&target.id, &form.name, command.as_deref(), &url, credential)
+            .await
+            .map(|_| ()),
     }?;
     let _ = window.destroy();
     Ok(())
@@ -735,7 +901,11 @@ pub async fn connector_enable(app: AppHandle, id: String, on: bool) {
 pub fn connector_remove(app: AppHandle, id: String) {
     let Ok(hub) = connectors(&app) else { return };
     let Some(entry) = hub.get(&id) else { return };
-    let what = if entry.is_stdio() { "its environment variables are" } else { "its token or sign-in is" };
+    let what = if entry.is_stdio() {
+        "its environment variables are"
+    } else {
+        "its token or sign-in is"
+    };
     let text = format!(
         "Agents will no longer see “{}”, the permissions they had end, and {what} deleted from {THIS_COMPUTER}.",
         entry.name
@@ -758,7 +928,10 @@ where
         .message(text)
         .title(format!("Remove “{name}”?"))
         .kind(MessageDialogKind::Warning)
-        .buttons(MessageDialogButtons::OkCancelCustom("Remove".into(), "Cancel".into()));
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Remove".into(),
+            "Cancel".into(),
+        ));
     if let Some(panel) = app.get_webview_window(PANEL) {
         dialog = dialog.parent(&panel);
     }
@@ -789,9 +962,21 @@ pub async fn api_open(app: AppHandle, id: Option<String>, sign_in: bool) -> Resu
         None => None,
     };
     let had_secret = target.as_ref().is_some_and(|t| hub.has_secret(&t.id));
-    editors().api = Some(ApiOpen { target, had_secret, sign_in });
+    editors().api = Some(ApiOpen {
+        target,
+        had_secret,
+        sign_in,
+    });
     let panel = app.get_webview_window(PANEL);
-    match dialog(&app, API, "api.html", "Clak — REST API", (980.0, 720.0), panel.as_ref(), true) {
+    match dialog(
+        &app,
+        API,
+        "api.html",
+        "Clak — REST API",
+        (980.0, 720.0),
+        panel.as_ref(),
+        true,
+    ) {
         Ok(window) => {
             let _ = window.set_min_size(Some(LogicalSize::new(820.0, 560.0)));
             watch(&window);
@@ -885,7 +1070,10 @@ fn endpoint_of(node: &Value) -> Option<ApiEndpoint> {
             .unwrap_or_default(),
         body: text("body").and_then(BodyKind::parse),
         body_schema: o.get("body_schema").and_then(Value::as_object).cloned(),
-        body_required: o.get("body_required").and_then(Value::as_bool).unwrap_or(false),
+        body_required: o
+            .get("body_required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -898,7 +1086,9 @@ impl ApiForm {
         let a = &self.auth;
         let t = |s: &str| trimmed(s);
         match self.kind() {
-            kind @ (AuthKind::Header | AuthKind::Query | AuthKind::Basic) => ApiAuth::named(kind, a.name.trim()),
+            kind @ (AuthKind::Header | AuthKind::Query | AuthKind::Basic) => {
+                ApiAuth::named(kind, a.name.trim())
+            }
             AuthKind::OAuth => ApiAuth::oauth(
                 AuthKind::OAuth,
                 t(&a.authorization_url).as_deref(),
@@ -941,9 +1131,14 @@ impl ApiForm {
             trimmed(&self.secret)
         };
         let needs_sign_in = auth.is_oauth()
-            && target.is_none_or(|t| t.auth != auth || !open.had_secret || self.reauth || !self.client_secret.is_empty());
+            && target.is_none_or(|t| {
+                t.auth != auth || !open.had_secret || self.reauth || !self.client_secret.is_empty()
+            });
         let permissions_restart = target.is_some_and(|t| {
-            !t.base_url.eq_ignore_ascii_case(url.trim_end_matches('/')) || t.auth != auth || secret.is_some() || needs_sign_in
+            !t.base_url.eq_ignore_ascii_case(url.trim_end_matches('/'))
+                || t.auth != auth
+                || secret.is_some()
+                || needs_sign_in
         });
         ApiPlan {
             needs_sign_in,
@@ -988,7 +1183,11 @@ pub fn api_check(window: WebviewWindow, form: ApiForm) -> Value {
 /// Reads an OpenAPI document, from an address or a file. Saves nothing. When stopped
 /// (`editor_stop`), the error is empty.
 #[tauri::command]
-pub async fn api_import(app: AppHandle, window: WebviewWindow, source: String) -> Result<Value, String> {
+pub async fn api_import(
+    app: AppHandle,
+    window: WebviewWindow,
+    source: String,
+) -> Result<Value, String> {
     let hub = apis(&app)?;
     let (turn, cancel) = begin(window.label());
     let result = tokio::select! {
@@ -1025,7 +1224,9 @@ pub async fn api_browse(window: WebviewWindow) -> Option<String> {
         let _ = sender.send(path);
     });
     let path = receiver.await.ok().flatten()?;
-    path.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+    path.into_path()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Saves. With OAuth, first the sign-in: if it fails, nothing is saved.
@@ -1034,7 +1235,11 @@ pub async fn api_save(app: AppHandle, window: WebviewWindow, form: ApiForm) -> R
     let hub = apis(&app)?;
     let (mut plan, target) = {
         let editors = editors();
-        let open = editors.api.as_ref().filter(|_| window.label() == API).ok_or("This window is no longer valid.")?;
+        let open = editors
+            .api
+            .as_ref()
+            .filter(|_| window.label() == API)
+            .ok_or("This window is no longer valid.")?;
         (form.plan(open), open.target.as_ref().map(|t| t.id.clone()))
     };
     if let Some(problem) = plan.draft.problem() {
@@ -1097,7 +1302,13 @@ pub fn api_remove(app: AppHandle, id: String) {
 /// The dialog of an endpoint, modal over the APIs window. `tag` comes back as it is with the
 /// result (`endpoint-result`), so the page knows which row it was.
 #[tauri::command]
-pub async fn endpoint_open(app: AppHandle, window: WebviewWindow, endpoint: Option<Value>, taken: Vec<String>, tag: Value) -> Result<(), String> {
+pub async fn endpoint_open(
+    app: AppHandle,
+    window: WebviewWindow,
+    endpoint: Option<Value>,
+    taken: Vec<String>,
+    tag: Value,
+) -> Result<(), String> {
     if window.label() != API {
         return Err("This window is no longer valid.".into());
     }
@@ -1105,8 +1316,21 @@ pub async fn endpoint_open(app: AppHandle, window: WebviewWindow, endpoint: Opti
         let _ = open.set_focus();
         return Ok(());
     }
-    editors().endpoint = Some(EndpointOpen { owner: API.into(), endpoint, taken, tag });
-    match dialog(&app, ENDPOINT, "endpoint.html", "Clak — Endpoint", (820.0, 560.0), Some(&window), false) {
+    editors().endpoint = Some(EndpointOpen {
+        owner: API.into(),
+        endpoint,
+        taken,
+        tag,
+    });
+    match dialog(
+        &app,
+        ENDPOINT,
+        "endpoint.html",
+        "Clak — Endpoint",
+        (820.0, 560.0),
+        Some(&window),
+        false,
+    ) {
         Ok(dialog) => {
             watch(&dialog);
             let _ = window.set_enabled(false);
@@ -1135,22 +1359,36 @@ pub fn endpoint_draft(window: WebviewWindow) -> Option<Value> {
 }
 
 /// The endpoint as it is, with the automatic name if it has none; and what is wrong.
-fn endpoint_problem(node: &Value, taken: &[String]) -> (Option<ApiEndpoint>, Option<String>, String) {
+fn endpoint_problem(
+    node: &Value,
+    taken: &[String],
+) -> (Option<ApiEndpoint>, Option<String>, String) {
     let Some(mut endpoint) = endpoint_of(node) else {
-        return (None, Some("The endpoint isn't valid.".into()), String::new());
+        return (
+            None,
+            Some("The endpoint isn't valid.".into()),
+            String::new(),
+        );
     };
     let auto = ApiEndpoint::name_from(&endpoint.method, endpoint.path.trim());
     endpoint.path = endpoint.path.trim().to_owned();
     endpoint.name = trimmed(&endpoint.name).unwrap_or_else(|| auto.clone());
-    let problem = endpoint
-        .problem()
-        .or_else(|| taken.contains(&endpoint.name).then(|| format!("Another endpoint is called “{}”.", endpoint.name)));
+    let problem = endpoint.problem().or_else(|| {
+        taken
+            .contains(&endpoint.name)
+            .then(|| format!("Another endpoint is called “{}”.", endpoint.name))
+    });
     (Some(endpoint), problem, auto)
 }
 
 #[tauri::command]
 pub fn endpoint_check(window: WebviewWindow, endpoint: Value) -> Value {
-    let taken = editors().endpoint.as_ref().filter(|_| window.label() == ENDPOINT).map(|e| e.taken.clone()).unwrap_or_default();
+    let taken = editors()
+        .endpoint
+        .as_ref()
+        .filter(|_| window.label() == ENDPOINT)
+        .map(|e| e.taken.clone())
+        .unwrap_or_default();
     let (_, problem, auto) = endpoint_problem(&endpoint, &taken);
     json!({ "problem": problem, "auto": auto })
 }
@@ -1160,7 +1398,11 @@ pub fn endpoint_check(window: WebviewWindow, endpoint: Value) -> Value {
 pub fn endpoint_done(app: AppHandle, window: WebviewWindow, endpoint: Value) -> Result<(), String> {
     let (owner, taken, tag) = {
         let editors = editors();
-        let open = editors.endpoint.as_ref().filter(|_| window.label() == ENDPOINT).ok_or("This window is no longer valid.")?;
+        let open = editors
+            .endpoint
+            .as_ref()
+            .filter(|_| window.label() == ENDPOINT)
+            .ok_or("This window is no longer valid.")?;
         (open.owner.clone(), open.taken.clone(), open.tag.clone())
     };
     let (endpoint, problem, _) = endpoint_problem(&endpoint, &taken);
@@ -1168,7 +1410,11 @@ pub fn endpoint_done(app: AppHandle, window: WebviewWindow, endpoint: Value) -> 
         return Err(problem);
     }
     let endpoint = endpoint.map(|e| e.to_json());
-    let _ = app.emit_to(owner.as_str(), "endpoint-result", json!({ "tag": tag, "endpoint": endpoint }));
+    let _ = app.emit_to(
+        owner.as_str(),
+        "endpoint-result",
+        json!({ "tag": tag, "endpoint": endpoint }),
+    );
     let _ = window.destroy();
     Ok(())
 }
@@ -1184,15 +1430,29 @@ mod tests {
             url: url.into(),
             enabled: true,
             since: 0.0,
-            auth: if oauth { ConnectorEntry::OAUTH_AUTH } else { ConnectorEntry::TOKEN_AUTH }.into(),
+            auth: if oauth {
+                ConnectorEntry::OAUTH_AUTH
+            } else {
+                ConnectorEntry::TOKEN_AUTH
+            }
+            .into(),
             command: None,
             launch: None,
         }
     }
 
-    fn open(target: Option<ConnectorEntry>, had_credential: bool, from_link: bool, token: Option<&str>) -> ConnectorOpen {
+    fn open(
+        target: Option<ConnectorEntry>,
+        had_credential: bool,
+        from_link: bool,
+        token: Option<&str>,
+    ) -> ConnectorOpen {
         ConnectorOpen {
-            draft: ConnectorDraft { from_link, token: token.map(Into::into), ..ConnectorDraft::default() },
+            draft: ConnectorDraft {
+                from_link,
+                token: token.map(Into::into),
+                ..ConnectorDraft::default()
+            },
             opened: Instant::now() - ARMING,
             target,
             had_credential,
@@ -1201,7 +1461,12 @@ mod tests {
     }
 
     fn form(url: &str, oauth: bool) -> ConnectorForm {
-        ConnectorForm { name: "Notion".into(), url: url.into(), oauth, ..ConnectorForm::default() }
+        ConnectorForm {
+            name: "Notion".into(),
+            url: url.into(),
+            oauth,
+            ..ConnectorForm::default()
+        }
     }
 
     #[test]
@@ -1222,13 +1487,19 @@ mod tests {
         assert!(!plan.needs_sign_in && !plan.permissions_restart && plan.show_reauth);
         // Another host: the sign-in is redone, and permissions start over.
         let plan = form("https://altro.it/mcp", true).plan(&open(Some(target), true, false, None));
-        assert!(plan.needs_sign_in && plan.permissions_restart && plan.origin_changed && !plan.show_reauth);
+        assert!(
+            plan.needs_sign_in
+                && plan.permissions_restart
+                && plan.origin_changed
+                && !plan.show_reauth
+        );
     }
 
     #[test]
     fn il_token_salvato_resta_se_la_casella_e_vuota() {
         let target = entry("https://x.it/mcp", false);
-        let plan = form("https://x.it/mcp", false).plan(&open(Some(target.clone()), true, false, None));
+        let plan =
+            form("https://x.it/mcp", false).plan(&open(Some(target.clone()), true, false, None));
         assert!(plan.keeps_token && !plan.token_changes && !plan.permissions_restart);
         let mut f = form("https://x.it/mcp", false);
         f.drop_token = true;
@@ -1260,21 +1531,42 @@ mod tests {
     }
 
     fn program(line: &str, env: &str) -> ConnectorForm {
-        ConnectorForm { name: "Browser".into(), stdio: true, launch: line.into(), env: env.into(), ..ConnectorForm::default() }
+        ConnectorForm {
+            name: "Browser".into(),
+            stdio: true,
+            launch: line.into(),
+            env: env.into(),
+            ..ConnectorForm::default()
+        }
     }
 
     #[test]
     fn un_programma_nuovo_con_le_sue_variabili() {
-        let plan = program("agent-browser mcp --tools core", "# chiavi\nAPI_KEY = abc\n\nDEBUG=1").program_plan(&open(None, false, false, None));
+        let plan = program(
+            "agent-browser mcp --tools core",
+            "# chiavi\nAPI_KEY = abc\n\nDEBUG=1",
+        )
+        .program_plan(&open(None, false, false, None));
         assert_eq!(plan.problem, None);
         assert_eq!(plan.launch.unwrap().args, ["mcp", "--tools", "core"]);
         let env = plan.env.unwrap();
-        assert_eq!((env["API_KEY"].as_str(), env["DEBUG"].as_str()), ("abc", "1"));
+        assert_eq!(
+            (env["API_KEY"].as_str(), env["DEBUG"].as_str()),
+            ("abc", "1")
+        );
         assert!(plan.program_changes && !plan.permissions_restart);
         // A line without =: the error doesn't repeat it, it might be a key.
         let plan = program("x", "sk-segreta").program_plan(&open(None, false, false, None));
-        assert_eq!(plan.problem.as_deref(), Some("Environment, line 1: write NAME=value."));
-        assert!(program("", "").program_plan(&open(None, false, false, None)).problem.is_some());
+        assert_eq!(
+            plan.problem.as_deref(),
+            Some("Environment, line 1: write NAME=value.")
+        );
+        assert!(
+            program("", "")
+                .program_plan(&open(None, false, false, None))
+                .problem
+                .is_some()
+        );
     }
 
     #[test]
@@ -1284,7 +1576,12 @@ mod tests {
         let mut o = open(Some(target.clone()), false, false, None);
         o.env_names = vec!["API_KEY".into()];
         let plan = program("agent-browser mcp", "").program_plan(&o);
-        assert!(plan.keeps_env && plan.env.is_none() && !plan.program_changes && !plan.permissions_restart);
+        assert!(
+            plan.keeps_env
+                && plan.env.is_none()
+                && !plan.program_changes
+                && !plan.permissions_restart
+        );
         let plan = program("agent-browser mcp --tools all", "").program_plan(&o);
         assert!(plan.program_changes && plan.permissions_restart);
         let mut f = program("agent-browser mcp", "");
@@ -1293,12 +1590,31 @@ mod tests {
         assert_eq!(plan.env, Some(BTreeMap::new()));
         assert!(plan.permissions_restart);
         // An address doesn't become a program, and a link doesn't add one.
-        assert!(program("x", "").program_plan(&open(Some(entry("https://x.it/mcp", false)), false, false, None)).problem.is_some());
-        assert!(program("x", "").program_plan(&open(None, false, true, None)).problem.is_some());
+        assert!(
+            program("x", "")
+                .program_plan(&open(
+                    Some(entry("https://x.it/mcp", false)),
+                    false,
+                    false,
+                    None
+                ))
+                .problem
+                .is_some()
+        );
+        assert!(
+            program("x", "")
+                .program_plan(&open(None, false, true, None))
+                .problem
+                .is_some()
+        );
     }
 
     fn api_open(target: Option<ApiEntry>, had_secret: bool) -> ApiOpen {
-        ApiOpen { target, had_secret, sign_in: false }
+        ApiOpen {
+            target,
+            had_secret,
+            sign_in: false,
+        }
     }
 
     fn api_entry(auth: ApiAuth) -> ApiEntry {
@@ -1319,7 +1635,10 @@ mod tests {
         ApiForm {
             name: "Pets".into(),
             base_url: "https://api.pets.it/v1/".into(),
-            auth: AuthForm { kind: kind.into(), ..AuthForm::default() },
+            auth: AuthForm {
+                kind: kind.into(),
+                ..AuthForm::default()
+            },
             endpoints: vec![ApiEndpoint::new("list", "GET", "/pets", None, vec![]).to_json()],
             ..ApiForm::default()
         }
@@ -1359,7 +1678,10 @@ mod tests {
         assert_eq!(auto, "get_users_id");
         assert_eq!(endpoint.unwrap().name, "get_users_id");
         let (_, problem, _) = endpoint_problem(&node, &["get_users_id".into()]);
-        assert_eq!(problem.as_deref(), Some("Another endpoint is called “get_users_id”."));
+        assert_eq!(
+            problem.as_deref(),
+            Some("Another endpoint is called “get_users_id”.")
+        );
         let missing = json!({ "name": "x", "method": "GET", "path": "/users/{id}" });
         assert!(endpoint_problem(&missing, &[]).1.is_some());
     }

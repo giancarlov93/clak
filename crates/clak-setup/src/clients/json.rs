@@ -83,9 +83,18 @@ impl Json {
             Json::Bool(b) => b.to_string(),
             Json::Number(n) => n.clone(),
             Json::String(s) => quote(s),
-            Json::Array(items) => format!("[{}]", items.iter().map(Json::text).collect::<Vec<_>>().join(",")),
+            Json::Array(items) => format!(
+                "[{}]",
+                items.iter().map(Json::text).collect::<Vec<_>>().join(",")
+            ),
             Json::Object(o) => {
-                format!("{{{}}}", o.0.iter().map(|(k, v)| format!("{}:{}", quote(k), v.text())).collect::<Vec<_>>().join(","))
+                format!(
+                    "{{{}}}",
+                    o.0.iter()
+                        .map(|(k, v)| format!("{}:{}", quote(k), v.text()))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
             }
         }
     }
@@ -100,16 +109,30 @@ impl Json {
         let outer = indent.repeat(level);
         match self {
             Json::Array(items) if !items.is_empty() => {
-                let lines: Vec<String> = items.iter().map(|v| inner.clone() + &v.pretty_at(indent, newline, level + 1)).collect();
-                format!("[{newline}{}{newline}{outer}]", lines.join(&format!(",{newline}")))
+                let lines: Vec<String> = items
+                    .iter()
+                    .map(|v| inner.clone() + &v.pretty_at(indent, newline, level + 1))
+                    .collect();
+                format!(
+                    "[{newline}{}{newline}{outer}]",
+                    lines.join(&format!(",{newline}"))
+                )
             }
             Json::Object(o) if !o.is_empty() => {
-                let lines: Vec<String> = o
-                    .0
-                    .iter()
-                    .map(|(k, v)| format!("{inner}{}: {}", quote(k), v.pretty_at(indent, newline, level + 1)))
-                    .collect();
-                format!("{{{newline}{}{newline}{outer}}}", lines.join(&format!(",{newline}")))
+                let lines: Vec<String> =
+                    o.0.iter()
+                        .map(|(k, v)| {
+                            format!(
+                                "{inner}{}: {}",
+                                quote(k),
+                                v.pretty_at(indent, newline, level + 1)
+                            )
+                        })
+                        .collect();
+                format!(
+                    "{{{newline}{}{newline}{outer}}}",
+                    lines.join(&format!(",{newline}"))
+                )
             }
             other => other.text(),
         }
@@ -130,7 +153,11 @@ pub(crate) enum JsonError {
 }
 
 pub(crate) fn parse(text: &str) -> Result<Json, JsonError> {
-    let mut parser = Parser { bytes: text.as_bytes(), text, at: 0 };
+    let mut parser = Parser {
+        bytes: text.as_bytes(),
+        text,
+        at: 0,
+    };
     parser.blank();
     let value = parser.value(0)?;
     parser.blank();
@@ -148,7 +175,11 @@ struct Parser<'a> {
 
 impl Parser<'_> {
     fn line(&self) -> usize {
-        self.bytes[..self.at.min(self.bytes.len())].iter().filter(|&&b| b == b'\n').count() + 1
+        self.bytes[..self.at.min(self.bytes.len())]
+            .iter()
+            .filter(|&&b| b == b'\n')
+            .count()
+            + 1
     }
 
     fn syntax(&self) -> JsonError {
@@ -297,7 +328,10 @@ impl Parser<'_> {
     }
 
     fn hex4(&mut self) -> Result<u32, JsonError> {
-        let digits = self.text.get(self.at..self.at + 4).ok_or_else(|| self.syntax())?;
+        let digits = self
+            .text
+            .get(self.at..self.at + 4)
+            .ok_or_else(|| self.syntax())?;
         let code = u32::from_str_radix(digits, 16).map_err(|_| self.syntax())?;
         if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Err(self.syntax());
@@ -310,7 +344,9 @@ impl Parser<'_> {
         self.at += 1;
         let mut out = String::new();
         loop {
-            let Some(byte) = self.peek() else { return Err(self.syntax()) };
+            let Some(byte) = self.peek() else {
+                return Err(self.syntax());
+            };
             match byte {
                 b'"' => {
                     self.at += 1;
@@ -318,7 +354,9 @@ impl Parser<'_> {
                 }
                 b'\\' => {
                     self.at += 1;
-                    let Some(escape) = self.peek() else { return Err(self.syntax()) };
+                    let Some(escape) = self.peek() else {
+                        return Err(self.syntax());
+                    };
                     self.at += 1;
                     match escape {
                         b'"' => out.push('"'),
@@ -331,7 +369,9 @@ impl Parser<'_> {
                         b't' => out.push('\t'),
                         b'u' => {
                             let mut code = self.hex4()?;
-                            if (0xD800..0xDC00).contains(&code) && self.bytes[self.at..].starts_with(b"\\u") {
+                            if (0xD800..0xDC00).contains(&code)
+                                && self.bytes[self.at..].starts_with(b"\\u")
+                            {
                                 let back = self.at;
                                 self.at += 2;
                                 let low = self.hex4()?;
@@ -371,17 +411,29 @@ mod tests {
     fn conserva_ordine_e_numeri() {
         let value = parse("{\"b\": 1.50, \"a\": [1e5, -0, true, null, \"Città\\n\"]}").unwrap();
         assert_eq!(value.as_object().unwrap().keys(), ["b", "a"]);
-        assert_eq!(value.text(), "{\"b\":1.50,\"a\":[1e5,-0,true,null,\"Città\\n\"]}");
-        assert_eq!(value.pretty("  ", "\n"), "{\n  \"b\": 1.50,\n  \"a\": [\n    1e5,\n    -0,\n    true,\n    null,\n    \"Città\\n\"\n  ]\n}");
+        assert_eq!(
+            value.text(),
+            "{\"b\":1.50,\"a\":[1e5,-0,true,null,\"Città\\n\"]}"
+        );
+        assert_eq!(
+            value.pretty("  ", "\n"),
+            "{\n  \"b\": 1.50,\n  \"a\": [\n    1e5,\n    -0,\n    true,\n    null,\n    \"Città\\n\"\n  ]\n}"
+        );
     }
 
     #[test]
     fn rifiuta_commenti_virgole_e_chiavi_doppie() {
         assert_eq!(parse("{\n  // no\n}"), Err(JsonError::Syntax { line: 2 }));
         assert_eq!(parse("{\"a\": 1,}"), Err(JsonError::Syntax { line: 1 }));
-        assert_eq!(parse("{\"a\": 1,\n\"a\": 2}"), Err(JsonError::Repeated { line: 2 }));
+        assert_eq!(
+            parse("{\"a\": 1,\n\"a\": 2}"),
+            Err(JsonError::Repeated { line: 2 })
+        );
         assert!(parse("01").is_err());
         assert!(parse("\"\u{1}\"").is_err());
-        assert_eq!(parse("\"\\ud83d\\ude00\"").unwrap(), Json::String("😀".into()));
+        assert_eq!(
+            parse("\"\\ud83d\\ude00\"").unwrap(),
+            Json::String("😀".into())
+        );
     }
 }

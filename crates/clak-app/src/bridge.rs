@@ -79,7 +79,13 @@ impl Bridge {
             prefs: Preferences::new(&home),
             home,
             prompt,
-            inner: Mutex::new(Inner { link: Link::None, mode: Mode::Offline, state: offline(), log: VecDeque::new(), fresh: true }),
+            inner: Mutex::new(Inner {
+                link: Link::None,
+                mode: Mode::Offline,
+                state: offline(),
+                log: VecDeque::new(),
+                fresh: true,
+            }),
             messages,
             quitting: tokio_util::sync::CancellationToken::new(),
         });
@@ -211,8 +217,11 @@ impl Bridge {
         let control = clak_wire::location::Lockfile::read(&home)
             .map(|l| l.control)
             .unwrap_or_else(|| clak_wire::location::control(&home));
-        let mut stream =
-            tokio::task::spawn_blocking(move || clak_wire::ipc::connect(&control, Duration::from_secs(2))).await.map_err(std::io::Error::other)??;
+        let mut stream = tokio::task::spawn_blocking(move || {
+            clak_wire::ipc::connect(&control, Duration::from_secs(2))
+        })
+        .await
+        .map_err(std::io::Error::other)??;
         stream.write_all(b"{\"type\":\"watch\"}\n")?;
         let reader = stream.try_clone()?;
         self.inner().link = Link::Remote(stream);
@@ -245,21 +254,36 @@ impl Bridge {
                 Some("state") => {
                     let (before, mode) = {
                         let mut inner = self.inner();
-                        let before = if inner.fresh || inner.state.get("offline").is_some() { None } else { Some(inner.state.clone()) };
+                        let before = if inner.fresh || inner.state.get("offline").is_some() {
+                            None
+                        } else {
+                            Some(inner.state.clone())
+                        };
                         inner.fresh = false;
                         inner.state = message.clone();
                         (before, inner.mode)
                     };
                     if self.prefs.notifications() {
                         for notice in notices::between(before.as_ref(), &message) {
-                            let _ = self.app.notification().builder().title(&notice.title).body(&notice.text).show();
+                            let _ = self
+                                .app
+                                .notification()
+                                .builder()
+                                .title(&notice.title)
+                                .body(&notice.text)
+                                .show();
                         }
                     }
                     tray::update(&self.app, &message, mode == Mode::Offline);
                 }
                 Some("log") => {
                     let mut inner = self.inner();
-                    for item in message.get("items").and_then(Value::as_array).into_iter().flatten() {
+                    for item in message
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
                         inner.log.push_back(item.clone());
                         if inner.log.len() > BACKLOG {
                             inner.log.pop_front();

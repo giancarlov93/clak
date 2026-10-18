@@ -15,7 +15,9 @@ mod windows {
     use crate::Result;
     use crate::registry::{self, EXPAND_STRING};
     use std::path::Path;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        HWND_BROADCAST, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE,
+    };
 
     const NAME: &str = "Path";
 
@@ -40,8 +42,16 @@ mod windows {
         }
 
         /// On another key under HKCU, and without notifying other programs: for the tests.
-        pub fn with_key(folder: impl AsRef<Path>, key: impl Into<String>, announce: bool) -> UserPath {
-            UserPath { folder: folder.as_ref().to_string_lossy().into_owned(), key: key.into(), announce }
+        pub fn with_key(
+            folder: impl AsRef<Path>,
+            key: impl Into<String>,
+            announce: bool,
+        ) -> UserPath {
+            UserPath {
+                folder: folder.as_ref().to_string_lossy().into_owned(),
+                key: key.into(),
+                announce,
+            }
         }
 
         pub fn folder(&self) -> &str {
@@ -50,7 +60,9 @@ mod windows {
 
         pub fn contains(&self) -> bool {
             let environment = registry::open(&self.key, false);
-            entries(&read(environment.as_ref())).iter().any(|e| self.same(e))
+            entries(&read(environment.as_ref()))
+                .iter()
+                .any(|e| self.same(e))
         }
 
         pub fn add(&self) -> Result<()> {
@@ -59,22 +71,31 @@ mod windows {
             if entries(&current).iter().any(|e| self.same(e)) {
                 return Ok(());
             }
-            let value =
-                if current.is_empty() { self.folder.clone() } else { format!("{};{}", current.trim_end_matches(';'), self.folder) };
+            let value = if current.is_empty() {
+                self.folder.clone()
+            } else {
+                format!("{};{}", current.trim_end_matches(';'), self.folder)
+            };
             environment.set_string(Some(NAME), &value, kind_of(&environment))?;
             self.announce();
             Ok(())
         }
 
         pub fn remove(&self) -> Result<()> {
-            let Some(environment) = registry::open(&self.key, true) else { return Ok(()) };
+            let Some(environment) = registry::open(&self.key, true) else {
+                return Ok(());
+            };
             let current = read(Some(&environment));
             let all = entries(&current);
             let kept: Vec<&String> = all.iter().filter(|e| !self.same(e)).collect();
             if kept.len() == all.len() {
                 return Ok(());
             }
-            let value = kept.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(";");
+            let value = kept
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(";");
             environment.set_string(Some(NAME), &value, kind_of(&environment))?;
             self.announce();
             Ok(())
@@ -83,18 +104,27 @@ mod windows {
         /// Removes the other folders for which `drop` says yes (it receives the expanded path),
         /// leaving this one and everything else as it was. Returns the removed ones, as written.
         pub fn remove_where(&self, drop: impl Fn(&Path) -> bool) -> Result<Vec<String>> {
-            let Some(environment) = registry::open(&self.key, true) else { return Ok(Vec::new()) };
+            let Some(environment) = registry::open(&self.key, true) else {
+                return Ok(Vec::new());
+            };
             let current = read(Some(&environment));
             let all = entries(&current);
             let dropped: Vec<String> = all
                 .iter()
-                .filter(|e| !self.same(e) && drop(Path::new(&registry::expand(e.trim_matches('"')))))
+                .filter(|e| {
+                    !self.same(e) && drop(Path::new(&registry::expand(e.trim_matches('"'))))
+                })
                 .cloned()
                 .collect();
             if dropped.is_empty() {
                 return Ok(Vec::new());
             }
-            let value = all.iter().filter(|e| !dropped.contains(e)).map(String::as_str).collect::<Vec<_>>().join(";");
+            let value = all
+                .iter()
+                .filter(|e| !dropped.contains(e))
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(";");
             environment.set_string(Some(NAME), &value, kind_of(&environment))?;
             self.announce();
             Ok(dropped)
@@ -113,21 +143,39 @@ mod windows {
             if !self.announce {
                 return;
             }
-            let text: Vec<u16> = "Environment".encode_utf16().chain(std::iter::once(0)).collect();
+            let text: Vec<u16> = "Environment"
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             let mut result = 0usize;
             // SAFETY: nul-terminated text, valid for the whole call (synchronous, with timeout).
             unsafe {
-                SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, text.as_ptr() as isize, SMTO_ABORTIFHUNG, 2000, &mut result)
+                SendMessageTimeoutW(
+                    HWND_BROADCAST,
+                    WM_SETTINGCHANGE,
+                    0,
+                    text.as_ptr() as isize,
+                    SMTO_ABORTIFHUNG,
+                    2000,
+                    &mut result,
+                )
             };
         }
     }
 
     fn read(environment: Option<&registry::Key>) -> String {
-        environment.and_then(|k| k.string(Some(NAME))).unwrap_or_default()
+        environment
+            .and_then(|k| k.string(Some(NAME)))
+            .unwrap_or_default()
     }
 
     fn entries(value: &str) -> Vec<String> {
-        value.split(';').map(str::trim).filter(|e| !e.is_empty()).map(str::to_owned).collect()
+        value
+            .split(';')
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .map(str::to_owned)
+            .collect()
     }
 
     fn kind_of(environment: &registry::Key) -> u32 {
@@ -142,7 +190,11 @@ mod windows {
         let absolute = std::path::absolute(path).ok()?;
         let text = absolute.to_string_lossy().into_owned();
         let trimmed = text.trim_end_matches(['\\', '/']);
-        Some(if trimmed.len() <= 2 { text } else { trimmed.to_owned() })
+        Some(if trimmed.len() <= 2 {
+            text
+        } else {
+            trimmed.to_owned()
+        })
     }
 }
 
@@ -198,12 +250,23 @@ mod unix {
 
     impl PathLink {
         pub fn new(folder: impl Into<String>, cli: impl Into<String>) -> PathLink {
-            PathLink { folder: folder.into(), cli: cli.into() }
+            PathLink {
+                folder: folder.into(),
+                cli: cli.into(),
+            }
         }
 
         /// `~/.local/bin`.
         pub fn user_bin(places: &crate::Places, cli: impl Into<String>) -> PathLink {
-            PathLink::new(places.home.join(".local").join("bin").to_string_lossy().into_owned(), cli)
+            PathLink::new(
+                places
+                    .home
+                    .join(".local")
+                    .join("bin")
+                    .to_string_lossy()
+                    .into_owned(),
+                cli,
+            )
         }
 
         pub fn folder(&self) -> &str {
@@ -215,7 +278,11 @@ mod unix {
         }
 
         fn status_of(&self, state: PathLinkState, target: Option<String>) -> PathLinkStatus {
-            PathLinkStatus { state, path: self.path(), target }
+            PathLinkStatus {
+                state,
+                path: self.path(),
+                target,
+            }
         }
 
         pub fn status(&self) -> PathLinkStatus {
@@ -225,20 +292,32 @@ mod unix {
             let path = self.path();
             let metadata = match std::fs::symlink_metadata(&path) {
                 Ok(metadata) => metadata,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return self.status_of(PathLinkState::Absent, None),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return self.status_of(PathLinkState::Absent, None);
+                }
                 Err(_) => return self.status_of(PathLinkState::Foreign, None),
             };
             if !metadata.file_type().is_symlink() {
                 return self.status_of(PathLinkState::Foreign, None);
             }
-            let Ok(target) = std::fs::read_link(&path) else { return self.status_of(PathLinkState::Foreign, None) };
+            let Ok(target) = std::fs::read_link(&path) else {
+                return self.status_of(PathLinkState::Foreign, None);
+            };
             let target = target.to_string_lossy().into_owned();
             // A relative link is relative to its folder.
-            let absolute = if target.starts_with('/') { target.clone() } else { format!("{}/{target}", self.folder) };
+            let absolute = if target.starts_with('/') {
+                target.clone()
+            } else {
+                format!("{}/{target}", self.folder)
+            };
             if same_path_text(&absolute, &self.cli) {
                 return self.status_of(PathLinkState::Ok, Some(target));
             }
-            let state = if ours(&absolute) { PathLinkState::Stale } else { PathLinkState::Foreign };
+            let state = if ours(&absolute) {
+                PathLinkState::Stale
+            } else {
+                PathLinkState::Foreign
+            };
             self.status_of(state, Some(target))
         }
 
@@ -262,7 +341,8 @@ mod unix {
                     // moment finds the old one or the new one, never neither.
                     let draft = format!("{}/.{NAME}.clak-tmp", self.folder);
                     let _ = std::fs::remove_file(&draft);
-                    std::os::unix::fs::symlink(&self.cli, &draft).map_err(|e| self.failure("create", e))?;
+                    std::os::unix::fs::symlink(&self.cli, &draft)
+                        .map_err(|e| self.failure("create", e))?;
                     if let Err(e) = std::fs::rename(&draft, self.path()) {
                         let _ = std::fs::remove_file(&draft);
                         return Err(self.failure("create", e));
@@ -273,7 +353,10 @@ mod unix {
         }
 
         pub fn remove(&self) -> Result<()> {
-            if !matches!(self.status().state, PathLinkState::Ok | PathLinkState::Stale) {
+            if !matches!(
+                self.status().state,
+                PathLinkState::Ok | PathLinkState::Stale
+            ) {
                 return Ok(());
             }
             match std::fs::remove_file(self.path()) {

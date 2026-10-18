@@ -3,10 +3,12 @@
 //! draws itself each time the bar draws it: the head in the color of the bar's text, as
 //! AppKit resolves it at that moment (light or dark bar, over any wallpaper), then the dot.
 
-use objc2::{AnyThread, MainThreadMarker};
 use objc2::rc::Retained;
 use objc2::runtime::Bool;
-use objc2_app_kit::{NSColor, NSCompositingOperation, NSImage, NSRectFillUsingOperation, NSStatusItem};
+use objc2::{AnyThread, MainThreadMarker};
+use objc2_app_kit::{
+    NSColor, NSCompositingOperation, NSImage, NSRectFillUsingOperation, NSStatusItem,
+};
 use objc2_foundation::{NSData, NSRect, NSSize};
 
 /// The icon's size in the bar, in points.
@@ -20,8 +22,12 @@ fn image(png: &[u8]) -> Option<Retained<NSImage>> {
 
 /// Puts the two layers (icon.rs, `macos_layers`) on the status item's button. Main thread.
 pub fn show(item: &NSStatusItem, head: &[u8], dot: &[u8]) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
-    let (Some(head), Some(dot)) = (image(head), image(dot)) else { return };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let (Some(head), Some(dot)) = (image(head), image(dot)) else {
+        return;
+    };
     let draw = block2::RcBlock::new(move |rect: NSRect| -> Bool {
         head.drawInRect(rect);
         // Only where the head is: the color of the text, over the black.
@@ -30,7 +36,8 @@ pub fn show(item: &NSStatusItem, head: &[u8], dot: &[u8]) {
         dot.drawInRect(rect);
         Bool::YES
     });
-    let composed = NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(POINTS, POINTS), false, &draw);
+    let composed =
+        NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(POINTS, POINTS), false, &draw);
     composed.setTemplate(false);
     if let Some(button) = item.button(mtm) {
         button.setImage(Some(&composed));

@@ -9,7 +9,11 @@ use crate::preferences;
 use serde_json::Value;
 use std::path::Path;
 
-pub const FILE_NAME: &str = if cfg!(windows) { "clak-shim.exe" } else { "clak-shim" };
+pub const FILE_NAME: &str = if cfg!(windows) {
+    "clak-shim.exe"
+} else {
+    "clak-shim"
+};
 
 /// The shim command (executable and arguments), or `None` if we don't know where it is.
 pub fn locate(app_directory: &Path, home: &Path) -> Option<Vec<String>> {
@@ -19,13 +23,19 @@ pub fn locate(app_directory: &Path, home: &Path) -> Option<Vec<String>> {
     }
     let settings = preferences::load(&preferences::file(home));
     let saved = settings.get("shim")?.as_array()?;
-    let command: Vec<String> = saved.iter().map(|part| part.as_str().unwrap_or("").to_owned()).collect();
+    let command: Vec<String> = saved
+        .iter()
+        .map(|part| part.as_str().unwrap_or("").to_owned())
+        .collect();
     (!command.is_empty() && Path::new(&command[0]).is_file()).then_some(command)
 }
 
 /// Remembers the shim chosen by hand, leaving the rest of the file as it was.
 pub fn remember(home: &Path, command: &[String]) -> Result<()> {
     let mut settings = preferences::load(&preferences::file(home));
-    settings.insert("shim".into(), Value::Array(command.iter().cloned().map(Value::String).collect()));
+    settings.insert(
+        "shim".into(),
+        Value::Array(command.iter().cloned().map(Value::String).collect()),
+    );
     preferences::save(home, &settings)
 }

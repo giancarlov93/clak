@@ -36,7 +36,9 @@ use tokio_tungstenite::tungstenite::Message;
 /// The result of a command: text or JSON, or an error to tell the agent.
 pub type ToolResult = Result<Value, String>;
 
-type Handler = Arc<dyn Fn(Map<String, Value>) -> Pin<Box<dyn Future<Output = ToolResult> + Send>> + Send + Sync>;
+type Handler = Arc<
+    dyn Fn(Map<String, Value>) -> Pin<Box<dyn Future<Output = ToolResult> + Send>> + Send + Sync,
+>;
 
 /// Who listens to what the hub says: the message type and the message.
 pub type Listener = Arc<dyn Fn(&str, &Map<String, Value>) + Send + Sync>;
@@ -96,7 +98,12 @@ impl LiveResource {
     /// `app` is the program ("Word"), `title` the live resource ("contratto.docx"), `publisher`
     /// who claims to be the author (the hub shows it for what it is: a claim), `home` the
     /// hub's folder (normally `~/.clak`, or `CLAK_HOME`).
-    pub fn new(app: &str, title: &str, publisher: Option<&str>, home: Option<PathBuf>) -> LiveResource {
+    pub fn new(
+        app: &str,
+        title: &str,
+        publisher: Option<&str>,
+        home: Option<PathBuf>,
+    ) -> LiveResource {
         LiveResource(Arc::new(Inner {
             app: app.to_owned(),
             title: title.to_owned(),
@@ -164,8 +171,14 @@ impl LiveResource {
         self.tool_with(name, description, schema, true, handler);
     }
 
-    pub fn tool_with<F, Fut>(&self, name: &str, description: &str, schema: Option<Value>, active: bool, handler: F)
-    where
+    pub fn tool_with<F, Fut>(
+        &self,
+        name: &str,
+        description: &str,
+        schema: Option<Value>,
+        active: bool,
+        handler: F,
+    ) where
         F: Fn(Map<String, Value>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ToolResult> + Send + 'static,
     {
@@ -211,7 +224,12 @@ impl LiveResource {
     /// Tells the hub which commands exist now. Without a connection it does nothing.
     pub fn publish(&self) {
         let state = self.state();
-        let tools = describe(state.tools.iter().filter(|t| state.active.contains(&t.name)));
+        let tools = describe(
+            state
+                .tools
+                .iter()
+                .filter(|t| state.active.contains(&t.name)),
+        );
         let mut message = json!({ "type": "tools_changed", "tools": tools });
         if let Some(instructions) = state.instructions.as_deref().filter(|i| !i.is_empty()) {
             message["instructions"] = Value::String(instructions.to_owned());
@@ -232,7 +250,10 @@ impl LiveResource {
         // The token is what stops any web page from connecting on its own: it's in a file
         // only the user can read.
         let Some(lock) = clak_wire::location::Lockfile::read(&self.0.home) else {
-            return Err(Unavailable(format!("Clak isn't running ({} is missing).", lockfile.display())));
+            return Err(Unavailable(format!(
+                "Clak isn't running ({} is missing).",
+                lockfile.display()
+            )));
         };
         if lock.protocol != clak_wire::PROTOCOL {
             return Err(Unavailable(format!(
@@ -241,9 +262,10 @@ impl LiveResource {
                 clak_wire::PROTOCOL
             )));
         }
-        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{}", lock.ws_port))
-            .await
-            .map_err(|_| Unavailable("Clak isn't responding: maybe it was closed.".into()))?;
+        let (socket, _) =
+            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{}", lock.ws_port))
+                .await
+                .map_err(|_| Unavailable("Clak isn't responding: maybe it was closed.".into()))?;
         let (mut sink, mut source) = socket.split();
         let (sender, mut queue) = mpsc::unbounded_channel::<Message>();
         let generation = {
@@ -264,7 +286,8 @@ impl LiveResource {
                     "tools": describe(state.tools.iter()),
                     "active": state.active.iter().cloned().collect::<Vec<_>>(),
                 });
-                if let Some(instructions) = state.instructions.as_deref().filter(|i| !i.is_empty()) {
+                if let Some(instructions) = state.instructions.as_deref().filter(|i| !i.is_empty())
+                {
                     message["instructions"] = Value::String(instructions.to_owned());
                 }
                 message
@@ -290,8 +313,16 @@ impl LiveResource {
                     Message::Close(_) => break,
                     _ => continue,
                 };
-                let Ok(Value::Object(message)) = clak_wire::json::parse(&raw) else { continue };
-                let Some(kind) = message.get("type").and_then(Value::as_str).map(str::to_owned) else { continue };
+                let Ok(Value::Object(message)) = clak_wire::json::parse(&raw) else {
+                    continue;
+                };
+                let Some(kind) = message
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
                 this.received(&kind, &message);
             }
             // If the connection is still ours, it was the hub that closed it.
@@ -307,18 +338,31 @@ impl LiveResource {
                 }
             };
             if ended {
-                this.raise("disconnected", &Map::from_iter([("type".to_owned(), json!("disconnected"))]));
+                this.raise(
+                    "disconnected",
+                    &Map::from_iter([("type".to_owned(), json!("disconnected"))]),
+                );
             }
         });
         Ok(())
     }
 
     fn received(&self, kind: &str, message: &Map<String, Value>) {
-        let text = |key: &str| message.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+        let text = |key: &str| {
+            message
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
         match kind {
             "registered" => self.state().name = Some(text("name")),
             "granted" => {
-                let harness = message.get("harness").and_then(Value::as_str).unwrap_or("an agent").to_owned();
+                let harness = message
+                    .get("harness")
+                    .and_then(Value::as_str)
+                    .unwrap_or("an agent")
+                    .to_owned();
                 self.state().users.push((text("grant_id"), harness));
             }
             "revoked" => {
@@ -340,7 +384,8 @@ impl LiveResource {
         let listener = self.state().listener.clone();
         if let Some(listener) = listener {
             // An error from the listener must not cut the line to the hub.
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(kind, message)));
+            let _ =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(kind, message)));
         }
     }
 
@@ -348,7 +393,11 @@ impl LiveResource {
         let name = call.get("tool").and_then(Value::as_str).unwrap_or("");
         let entry = {
             let state = self.state();
-            if state.active.contains(name) { state.tools.iter().find(|t| t.name == name).cloned() } else { None }
+            if state.active.contains(name) {
+                state.tools.iter().find(|t| t.name == name).cloned()
+            } else {
+                None
+            }
         };
         let mut reply = json!({ "type": "result", "call_id": call.get("call_id").cloned().unwrap_or(Value::Null) });
         match entry {
@@ -357,7 +406,11 @@ impl LiveResource {
                 reply["content"] = json!("no such command");
             }
             Some(entry) => {
-                let arguments = call.get("arguments").and_then(Value::as_object).cloned().unwrap_or_default();
+                let arguments = call
+                    .get("arguments")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
                 // A command that breaks reports its error, without taking the program down with it.
                 let outcome = tokio::spawn((entry.handler)(arguments)).await;
                 match outcome {
@@ -386,7 +439,9 @@ impl LiveResource {
             sender
         };
         if let Some(sender) = sender {
-            let _ = sender.send(Message::text(clak_wire::json::text(&json!({ "type": "close", "reason": reason }))));
+            let _ = sender.send(Message::text(clak_wire::json::text(
+                &json!({ "type": "close", "reason": reason }),
+            )));
             let _ = sender.send(Message::Close(None));
             // Time for the two messages to go out.
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);

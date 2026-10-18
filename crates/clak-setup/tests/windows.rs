@@ -24,7 +24,10 @@ struct TestKey(String);
 
 impl TestKey {
     fn new(kind: &str) -> TestKey {
-        TestKey(format!(r"{PARENT}\{kind}-{}", clak_wire::json::random_hex(8)))
+        TestKey(format!(
+            r"{PARENT}\{kind}-{}",
+            clak_wire::json::random_hex(8)
+        ))
     }
 }
 
@@ -40,22 +43,38 @@ fn raw_path(key: &str) -> Option<String> {
 }
 
 fn set(key: &str, name: Option<&str>, value: &str) {
-    registry::create(key).unwrap().set_string(name, value, STRING).unwrap();
+    registry::create(key)
+        .unwrap()
+        .set_string(name, value, STRING)
+        .unwrap();
 }
 
 #[test]
 fn il_path_si_aggiunge_una_volta_e_si_toglie_lasciando_il_resto_com_era() {
     let key = TestKey::new("Env");
-    registry::create(&key.0).unwrap().set_string(Some("Path"), r"%USERPROFILE%\bin;C:\Strumenti;", EXPAND_STRING).unwrap();
+    registry::create(&key.0)
+        .unwrap()
+        .set_string(
+            Some("Path"),
+            r"%USERPROFILE%\bin;C:\Strumenti;",
+            EXPAND_STRING,
+        )
+        .unwrap();
     let path = UserPath::with_key(r"C:\Programmi\Clak", &key.0, false);
     assert!(!path.contains());
 
     path.add().unwrap();
     path.add().unwrap();
     assert!(path.contains());
-    assert_eq!(raw_path(&key.0).unwrap(), r"%USERPROFILE%\bin;C:\Strumenti;C:\Programmi\Clak");
+    assert_eq!(
+        raw_path(&key.0).unwrap(),
+        r"%USERPROFILE%\bin;C:\Strumenti;C:\Programmi\Clak"
+    );
     // Variables stay variables.
-    assert_eq!(registry::open(&key.0, false).unwrap().kind(Some("Path")), Some(EXPAND_STRING));
+    assert_eq!(
+        registry::open(&key.0, false).unwrap().kind(Some("Path")),
+        Some(EXPAND_STRING)
+    );
 
     assert!(UserPath::with_key(r"c:\programmi\clak\", &key.0, false).contains());
     path.remove().unwrap();
@@ -76,7 +95,10 @@ fn un_path_che_non_c_e_si_crea() {
 fn una_variabile_nel_path_vale_per_la_cartella_che_indica() {
     let key = TestKey::new("Env");
     let profile = std::env::var("USERPROFILE").unwrap();
-    registry::create(&key.0).unwrap().set_string(Some("Path"), r"%USERPROFILE%\bin", EXPAND_STRING).unwrap();
+    registry::create(&key.0)
+        .unwrap()
+        .set_string(Some("Path"), r"%USERPROFILE%\bin", EXPAND_STRING)
+        .unwrap();
     assert!(UserPath::with_key(format!(r"{profile}\bin"), &key.0, false).contains());
 }
 
@@ -90,12 +112,24 @@ fn l_avvio_si_accende_si_spegne_e_riconosce_gestione_attivita_e_le_altre_copie()
     autostart.enable().unwrap();
     assert_eq!(autostart.state(), AutostartState::On);
     let run = format!(r"{}\Run", root.0);
-    assert_eq!(registry::open(&run, false).unwrap().string(Some(Autostart::NAME)).unwrap(), format!("\"{EXE}\""));
-    assert_eq!(Autostart::with_root(r"D:\Altrove\ClakApp.exe", &root.0).state(), AutostartState::Elsewhere);
+    assert_eq!(
+        registry::open(&run, false)
+            .unwrap()
+            .string(Some(Autostart::NAME))
+            .unwrap(),
+        format!("\"{EXE}\"")
+    );
+    assert_eq!(
+        Autostart::with_root(r"D:\Altrove\ClakApp.exe", &root.0).state(),
+        AutostartState::Elsewhere
+    );
 
     // Task Manager turns it off without removing it; turning it back on from here clears that.
     let approved = format!(r"{}\Explorer\StartupApproved\Run", root.0);
-    registry::create(&approved).unwrap().set_binary(Some(Autostart::NAME), &[3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+    registry::create(&approved)
+        .unwrap()
+        .set_binary(Some(Autostart::NAME), &[3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        .unwrap();
     assert_eq!(autostart.state(), AutostartState::DisabledBySystem);
     autostart.enable().unwrap();
     assert_eq!(autostart.state(), AutostartState::On);
@@ -114,13 +148,26 @@ fn lo_schema_clak_si_registra_si_aggiorna_e_non_tocca_quello_di_altri() {
     assert_eq!(scheme.state(), UriSchemeState::On);
     let command = registry::open(&format!(r"{classes}\clak\shell\open\command"), false).unwrap();
     assert_eq!(command.string(None).unwrap(), format!("\"{EXE}\" \"%1\""));
-    assert_eq!(registry::open(&format!(r"{classes}\clak"), false).unwrap().string(Some("URL Protocol")).unwrap(), "");
-    assert_eq!(UriScheme::with_root(r"D:\Altrove\ClakApp.exe", &classes).state(), UriSchemeState::Elsewhere);
+    assert_eq!(
+        registry::open(&format!(r"{classes}\clak"), false)
+            .unwrap()
+            .string(Some("URL Protocol"))
+            .unwrap(),
+        ""
+    );
+    assert_eq!(
+        UriScheme::with_root(r"D:\Altrove\ClakApp.exe", &classes).state(),
+        UriSchemeState::Elsewhere
+    );
     scheme.unregister().unwrap();
     assert_eq!(scheme.state(), UriSchemeState::Off);
 
     // Another program that already opens clak://: it is recognized, and not removed.
-    set(&format!(r"{classes}\clak\shell\open\command"), None, r#""C:\Altro\altro.exe" "%1""#);
+    set(
+        &format!(r"{classes}\clak\shell\open\command"),
+        None,
+        r#""C:\Altro\altro.exe" "%1""#,
+    );
     assert_eq!(scheme.state(), UriSchemeState::Foreign);
     scheme.unregister().unwrap();
     let other = registry::open(&format!(r"{classes}\clak\shell\open\command"), false).unwrap();
@@ -132,7 +179,11 @@ fn lo_schema_con_la_nostra_descrizione_e_nostro_da_aggiornare() {
     let root = TestKey::new("Win");
     let classes = format!(r"{}\Classes", root.0);
     set(&format!(r"{classes}\clak"), None, "URL:Clak");
-    set(&format!(r"{classes}\clak\shell\open\command"), None, r#""C:\Programmi\Altro\avvio.exe" "%1""#);
+    set(
+        &format!(r"{classes}\clak\shell\open\command"),
+        None,
+        r#""C:\Programmi\Altro\avvio.exe" "%1""#,
+    );
     let scheme = UriScheme::with_root(EXE, &classes);
     assert_eq!(scheme.state(), UriSchemeState::Elsewhere);
     scheme.register().unwrap();
@@ -168,7 +219,10 @@ fn lo_shim_accanto_all_app_o_quello_ricordato() {
     shim::remember(&home, &[chosen.to_string_lossy().into_owned(), "-v".into()]).unwrap();
     assert_eq!(shim::locate(&app, &home).unwrap()[1], "-v");
     let bundled = sandbox.write("app/clak-shim.exe", "");
-    assert_eq!(shim::locate(&app, &home).unwrap(), [bundled.to_string_lossy().into_owned()]);
+    assert_eq!(
+        shim::locate(&app, &home).unwrap(),
+        [bundled.to_string_lossy().into_owned()]
+    );
 }
 
 /// A fake machine with the test keys of an installation.
@@ -180,7 +234,11 @@ struct Machine {
 
 impl Machine {
     fn new() -> Machine {
-        Machine { sandbox: Sandbox::new(), env: TestKey::new("Env"), windows: TestKey::new("Win") }
+        Machine {
+            sandbox: Sandbox::new(),
+            env: TestKey::new("Env"),
+            windows: TestKey::new("Win"),
+        }
     }
 
     fn autostart(&self, folder: &Path) -> Autostart {
@@ -188,7 +246,10 @@ impl Machine {
     }
 
     fn scheme(&self, folder: &Path) -> UriScheme {
-        UriScheme::with_root(folder.join(TRAY_APP), format!(r"{}\Classes", self.windows.0))
+        UriScheme::with_root(
+            folder.join(TRAY_APP),
+            format!(r"{}\Classes", self.windows.0),
+        )
     }
 
     fn path(&self, folder: &Path) -> UserPath {
@@ -219,7 +280,14 @@ impl Machine {
     }
 
     fn cleanup(&self, folder: &Path) -> Vec<String> {
-        installation::cleanup(folder, &self.sandbox.places, &self.path(folder), &self.autostart(folder), &self.scheme(folder)).unwrap()
+        installation::cleanup(
+            folder,
+            &self.sandbox.places,
+            &self.path(folder),
+            &self.autostart(folder),
+            &self.scheme(folder),
+        )
+        .unwrap()
     }
 
     fn raw(&self) -> Option<String> {
@@ -227,16 +295,25 @@ impl Machine {
     }
 
     fn set_path(&self, value: &str) {
-        registry::create(&self.env.0).unwrap().set_string(Some("Path"), value, EXPAND_STRING).unwrap();
+        registry::create(&self.env.0)
+            .unwrap()
+            .set_string(Some("Path"), value, EXPAND_STRING)
+            .unwrap();
     }
 
     fn skill(&self, folder: &Path) -> Skill {
-        Skill::claude_code(&self.sandbox.places, folder.join(CLI).to_string_lossy().into_owned())
+        Skill::claude_code(
+            &self.sandbox.places,
+            folder.join(CLI).to_string_lossy().into_owned(),
+        )
     }
 
     fn client(&self, folder: &Path, name: &str) -> Box<dyn McpClient> {
         let shim = folder.join(shim::FILE_NAME).to_string_lossy().into_owned();
-        clients::all(&self.sandbox.places, &[shim]).into_iter().find(|c| c.name() == name).unwrap()
+        clients::all(&self.sandbox.places, &[shim])
+            .into_iter()
+            .find(|c| c.name() == name)
+            .unwrap()
     }
 }
 
@@ -252,9 +329,16 @@ fn installata_prende_il_posto_di_un_altra_copia_e_disinstallata_toglie_solo_il_s
 
     let installed = machine.copy("Programs/Clak");
     let done = machine.setup(&installed);
-    assert!(done.iter().any(|l| l.starts_with("removed another copy from PATH")), "{done:?}");
+    assert!(
+        done.iter()
+            .any(|l| l.starts_with("removed another copy from PATH")),
+        "{done:?}"
+    );
 
-    assert_eq!(machine.raw().unwrap(), format!("{};{}", tools.display(), installed.display()));
+    assert_eq!(
+        machine.raw().unwrap(),
+        format!("{};{}", tools.display(), installed.display())
+    );
     assert_eq!(machine.scheme(&installed).state(), UriSchemeState::On);
     assert_eq!(machine.autostart(&installed).state(), AutostartState::On);
     let skill = machine.skill(&installed);
@@ -266,7 +350,10 @@ fn installata_prende_il_posto_di_un_altra_copia_e_disinstallata_toglie_solo_il_s
     assert_eq!(client.status().state, ClientState::Ok);
 
     let done = machine.cleanup(&installed);
-    assert!(done.contains(&"shim removed from Cursor".to_owned()), "{done:?}");
+    assert!(
+        done.contains(&"shim removed from Cursor".to_owned()),
+        "{done:?}"
+    );
     assert_eq!(machine.raw().unwrap(), tools.display().to_string());
     assert_eq!(machine.scheme(&installed).state(), UriSchemeState::Off);
     assert_eq!(machine.autostart(&installed).state(), AutostartState::Off);
@@ -282,36 +369,73 @@ fn dopo_un_installazione_tolta_tutto_cio_che_indicava_la_sua_cartella_passa_a_qu
     let gone = machine.sandbox.root.join("Tolta").join("Clak");
     let dev = machine.copy("sviluppo");
     let tools = machine.sandbox.dir(&["strumenti"]);
-    machine.set_path(&format!("{};{};{}", tools.display(), gone.display(), dev.display()));
+    machine.set_path(&format!(
+        "{};{};{}",
+        tools.display(),
+        gone.display(),
+        dev.display()
+    ));
     let w = &machine.windows.0;
-    set(&format!(r"{w}\Run"), Some(Autostart::NAME), &format!("\"{}\"", gone.join(TRAY_APP).display()));
+    set(
+        &format!(r"{w}\Run"),
+        Some(Autostart::NAME),
+        &format!("\"{}\"", gone.join(TRAY_APP).display()),
+    );
     set(&format!(r"{w}\Classes\clak"), None, "URL:Clak");
-    set(&format!(r"{w}\Classes\clak\shell\open\command"), None, &format!("\"{}\" \"%1\"", gone.join(TRAY_APP).display()));
+    set(
+        &format!(r"{w}\Classes\clak\shell\open\command"),
+        None,
+        &format!("\"{}\" \"%1\"", gone.join(TRAY_APP).display()),
+    );
     machine.sandbox.dir(&["home", ".claude"]);
     machine.skill(&gone).install().unwrap();
-    let old_shim = gone.join(shim::FILE_NAME).to_string_lossy().replace('\\', "/");
-    let cursor =
-        machine.sandbox.write("home/.cursor/mcp.json", &format!("{{\"mcpServers\": {{\"clak\": {{\"command\": \"{old_shim}\"}}}}}}"));
+    let old_shim = gone
+        .join(shim::FILE_NAME)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let cursor = machine.sandbox.write(
+        "home/.cursor/mcp.json",
+        &format!("{{\"mcpServers\": {{\"clak\": {{\"command\": \"{old_shim}\"}}}}}}"),
+    );
     // An entry pointing to a shim that still exists (another copy) is left to the user.
     let dev_shim = dev.join(shim::FILE_NAME);
     std::fs::write(&dev_shim, "").unwrap();
     let dev_shim = dev_shim.to_string_lossy().replace('\\', "/");
-    let gemini =
-        machine.sandbox.write("home/.gemini/settings.json", &format!("{{\"mcpServers\": {{\"clak\": {{\"command\": \"{dev_shim}\"}}}}}}"));
+    let gemini = machine.sandbox.write(
+        "home/.gemini/settings.json",
+        &format!("{{\"mcpServers\": {{\"clak\": {{\"command\": \"{dev_shim}\"}}}}}}"),
+    );
 
     let installed = machine.copy("Programs/Clak");
     let done = machine.setup(&installed);
 
-    assert_eq!(machine.raw().unwrap(), format!("{};{}", tools.display(), installed.display()));
+    assert_eq!(
+        machine.raw().unwrap(),
+        format!("{};{}", tools.display(), installed.display())
+    );
     assert_eq!(machine.autostart(&installed).state(), AutostartState::On);
-    assert_eq!(registry::open(&format!(r"{w}\Run"), false).unwrap().value_names(), [Autostart::NAME]);
+    assert_eq!(
+        registry::open(&format!(r"{w}\Run"), false)
+            .unwrap()
+            .value_names(),
+        [Autostart::NAME]
+    );
     assert_eq!(machine.scheme(&installed).state(), UriSchemeState::On);
     assert_eq!(machine.skill(&installed).status().state, SkillState::Ok);
 
-    assert!(done.contains(&"shim updated in Cursor".to_owned()), "{done:?}");
-    assert_eq!(machine.client(&installed, "Cursor").status().state, ClientState::Ok);
+    assert!(
+        done.contains(&"shim updated in Cursor".to_owned()),
+        "{done:?}"
+    );
+    assert_eq!(
+        machine.client(&installed, "Cursor").status().state,
+        ClientState::Ok
+    );
     assert_eq!(keys(&json(&cursor)["mcpServers"]), ["clak"]);
-    assert_eq!(machine.client(&installed, "Gemini CLI").status().state, ClientState::Stale);
+    assert_eq!(
+        machine.client(&installed, "Gemini CLI").status().state,
+        ClientState::Stale
+    );
     assert!(read(&gemini).contains(&dev_shim));
 }
 
@@ -353,7 +477,10 @@ fn una_skill_scritta_da_altri_resta_e_senza_claude_code_non_se_ne_crea_una() {
     assert!(!machine.sandbox.places.home.join(".claude").exists());
     assert!(machine.path(&installed).contains());
 
-    let foreign = machine.sandbox.write("home/.claude/skills/clak/SKILL.md", "---\nname: clak\ndescription: mia\n---\n");
+    let foreign = machine.sandbox.write(
+        "home/.claude/skills/clak/SKILL.md",
+        "---\nname: clak\ndescription: mia\n---\n",
+    );
     machine.setup(&installed);
     assert_eq!(read(&foreign), "---\nname: clak\ndescription: mia\n---\n");
 }
@@ -362,12 +489,20 @@ fn una_skill_scritta_da_altri_resta_e_senza_claude_code_non_se_ne_crea_una() {
 fn il_registro_dell_installazione_e_il_segno_di_riapertura() {
     let sandbox = Sandbox::new();
     let home = sandbox.dir(&["hub"]);
-    installation::append_log(&home, false, &["added to PATH: x".into(), "skill installed: y".into()]);
+    installation::append_log(
+        &home,
+        false,
+        &["added to PATH: x".into(), "skill installed: y".into()],
+    );
     installation::append_log(&home, true, &["removed from PATH: x".into()]);
     let log = read(&installation::log_file(&home));
     let lines: Vec<&str> = log.lines().collect();
     assert_eq!(lines.len(), 3);
-    assert!(lines[0].ends_with(" install: added to PATH: x"), "{}", lines[0]);
+    assert!(
+        lines[0].ends_with(" install: added to PATH: x"),
+        "{}",
+        lines[0]
+    );
     assert!(lines[2].ends_with(" uninstall: removed from PATH: x"));
     assert_eq!(lines[0].as_bytes()[4], b'-');
 

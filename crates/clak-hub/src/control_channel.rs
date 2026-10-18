@@ -27,7 +27,9 @@ where
     let (outbox, mut queue) = Outbox::channel();
     let writer = tokio::spawn(async move {
         while let Some(message) = queue.recv().await {
-            if write.write_all(&json::encode_line(&message)).await.is_err() || write.flush().await.is_err() {
+            if write.write_all(&json::encode_line(&message)).await.is_err()
+                || write.flush().await.is_err()
+            {
                 return;
             }
         }
@@ -83,8 +85,19 @@ async fn request<R>(
     let platform = broker.options().platform.clone();
     let keys = broker.run(|c| c.session_keys());
     let asked = request.clone();
-    let agent = tokio::task::spawn_blocking(move || platform.agent_of(pid, &asked, &keys)).await.ok().flatten();
-    if let Ok(mut response) = requests::handle(broker, agent, &request, &gone, Progress::new(Some(outbox.clone()))).await {
+    let agent = tokio::task::spawn_blocking(move || platform.agent_of(pid, &asked, &keys))
+        .await
+        .ok()
+        .flatten();
+    if let Ok(mut response) = requests::handle(
+        broker,
+        agent,
+        &request,
+        &gone,
+        Progress::new(Some(outbox.clone())),
+    )
+    .await
+    {
         response.insert("type".into(), Value::String("response".into()));
         outbox.send(Value::Object(response));
     }
@@ -95,8 +108,12 @@ async fn request<R>(
 /// The panel. It sees everything and can only *take away*: revoke a permission, disconnect
 /// an agent, forget a program. Never grant one: permissions are granted only in the
 /// questions the hub shows itself.
-async fn watch<R>(broker: &Broker, mut lines: BufReader<R>, outbox: &Outbox, stop: &CancellationToken)
-where
+async fn watch<R>(
+    broker: &Broker,
+    mut lines: BufReader<R>,
+    outbox: &Outbox,
+    stop: &CancellationToken,
+) where
     R: AsyncRead + Unpin,
 {
     let monitor = new_id("mon");
@@ -189,7 +206,10 @@ where
         lines.consume(used);
         total += used;
         if into.len() > MAX_MESSAGE_BYTES {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "line too long"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "line too long",
+            ));
         }
         if done {
             return Ok(total);
@@ -209,9 +229,13 @@ pub mod pipe {
     use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LocalFree};
     use windows_sys::Win32::Security::Authorization::{
-        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+        ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
+        SDDL_REVISION_1,
     };
-    use windows_sys::Win32::Security::{GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER,
+        TokenUser,
+    };
     use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -238,11 +262,19 @@ pub mod pipe {
         fn new() -> std::io::Result<UserOnly> {
             let sid = current_user_sid()?;
             // Only the user, full access; protected, i.e. without inherited permissions.
-            let sddl: Vec<u16> = format!("D:P(A;;GA;;;{sid})").encode_utf16().chain(Some(0)).collect();
+            let sddl: Vec<u16> = format!("D:P(A;;GA;;;{sid})")
+                .encode_utf16()
+                .chain(Some(0))
+                .collect();
             let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
             // SAFETY: null-terminated text, valid output pointer.
             let ok = unsafe {
-                ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut())
+                ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                    sddl.as_ptr(),
+                    SDDL_REVISION_1,
+                    &mut descriptor,
+                    std::ptr::null_mut(),
+                )
             };
             if ok == 0 {
                 return Err(std::io::Error::last_os_error());
@@ -269,7 +301,13 @@ pub mod pipe {
             let mut size = 0u32;
             GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut size);
             let mut buffer = vec![0u8; size as usize];
-            let ok = GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), size, &mut size);
+            let ok = GetTokenInformation(
+                token,
+                TokenUser,
+                buffer.as_mut_ptr().cast(),
+                size,
+                &mut size,
+            );
             CloseHandle(token);
             if ok == 0 {
                 return Err(std::io::Error::last_os_error());
@@ -295,9 +333,17 @@ pub mod pipe {
         let security = UserOnly::new()?;
         let mut attributes = security.attributes();
         let mut options = ServerOptions::new();
-        options.first_pipe_instance(first).reject_remote_clients(true).max_instances(254);
+        options
+            .first_pipe_instance(first)
+            .reject_remote_clients(true)
+            .max_instances(254);
         // SAFETY: the attributes stay valid for the whole call.
-        unsafe { options.create_with_security_attributes_raw(name, (&mut attributes as *mut SECURITY_ATTRIBUTES).cast::<c_void>()) }
+        unsafe {
+            options.create_with_security_attributes_raw(
+                name,
+                (&mut attributes as *mut SECURITY_ATTRIBUTES).cast::<c_void>(),
+            )
+        }
     }
 
     pub fn client_pid(pipe: &NamedPipeServer) -> Option<u32> {
@@ -307,11 +353,23 @@ pub mod pipe {
         (ok != 0 && pid != 0).then_some(pid)
     }
 
-    pub async fn listen(first: NamedPipeServer, name: String, broker: Broker, tracker: TaskTracker, stop: CancellationToken) {
+    pub async fn listen(
+        first: NamedPipeServer,
+        name: String,
+        broker: Broker,
+        tracker: TaskTracker,
+        stop: CancellationToken,
+    ) {
         let mut loops = Vec::new();
         let mut first = Some(first);
         for _ in 0..LISTENERS {
-            loops.push(tokio::spawn(listen_one(first.take(), name.clone(), broker.clone(), tracker.clone(), stop.clone())));
+            loops.push(tokio::spawn(listen_one(
+                first.take(),
+                name.clone(),
+                broker.clone(),
+                tracker.clone(),
+                stop.clone(),
+            )));
         }
         for task in loops {
             let _ = task.await;
@@ -378,14 +436,24 @@ pub mod socket {
     use super::*;
     use tokio::net::UnixListener;
 
-    pub async fn listen(listener: UnixListener, broker: Broker, tracker: TaskTracker, stop: CancellationToken) {
+    pub async fn listen(
+        listener: UnixListener,
+        broker: Broker,
+        tracker: TaskTracker,
+        stop: CancellationToken,
+    ) {
         loop {
             let accepted = tokio::select! {
                 accepted = listener.accept() => accepted,
                 _ = stop.cancelled() => return,
             };
             let Ok((stream, _)) = accepted else { continue };
-            let pid = stream.peer_cred().ok().and_then(|c| c.pid()).and_then(|p| u32::try_from(p).ok()).filter(|p| *p > 0);
+            let pid = stream
+                .peer_cred()
+                .ok()
+                .and_then(|c| c.pid())
+                .and_then(|p| u32::try_from(p).ok())
+                .filter(|p| *p > 0);
             tracker.spawn(serve(stream, pid, broker.clone(), stop.clone()));
         }
     }

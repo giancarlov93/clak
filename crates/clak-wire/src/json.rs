@@ -131,7 +131,10 @@ pub fn text(value: &Value) -> String {
 
 /// Seconds since the epoch, with decimals.
 pub fn now() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 /// A floating-point number as the hub writes it: `60.0`, not `60`. Whoever reads the wire
@@ -253,7 +256,10 @@ mod tests {
     fn due_chiavi_uguali_non_si_leggono() {
         assert!(parse(br#"{"a":1,"a":2}"#).is_err());
         assert!(parse(br#"{"a":{"b":1,"b":1}}"#).is_err());
-        assert_eq!(parse(br#"{"a":1,"b":[1,2]}"#).unwrap(), json!({"a":1,"b":[1,2]}));
+        assert_eq!(
+            parse(br#"{"a":1,"b":[1,2]}"#).unwrap(),
+            json!({"a":1,"b":[1,2]})
+        );
     }
 
     #[test]

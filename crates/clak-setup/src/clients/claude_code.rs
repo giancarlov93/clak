@@ -11,7 +11,11 @@ use std::time::{Duration, Instant};
 
 /// Runs a command (executable, arguments, environment) and returns its exit code and text.
 /// Fake in the tests.
-pub type CommandRunner = Arc<dyn Fn(&Path, &[String], &BTreeMap<String, String>) -> std::io::Result<(i32, String)> + Send + Sync>;
+pub type CommandRunner = Arc<
+    dyn Fn(&Path, &[String], &BTreeMap<String, String>) -> std::io::Result<(i32, String)>
+        + Send
+        + Sync,
+>;
 
 /// Claude Code: its file is read, and written only through `claude mcp`.
 ///
@@ -31,12 +35,21 @@ impl ClaudeCodeClient {
     }
 
     /// With another way of launching `claude`: for the tests.
-    pub fn with_runner(places: &Places, command: &[String], run: CommandRunner) -> ClaudeCodeClient {
+    pub fn with_runner(
+        places: &Places,
+        command: &[String],
+        run: CommandRunner,
+    ) -> ClaudeCodeClient {
         let config = match places.var("CLAUDE_CONFIG_DIR") {
             Some(dir) if !dir.is_empty() => PathBuf::from(dir),
             _ => places.home.clone(),
         };
-        ClaudeCodeClient { places: places.clone(), command: command.to_vec(), run, path: config.join(".claude.json") }
+        ClaudeCodeClient {
+            places: places.clone(),
+            command: command.to_vec(),
+            run,
+            path: config.join(".claude.json"),
+        }
     }
 
     /// `claude` in the PATH. On the Mac also where its installer puts it, even if the PATH
@@ -46,7 +59,8 @@ impl ClaudeCodeClient {
         if cfg!(windows) {
             for folder in path.split(';').filter(|f| !f.is_empty()) {
                 for ext in [".exe", ".cmd", ".bat"] {
-                    let candidate = Path::new(folder.trim_matches('"')).join(format!("claude{ext}"));
+                    let candidate =
+                        Path::new(folder.trim_matches('"')).join(format!("claude{ext}"));
                     if candidate.is_file() {
                         return Some(candidate);
                     }
@@ -58,7 +72,10 @@ impl ClaudeCodeClient {
             path.split(':')
                 .filter(|f| !f.is_empty())
                 .map(PathBuf::from)
-                .chain([home.join(".local").join("bin"), home.join(".claude").join("local")])
+                .chain([
+                    home.join(".local").join("bin"),
+                    home.join(".claude").join("local"),
+                ])
                 .map(|folder| folder.join("claude"))
                 .find(|candidate| executable(candidate))
         }
@@ -75,7 +92,10 @@ impl ClaudeCodeClient {
         let mut environment = self.places.environment.clone();
         if !cfg!(windows) {
             // `claude` installed with npm is a script for `node`: it needs a PATH to find it in.
-            let folder = cli.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let folder = cli
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let path = match environment.get("PATH") {
                 Some(rest) if !rest.is_empty() => format!("{folder}:{rest}"),
                 _ => folder,
@@ -84,8 +104,8 @@ impl ClaudeCodeClient {
         }
         let mut full = vec!["mcp".to_owned()];
         full.extend(args.iter().map(|a| (*a).to_owned()));
-        let (code, output) =
-            (self.run)(&cli, &full, &environment).map_err(|e| SetupError(format!("`claude mcp` didn't respond: {e}")))?;
+        let (code, output) = (self.run)(&cli, &full, &environment)
+            .map_err(|e| SetupError(format!("`claude mcp` didn't respond: {e}")))?;
         if code != 0 {
             let text = output.trim();
             return Err(SetupError(if text.is_empty() {
@@ -128,7 +148,12 @@ impl McpClient for ClaudeCodeClient {
             return ClientStatus::new(ClientState::Absent, &self.path);
         }
         let unreadable = |e: &dyn std::fmt::Display| {
-            ClientStatus::with(ClientState::Unreadable, &self.path, format!(".claude.json can't be read: {e}"), None)
+            ClientStatus::with(
+                ClientState::Unreadable,
+                &self.path,
+                format!(".claude.json can't be read: {e}"),
+                None,
+            )
         };
         let text = match safe_file::read(&self.path) {
             Ok((text, _)) => text,
@@ -136,14 +161,26 @@ impl McpClient for ClaudeCodeClient {
         };
         let data = match json::parse(&text) {
             Ok(data) => data,
-            Err(json::JsonError::Syntax { line }) => return unreadable(&format!("not JSON (line {line})")),
-            Err(json::JsonError::Repeated { line }) => return unreadable(&format!("repeated key (line {line})")),
+            Err(json::JsonError::Syntax { line }) => {
+                return unreadable(&format!("not JSON (line {line})"));
+            }
+            Err(json::JsonError::Repeated { line }) => {
+                return unreadable(&format!("repeated key (line {line})"));
+            }
         };
-        let Some(entry) = data.get("mcpServers").and_then(|s| s.get(SERVER)).and_then(Json::as_object) else {
+        let Some(entry) = data
+            .get("mcpServers")
+            .and_then(|s| s.get(SERVER))
+            .and_then(Json::as_object)
+        else {
             return ClientStatus::new(ClientState::Absent, &self.path);
         };
         let (command, args) = JsonFileClient::read(entry);
-        let state = if same(&self.command, command.as_deref(), &args) { ClientState::Ok } else { ClientState::Stale };
+        let state = if same(&self.command, command.as_deref(), &args) {
+            ClientState::Ok
+        } else {
+            ClientState::Stale
+        };
         ClientStatus::with(state, &self.path, line(command.as_deref(), &args), command)
     }
 
@@ -159,9 +196,21 @@ impl McpClient for ClaudeCodeClient {
     }
 
     fn snippet(&self) -> String {
-        let parts: Vec<String> =
-            self.command.iter().map(|part| if part.contains(' ') { format!("\"{part}\"") } else { part.clone() }).collect();
-        format!("claude mcp add --scope user {SERVER} -- {}", parts.join(" "))
+        let parts: Vec<String> = self
+            .command
+            .iter()
+            .map(|part| {
+                if part.contains(' ') {
+                    format!("\"{part}\"")
+                } else {
+                    part.clone()
+                }
+            })
+            .collect();
+        format!(
+            "claude mcp add --scope user {SERVER} -- {}",
+            parts.join(" ")
+        )
     }
 }
 
@@ -177,9 +226,19 @@ fn executable(path: &Path) -> bool {
 }
 
 /// A process with its environment, output collected, one minute at most.
-fn run_process(exe: &Path, args: &[String], environment: &BTreeMap<String, String>) -> std::io::Result<(i32, String)> {
+fn run_process(
+    exe: &Path,
+    args: &[String],
+    environment: &BTreeMap<String, String>,
+) -> std::io::Result<(i32, String)> {
     let mut command = Command::new(exe);
-    command.args(args).env_clear().envs(environment).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .args(args)
+        .env_clear()
+        .envs(environment)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -197,8 +256,18 @@ fn run_process(exe: &Path, args: &[String], environment: &BTreeMap<String, Strin
             String::from_utf8_lossy(&text).into_owned()
         })
     };
-    let stdout = drain(child.stdout.take().map(|s| Box::new(s) as Box<dyn Read + Send>));
-    let stderr = drain(child.stderr.take().map(|s| Box::new(s) as Box<dyn Read + Send>));
+    let stdout = drain(
+        child
+            .stdout
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    );
+    let stderr = drain(
+        child
+            .stderr
+            .take()
+            .map(|s| Box::new(s) as Box<dyn Read + Send>),
+    );
     let started = Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -206,7 +275,10 @@ fn run_process(exe: &Path, args: &[String], environment: &BTreeMap<String, Strin
         }
         if started.elapsed() > Duration::from_secs(60) {
             let _ = child.kill();
-            return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "no response within 60 seconds"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "no response within 60 seconds",
+            ));
         }
         std::thread::sleep(Duration::from_millis(50));
     };

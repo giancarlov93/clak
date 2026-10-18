@@ -11,11 +11,18 @@ use clak_wire::names;
 use serde_json::{Map, Value};
 
 /// The arguments with the flags applied, or the problem to tell the caller (with the usage line).
-pub fn apply(tool: &ToolDef, given: Option<&Map<String, Value>>, flags: &[Value]) -> Result<Map<String, Value>, String> {
+pub fn apply(
+    tool: &ToolDef,
+    given: Option<&Map<String, Value>>,
+    flags: &[Value],
+) -> Result<Map<String, Value>, String> {
     let mut arguments = given.cloned().unwrap_or_default();
     let empty = Map::new();
     let schema = tool.schema();
-    let properties = schema.get("properties").and_then(Value::as_object).unwrap_or(&empty);
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .unwrap_or(&empty);
     let required: Vec<&str> = schema
         .get("required")
         .and_then(Value::as_array)
@@ -42,9 +49,14 @@ pub fn apply(tool: &ToolDef, given: Option<&Map<String, Value>>, flags: &[Value]
             ));
         };
         let property = properties.get(&key).and_then(Value::as_object);
-        let converted = convert(property, value).map_err(|problem| format!("--{name}: {problem}. {}", usage(tool)))?;
+        let converted = convert(property, value)
+            .map_err(|problem| format!("--{name}: {problem}. {}", usage(tool)))?;
         // A repeated list parameter accumulates: --tag a --tag b.
-        match (type_of(property).as_deref(), arguments.get_mut(&key), converted) {
+        match (
+            type_of(property).as_deref(),
+            arguments.get_mut(&key),
+            converted,
+        ) {
             (Some("array"), Some(Value::Array(list)), Value::Array(more)) => list.extend(more),
             (_, _, converted) => {
                 arguments.insert(key, converted);
@@ -54,21 +66,34 @@ pub fn apply(tool: &ToolDef, given: Option<&Map<String, Value>>, flags: &[Value]
 
     // Unnamed values go, in order, to the required parameters still empty, then to the others.
     let mut free: Vec<String> = Vec::new();
-    for key in required.iter().copied().chain(properties.keys().map(String::as_str)) {
+    for key in required
+        .iter()
+        .copied()
+        .chain(properties.keys().map(String::as_str))
+    {
         if !free.iter().any(|k| k == key) && !arguments.contains_key(key) {
             free.push(key.to_owned());
         }
     }
     if positional.len() > free.len() {
-        return Err(format!("too many unnamed values for '{}'. {}", tool.name, usage(tool)));
+        return Err(format!(
+            "too many unnamed values for '{}'. {}",
+            tool.name,
+            usage(tool)
+        ));
     }
     for (value, key) in positional.iter().zip(free.iter()) {
         let property = properties.get(key).and_then(Value::as_object);
-        let converted = convert(property, Some(value)).map_err(|problem| format!("{key}: {problem}. {}", usage(tool)))?;
+        let converted = convert(property, Some(value))
+            .map_err(|problem| format!("{key}: {problem}. {}", usage(tool)))?;
         arguments.insert(key.clone(), converted);
     }
 
-    let missing: Vec<String> = required.iter().filter(|k| !arguments.contains_key(**k)).map(|k| format!("--{k}")).collect();
+    let missing: Vec<String> = required
+        .iter()
+        .filter(|k| !arguments.contains_key(**k))
+        .map(|k| format!("--{k}"))
+        .collect();
     if !missing.is_empty() {
         return Err(format!("missing {}. {}", missing.join(", "), usage(tool)));
     }
@@ -88,7 +113,11 @@ fn matching(properties: &Map<String, Value>, name: &str) -> Option<String> {
 fn type_of(property: Option<&Map<String, Value>>) -> Option<String> {
     match property?.get("type")? {
         Value::String(t) => Some(t.clone()),
-        Value::Array(types) => types.iter().filter_map(Value::as_str).find(|t| *t != "null").map(str::to_owned),
+        Value::Array(types) => types
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|t| *t != "null")
+            .map(str::to_owned),
         _ => None,
     }
 }
@@ -138,7 +167,10 @@ fn parse(text: &str) -> Option<Value> {
 pub fn usage(tool: &ToolDef) -> String {
     let empty = Map::new();
     let schema = tool.schema();
-    let properties = schema.get("properties").and_then(Value::as_object).unwrap_or(&empty);
+    let properties = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .unwrap_or(&empty);
     let required: Vec<&str> = schema
         .get("required")
         .and_then(Value::as_array)
@@ -147,11 +179,19 @@ pub fn usage(tool: &ToolDef) -> String {
     let parts: Vec<String> = properties
         .iter()
         .map(|(key, value)| {
-            let flag = format!("--{key} {}", placeholder(value.as_object())).trim_end().to_owned();
-            if required.contains(&key.as_str()) { flag } else { format!("[{flag}]") }
+            let flag = format!("--{key} {}", placeholder(value.as_object()))
+                .trim_end()
+                .to_owned();
+            if required.contains(&key.as_str()) {
+                flag
+            } else {
+                format!("[{flag}]")
+            }
         })
         .collect();
-    format!("Usage: {} {}", tool.name, parts.join(" ")).trim_end().to_owned()
+    format!("Usage: {} {}", tool.name, parts.join(" "))
+        .trim_end()
+        .to_owned()
 }
 
 /// What goes after `--name`: the type, or the allowed values if they are few and short.
@@ -185,7 +225,11 @@ pub fn choices(property: Option<&Map<String, Value>>) -> Option<String> {
         })
         .collect();
     let joined = texts.join("|");
-    (joined.chars().count() <= 60 && texts.iter().all(|t| !t.is_empty() && !t.chars().any(char::is_whitespace))).then_some(joined)
+    (joined.chars().count() <= 60
+        && texts
+            .iter()
+            .all(|t| !t.is_empty() && !t.chars().any(char::is_whitespace)))
+    .then_some(joined)
 }
 
 #[cfg(test)]
@@ -226,7 +270,10 @@ mod tests {
             ])),
         )
         .unwrap();
-        assert_eq!(Value::Object(args), json!({"text":"ciao","count":3,"tags":["a","b"],"force":true}));
+        assert_eq!(
+            Value::Object(args),
+            json!({"text":"ciao","count":3,"tags":["a","b"],"force":true})
+        );
     }
 
     #[test]
@@ -239,9 +286,20 @@ mod tests {
     fn gli_errori_dicono_l_uso_e_il_suggerimento() {
         let error = apply(&tool(), None, &flags(json!([{"name":"txet","value":"x"}]))).unwrap_err();
         assert!(error.contains("did you mean --text?"), "{error}");
-        assert!(error.contains("Usage: append --text TEXT [--count N]"), "{error}");
-        let error = apply(&tool(), None, &flags(json!([{"name":"text","value":"x"},{"name":"count","value":"tre"}]))).unwrap_err();
-        assert!(error.starts_with("--count: 'tre' is not an integer."), "{error}");
+        assert!(
+            error.contains("Usage: append --text TEXT [--count N]"),
+            "{error}"
+        );
+        let error = apply(
+            &tool(),
+            None,
+            &flags(json!([{"name":"text","value":"x"},{"name":"count","value":"tre"}])),
+        )
+        .unwrap_err();
+        assert!(
+            error.starts_with("--count: 'tre' is not an integer."),
+            "{error}"
+        );
         let error = apply(&tool(), None, &flags(json!([]))).unwrap_err();
         assert!(error.starts_with("missing --text."), "{error}");
         assert!(usage(&tool()).contains("[--intent read|write]"));

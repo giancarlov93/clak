@@ -38,7 +38,13 @@ pub struct Hub {
 
 impl Hub {
     /// Starts the hub on this folder, or returns nothing if there already is one.
-    pub async fn try_start(home: &Path, options: HubOptions, log: Option<LogSink>) -> std::io::Result<Option<Hub>> {
+    // The tasks are pushed one by one: which listener comes first depends on the system.
+    #[allow(clippy::vec_init_then_push)]
+    pub async fn try_start(
+        home: &Path,
+        options: HubOptions,
+        log: Option<LogSink>,
+    ) -> std::io::Result<Option<Hub>> {
         std::fs::create_dir_all(home)?;
         #[cfg(unix)]
         {
@@ -60,7 +66,13 @@ impl Hub {
         let (lock, listener, control) = {
             use std::os::unix::fs::OpenOptionsExt;
             use std::os::unix::io::AsRawFd;
-            let lock = std::fs::OpenOptions::new().create(true).read(true).write(true).mode(0o600).open(location::hub_lock(home))?;
+            let lock = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .mode(0o600)
+                .open(location::hub_lock(home))?;
             // SAFETY: the descriptor is alive as long as `lock` is.
             if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
                 return Ok(None);
@@ -80,7 +92,9 @@ impl Hub {
                     while let Some(line) = rx.recv().await {
                         // Whoever listens to the log cannot stop the hub.
                         let log = log.clone();
-                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || log(line)));
+                        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                            log(line)
+                        }));
                     }
                 });
                 (Some(tx), Some(task))
@@ -98,7 +112,13 @@ impl Hub {
         // The token lives in a file only the user can read: it is what stops any web page from
         // connecting on its own. It is written aside and renamed, so whoever waits for the
         // lockfile never reads a half-written one.
-        let lockfile = Lockfile { ws_port, token: broker.run(|c| c.token().to_owned()), control: control.clone(), pid: std::process::id(), protocol: clak_wire::PROTOCOL };
+        let lockfile = Lockfile {
+            ws_port,
+            token: broker.run(|c| c.token().to_owned()),
+            control: control.clone(),
+            pid: std::process::id(),
+            protocol: clak_wire::PROTOCOL,
+        };
         let draft = location::lockfile(home).with_extension("json.tmp");
         write_private(&draft, &json::encode_pretty(&lockfile.to_json()))?;
 
@@ -113,14 +133,32 @@ impl Hub {
             stop.clone(),
         )));
         #[cfg(unix)]
-        tasks.push(tokio::spawn(crate::control_channel::socket::listen(listener, broker.clone(), tracker.clone(), stop.clone())));
-        tasks.push(tokio::spawn(app_channel::accept(listener_ws, broker.clone(), tracker.clone(), stop.clone())));
-        tasks.push(tokio::spawn(sweep(broker.clone(), sweep_interval, stop.clone())));
+        tasks.push(tokio::spawn(crate::control_channel::socket::listen(
+            listener,
+            broker.clone(),
+            tracker.clone(),
+            stop.clone(),
+        )));
+        tasks.push(tokio::spawn(app_channel::accept(
+            listener_ws,
+            broker.clone(),
+            tracker.clone(),
+            stop.clone(),
+        )));
+        tasks.push(tokio::spawn(sweep(
+            broker.clone(),
+            sweep_interval,
+            stop.clone(),
+        )));
         std::fs::rename(&draft, location::lockfile(home))?;
         broker.run(|c| {
             c.log(format!(
                 "listening — programs ws://127.0.0.1:{ws_port}  agents {control}{}",
-                if can_ask { "" } else { "  (no interface: no new permissions)" }
+                if can_ask {
+                    ""
+                } else {
+                    "  (no interface: no new permissions)"
+                }
             ))
         });
 
@@ -196,7 +234,11 @@ async fn sweep(broker: Broker, interval: Duration, stop: CancellationToken) {
         let sessions = broker.run(|c| c.sessions());
         let platform = broker.options().platform.clone();
         let gone = tokio::task::spawn_blocking(move || {
-            sessions.into_iter().filter(|(_, agent)| !platform.is_alive(agent)).map(|(id, _)| id).collect::<Vec<_>>()
+            sessions
+                .into_iter()
+                .filter(|(_, agent)| !platform.is_alive(agent))
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
         })
         .await
         .unwrap_or_default();
@@ -212,7 +254,12 @@ fn write_private(path: &Path, content: &[u8]) -> std::io::Result<()> {
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new().create(true).write(true).truncate(true).mode(0o600).open(path)?;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
         file.write_all(content)
     }
     #[cfg(windows)]

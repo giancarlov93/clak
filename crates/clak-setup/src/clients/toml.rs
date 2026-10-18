@@ -150,7 +150,9 @@ impl Parser {
                 self.advance();
             }
             self.skip_comment();
-            let Some(c) = self.current() else { return Ok(()) };
+            let Some(c) = self.current() else {
+                return Ok(());
+            };
             if c == '\n' {
                 continue;
             }
@@ -213,7 +215,10 @@ impl Parser {
             Some('\'') => self.literal_string(),
             _ => {
                 let mut key = String::new();
-                while let Some(c) = self.current().filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-') {
+                while let Some(c) = self
+                    .current()
+                    .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                {
                     key.push(c);
                     self.advance();
                 }
@@ -261,7 +266,10 @@ impl Parser {
                 *node = value;
                 return;
             };
-            if let (TomlValue::Array(items), Some(i)) = (&mut *node, head.strip_prefix('#').and_then(|n| n.parse::<usize>().ok())) {
+            if let (TomlValue::Array(items), Some(i)) = (
+                &mut *node,
+                head.strip_prefix('#').and_then(|n| n.parse::<usize>().ok()),
+            ) {
                 if i == items.len() {
                     items.push(TomlValue::Table(TomlTable::new()));
                 }
@@ -274,7 +282,9 @@ impl Parser {
                 *node = TomlValue::Table(TomlTable::new());
             }
             if let TomlValue::Table(table) = node {
-                let child = table.entry(head.clone()).or_insert_with(|| TomlValue::Table(TomlTable::new()));
+                let child = table
+                    .entry(head.clone())
+                    .or_insert_with(|| TomlValue::Table(TomlTable::new()));
                 insert(child, &rest[1..], value);
             }
         }
@@ -319,14 +329,17 @@ impl Parser {
             let real = self.resolved(&path);
             self.put(&real, TomlValue::Table(TomlTable::new()));
             // The previous array element's subtables don't apply to the new one.
-            self.defined.retain(|d| !(d.len() > path.len() && d.starts_with(&path)));
+            self.defined
+                .retain(|d| !(d.len() > path.len() && d.starts_with(&path)));
         } else {
             if self.defined.contains(&path) || self.arrays.contains_key(&path) {
                 return Err(self.fail(format!("“{name}” is already defined")));
             }
             let real = self.resolved(&path);
             match self.get(&real) {
-                Some(existing) if !existing.is_table() => return Err(self.fail(format!("“{name}” is not a table"))),
+                Some(existing) if !existing.is_table() => {
+                    return Err(self.fail(format!("“{name}” is not a table")));
+                }
                 Some(_) => {}
                 None => self.put(&real, TomlValue::Table(TomlTable::new())),
             }
@@ -435,7 +448,10 @@ impl Parser {
 
     fn scalar(&mut self) -> Result<String, TomlError> {
         let mut text = String::new();
-        while let Some(c) = self.current().filter(|c| !matches!(c, ',' | ']' | '}' | '#' | '\n')) {
+        while let Some(c) = self
+            .current()
+            .filter(|c| !matches!(c, ',' | ']' | '}' | '#' | '\n'))
+        {
             text.push(c);
             self.advance();
         }
@@ -448,12 +464,17 @@ impl Parser {
 
     fn starts(&self, s: &str) -> bool {
         let needle: Vec<char> = s.chars().collect();
-        self.chars.get(self.at..self.at + needle.len()).is_some_and(|slice| slice == needle.as_slice())
+        self.chars
+            .get(self.at..self.at + needle.len())
+            .is_some_and(|slice| slice == needle.as_slice())
     }
 
     /// After a multi-line string closes, an extra quote (at most two) is part of the text.
     fn extra_quotes(&self, quote: char) -> bool {
-        let n = self.chars[self.at..].iter().take_while(|&&c| c == quote).count();
+        let n = self.chars[self.at..]
+            .iter()
+            .take_while(|&&c| c == quote)
+            .count();
         (1..=2).contains(&n)
     }
 
@@ -469,7 +490,9 @@ impl Parser {
             self.trim_first_newline();
             let mut text = String::new();
             while !self.starts("'''") {
-                let Some(c) = self.current() else { return Err(self.fail("unclosed string")) };
+                let Some(c) = self.current() else {
+                    return Err(self.fail("unclosed string"));
+                };
                 text.push(c);
                 self.advance();
             }
@@ -505,7 +528,9 @@ impl Parser {
         }
         let mut text = String::new();
         loop {
-            let Some(c) = self.current() else { return Err(self.fail("unclosed string")) };
+            let Some(c) = self.current() else {
+                return Err(self.fail("unclosed string"));
+            };
             if multiline && self.starts("\"\"\"") {
                 self.at += 3;
                 while self.current() == Some('"') && self.extra_quotes('"') {
@@ -523,7 +548,9 @@ impl Parser {
             }
             if c == '\\' {
                 self.advance();
-                let Some(e) = self.current() else { return Err(self.fail("unclosed string")) };
+                let Some(e) = self.current() else {
+                    return Err(self.fail("unclosed string"));
+                };
                 if multiline && matches!(e, ' ' | '\t' | '\n') {
                     // "\" at end of line: newlines and spaces are eaten up to the next character.
                     while matches!(self.current(), Some(' ' | '\t' | '\n')) {
@@ -543,12 +570,19 @@ impl Parser {
                     '\\' => text.push('\\'),
                     'u' | 'U' => {
                         let count = if e == 'u' { 4 } else { 8 };
-                        let digits: String = self.chars.get(self.at..self.at + count).map(|s| s.iter().collect()).unwrap_or_default();
-                        let scalar = (digits.chars().count() == count && digits.chars().all(|d| d.is_ascii_hexdigit()))
-                            .then(|| u32::from_str_radix(&digits, 16).ok())
-                            .flatten()
-                            .and_then(char::from_u32);
-                        let Some(scalar) = scalar else { return Err(self.fail("invalid escape")) };
+                        let digits: String = self
+                            .chars
+                            .get(self.at..self.at + count)
+                            .map(|s| s.iter().collect())
+                            .unwrap_or_default();
+                        let scalar = (digits.chars().count() == count
+                            && digits.chars().all(|d| d.is_ascii_hexdigit()))
+                        .then(|| u32::from_str_radix(&digits, 16).ok())
+                        .flatten()
+                        .and_then(char::from_u32);
+                        let Some(scalar) = scalar else {
+                            return Err(self.fail("invalid escape"));
+                        };
                         self.at += count;
                         text.push(scalar);
                     }
@@ -570,7 +604,8 @@ pub(crate) fn valid_scalar(text: &str) -> bool {
         f(s, &mut i) && i == s.len()
     };
     matches!(text, "true" | "false")
-        || matches!(text.trim_start_matches(['+', '-']), "inf" | "nan") && text.len() - text.trim_start_matches(['+', '-']).len() <= 1
+        || matches!(text.trim_start_matches(['+', '-']), "inf" | "nan")
+            && text.len() - text.trim_start_matches(['+', '-']).len() <= 1
         || whole(&|s, i| {
             sign(s, i);
             decimal(s, i)
@@ -694,7 +729,12 @@ fn underscore_free_digits(s: &[u8], i: &mut usize) -> bool {
 
 /// `yyyy-mm-dd([Tt ]time([Zz]|±hh:mm)?)?`.
 fn datetime(s: &[u8], i: &mut usize) -> bool {
-    if !(fixed_digits(s, i, 4) && literal(s, i, b'-') && fixed_digits(s, i, 2) && literal(s, i, b'-') && fixed_digits(s, i, 2)) {
+    if !(fixed_digits(s, i, 4)
+        && literal(s, i, b'-')
+        && fixed_digits(s, i, 2)
+        && literal(s, i, b'-')
+        && fixed_digits(s, i, 2))
+    {
         return false;
     }
     let back = *i;
@@ -727,12 +767,17 @@ mod tests {
             "# commento\nmodel = \"o3\"\nn = 1_000\nf = -1.5e3\nd = 1979-05-27T07:32:00Z\nok = true\n\n[mcp_servers.clak]\ncommand = 'C:\\x\\shim.exe'\nargs = [\"-v\", # c\n  'b',\n]\n\n[[p]]\na = 1\n[[p]]\na = 2\n[p.sub]\nb = \"\"\"\nx\\\n   y\"\"\"\n",
         )
         .unwrap();
-        let clak = table["mcp_servers"].as_table().unwrap()["clak"].as_table().unwrap();
+        let clak = table["mcp_servers"].as_table().unwrap()["clak"]
+            .as_table()
+            .unwrap();
         assert_eq!(clak["command"].as_str(), Some("C:\\x\\shim.exe"));
         assert_eq!(clak["args"].as_array().unwrap().len(), 2);
         let p = table["p"].as_array().unwrap();
         assert_eq!(p.len(), 2);
-        assert_eq!(p[1].as_table().unwrap()["sub"].as_table().unwrap()["b"].as_str(), Some("xy"));
+        assert_eq!(
+            p[1].as_table().unwrap()["sub"].as_table().unwrap()["b"].as_str(),
+            Some("xy")
+        );
     }
 
     #[test]
@@ -756,10 +801,36 @@ mod tests {
 
     #[test]
     fn valori_scalari() {
-        for ok in ["true", "1", "-0", "+inf", "nan", "0xDEAD_beef", "0o17", "0b101", "3.14", "1e10", "6.626e-34", "1979-05-27", "07:32:00.999", "1979-05-27 07:32:00+01:00"] {
+        for ok in [
+            "true",
+            "1",
+            "-0",
+            "+inf",
+            "nan",
+            "0xDEAD_beef",
+            "0o17",
+            "0b101",
+            "3.14",
+            "1e10",
+            "6.626e-34",
+            "1979-05-27",
+            "07:32:00.999",
+            "1979-05-27 07:32:00+01:00",
+        ] {
             assert!(valid_scalar(ok), "{ok}");
         }
-        for bad in ["01", "1__0", "_1", "1.", ".5", "True", "0x", "++1", "1979-5-27", "abc"] {
+        for bad in [
+            "01",
+            "1__0",
+            "_1",
+            "1.",
+            ".5",
+            "True",
+            "0x",
+            "++1",
+            "1979-5-27",
+            "abc",
+        ] {
             assert!(!valid_scalar(bad), "{bad}");
         }
     }

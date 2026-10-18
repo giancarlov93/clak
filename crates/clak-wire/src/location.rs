@@ -149,10 +149,18 @@ pub fn user_temporary_directory() -> PathBuf {
         const CS_DARWIN_USER_TEMP_DIR: libc::c_int = 65537;
         let mut buffer = vec![0u8; libc::PATH_MAX as usize];
         // SAFETY: the buffer is as long as declared.
-        let n = unsafe { libc::confstr(CS_DARWIN_USER_TEMP_DIR, buffer.as_mut_ptr().cast(), buffer.len()) };
+        let n = unsafe {
+            libc::confstr(
+                CS_DARWIN_USER_TEMP_DIR,
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+            )
+        };
         if n > 0 {
             let end = buffer.iter().position(|&b| b == 0).unwrap_or(buffer.len());
-            return normalized(Path::new(&String::from_utf8_lossy(&buffer[..end]).into_owned()));
+            return normalized(Path::new(
+                &String::from_utf8_lossy(&buffer[..end]).into_owned(),
+            ));
         }
     }
     normalized(&std::env::temp_dir())
@@ -170,7 +178,11 @@ pub fn normalized(path: &Path) -> PathBuf {
         let text = full.to_string_lossy().into_owned();
         let trimmed = text.trim_end_matches(['\\', '/']);
         // "C:\" stays "C:\": without the slash it would be the drive's current folder.
-        if trimmed.len() <= 2 { full } else { PathBuf::from(trimmed) }
+        if trimmed.len() <= 2 {
+            full
+        } else {
+            PathBuf::from(trimmed)
+        }
     }
     #[cfg(unix)]
     {
@@ -185,7 +197,13 @@ pub fn normalized(path: &Path) -> PathBuf {
         let full = if expanded.starts_with('/') {
             expanded
         } else {
-            format!("{}/{}", std::env::current_dir().unwrap_or_default().to_string_lossy(), expanded)
+            format!(
+                "{}/{}",
+                std::env::current_dir()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                expanded
+            )
         };
         let mut parts: Vec<&str> = Vec::new();
         for part in full.split('/') {
@@ -231,7 +249,10 @@ mod tests {
 
     #[test]
     fn la_cartella_si_normalizza() {
-        assert_eq!(normalized(Path::new(r"C:\a\b\..\c\")), PathBuf::from(r"C:\a\c"));
+        assert_eq!(
+            normalized(Path::new(r"C:\a\b\..\c\")),
+            PathBuf::from(r"C:\a\c")
+        );
         assert_eq!(normalized(Path::new("C:/a/c")), PathBuf::from(r"C:\a\c"));
     }
 }

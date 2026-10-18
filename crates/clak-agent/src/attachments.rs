@@ -29,8 +29,14 @@ pub fn spill(text: &str, invocation: &Invocation, extension: &str) -> std::io::R
     clean(&folder);
     std::fs::create_dir_all(&folder)?;
     let what = match &invocation.command {
-        None => plain(Some(invocation.program.as_deref().unwrap_or(&invocation.op))),
-        Some(command) => format!("{}-{}", plain(invocation.program.as_deref()), plain(Some(command))),
+        None => plain(Some(
+            invocation.program.as_deref().unwrap_or(&invocation.op),
+        )),
+        Some(command) => format!(
+            "{}-{}",
+            plain(invocation.program.as_deref()),
+            plain(Some(command))
+        ),
     };
     let path = folder.join(format!("{}-{what}{extension}", Local::now().stamp()));
     std::fs::write(&path, text.as_bytes())?;
@@ -44,7 +50,11 @@ pub fn spill(text: &str, invocation: &Invocation, extension: &str) -> std::io::R
 ///
 /// `files`, if given, receives a `{path, mime, bytes}` for each file written: for
 /// `--json`. The error is the message to give the agent.
-pub fn save(blocks: &[&Object], invocation: &Invocation, mut files: Option<&mut Vec<Value>>) -> Result<String, String> {
+pub fn save(
+    blocks: &[&Object],
+    invocation: &Invocation,
+    mut files: Option<&mut Vec<Value>>,
+) -> Result<String, String> {
     let folder = folder();
     let stamp = Local::now().stamp();
     let mut lines: Vec<String> = Vec::new();
@@ -57,14 +67,28 @@ pub fn save(blocks: &[&Object], invocation: &Invocation, mut files: Option<&mut 
             lines.push(text_of(block));
             continue;
         }
-        let resource = if str_of(block, "type") == Some("resource") { object_of(block, "resource") } else { None };
+        let resource = if str_of(block, "type") == Some("resource") {
+            object_of(block, "resource")
+        } else {
+            None
+        };
         let (data, mime, uri) = match resource {
-            Some(r) => (str_of(r, "blob").unwrap_or(""), str_of(r, "mimeType"), str_of(r, "uri")),
-            None => (str_of(block, "data").unwrap_or(""), str_of(block, "mimeType"), None),
+            Some(r) => (
+                str_of(r, "blob").unwrap_or(""),
+                str_of(r, "mimeType"),
+                str_of(r, "uri"),
+            ),
+            None => (
+                str_of(block, "data").unwrap_or(""),
+                str_of(block, "mimeType"),
+                None,
+            ),
         };
         let what = kind(block, mime);
         let Some(bytes) = decode(data) else {
-            lines.push(format!("[{what} unreadable: the program sent invalid data]"));
+            lines.push(format!(
+                "[{what} unreadable: the program sent invalid data]"
+            ));
             continue;
         };
         n += 1;
@@ -74,8 +98,15 @@ pub fn save(blocks: &[&Object], invocation: &Invocation, mut files: Option<&mut 
             None => folder.join(format!("{stamp}-{n}-{}", name_for(invocation, uri, mime))),
         };
         write(&path, &bytes).map_err(|e| format!("cannot write the file: {e}"))?;
-        let shown_mime = mime.filter(|m| !m.is_empty()).map(|m| format!(" {m}")).unwrap_or_default();
-        lines.push(format!("[{what}{shown_mime}, {}: {}]", size(bytes.len() as u64), path.display()));
+        let shown_mime = mime
+            .filter(|m| !m.is_empty())
+            .map(|m| format!(" {m}"))
+            .unwrap_or_default();
+        lines.push(format!(
+            "[{what}{shown_mime}, {}: {}]",
+            size(bytes.len() as u64),
+            path.display()
+        ));
         if let Some(files) = files.as_deref_mut() {
             files.push(json!({"path": path.to_string_lossy(), "mime": mime, "bytes": bytes.len()}));
         }
@@ -103,13 +134,19 @@ fn write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// Lenient base64: spaces and newlines in between don't count.
 fn decode(data: &str) -> Option<Vec<u8>> {
     let compact: String = data.chars().filter(|c| !c.is_ascii_whitespace()).collect();
-    base64::engine::general_purpose::STANDARD.decode(compact).ok()
+    base64::engine::general_purpose::STANDARD
+        .decode(compact)
+        .ok()
 }
 
 /// A text-only resource is printed, with its address in front.
 fn text_of(block: &Object) -> String {
     match object_of(block, "resource").filter(|_| str_of(block, "type") == Some("resource")) {
-        Some(r) => format!("[{}]\n{}", str_of(r, "uri").unwrap_or(""), str_of(r, "text").unwrap_or("")),
+        Some(r) => format!(
+            "[{}]\n{}",
+            str_of(r, "uri").unwrap_or(""),
+            str_of(r, "text").unwrap_or("")
+        ),
         None => str_of(block, "text").unwrap_or("").to_owned(),
     }
 }
@@ -127,13 +164,23 @@ fn kind(block: &Object, mime: Option<&str>) -> &'static str {
 fn name_for(invocation: &Invocation, uri: Option<&str>, mime: Option<&str>) -> String {
     let given = uri.map(|uri| {
         let bare = uri.split(['?', '#']).next().unwrap_or("");
-        let last = bare.trim_end_matches('/').rsplit(['/', '\\', ':']).next().unwrap_or("");
+        let last = bare
+            .trim_end_matches('/')
+            .rsplit(['/', '\\', ':'])
+            .next()
+            .unwrap_or("");
         plain(Some(&unescape(last)))
     });
-    if let Some(given) = given.as_deref().filter(|g| !g.is_empty() && g.contains('.')) {
+    if let Some(given) = given
+        .as_deref()
+        .filter(|g| !g.is_empty() && g.contains('.'))
+    {
         return given.to_owned();
     }
-    let suffix = given.filter(|g| !g.is_empty()).map(|g| format!("-{g}")).unwrap_or_default();
+    let suffix = given
+        .filter(|g| !g.is_empty())
+        .map(|g| format!("-{g}"))
+        .unwrap_or_default();
     format!(
         "{}-{}{suffix}{}",
         plain(invocation.program.as_deref()),
@@ -149,7 +196,9 @@ fn unescape(text: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok());
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok());
             if let Some(byte) = hex {
                 out.push(byte);
                 i += 3;
@@ -165,14 +214,26 @@ fn unescape(text: &str) -> String {
 /// `vista.png` → `vista-2.png`, in the same folder.
 fn numbered(path: &str, n: usize) -> PathBuf {
     let full = full_path(path);
-    let stem = full.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-    let extension = full.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let stem = full
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let extension = full
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
     let parent = full.parent().map(Path::to_path_buf).unwrap_or_default();
     parent.join(format!("{stem}-{n}{extension}"))
 }
 
 fn extension(mime: Option<&str>) -> &'static str {
-    let plain = mime.map(|m| m.split(';').next().unwrap_or("").trim().to_ascii_lowercase());
+    let plain = mime.map(|m| {
+        m.split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase()
+    });
     match plain.as_deref() {
         Some("image/png") => ".png",
         Some("image/jpeg") => ".jpg",
@@ -198,7 +259,9 @@ fn extension(mime: Option<&str>) -> &'static str {
         Some("application/x-blender") => ".blend",
         Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document") => ".docx",
         Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") => ".xlsx",
-        Some("application/vnd.openxmlformats-officedocument.presentationml.presentation") => ".pptx",
+        Some("application/vnd.openxmlformats-officedocument.presentationml.presentation") => {
+            ".pptx"
+        }
         _ => ".bin",
     }
 }
@@ -220,21 +283,35 @@ fn plain(name: Option<&str>) -> String {
     let kept: String = name
         .unwrap_or("result")
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     kept.trim_matches('.').to_owned()
 }
 
 /// Yesterday's files: an agent that captures a view at every step leaves many behind.
 fn clean(folder: &Path) {
-    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
     let now = SystemTime::now();
     for entry in entries.flatten() {
-        let Ok(metadata) = entry.metadata() else { continue };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
         if !metadata.is_file() {
             continue;
         }
-        let old = metadata.modified().ok().and_then(|m| now.duration_since(m).ok()).is_some_and(|age| age > KEEP);
+        let old = metadata
+            .modified()
+            .ok()
+            .and_then(|m| now.duration_since(m).ok())
+            .is_some_and(|age| age > KEEP);
         if old {
             let _ = std::fs::remove_file(entry.path());
         }
@@ -247,7 +324,8 @@ mod tests {
 
     #[test]
     fn i_file_di_un_risultato_vanno_su_disco_e_al_loro_posto_c_e_il_percorso() {
-        let folder = std::env::temp_dir().join(format!("clak-files-{}", clak_wire::json::random_hex(4)));
+        let folder =
+            std::env::temp_dir().join(format!("clak-files-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
         let content = clak_wire::json::parse_str(
             r#"[{"type":"text","text":"Ecco la vista."},
@@ -258,14 +336,28 @@ mod tests {
         .unwrap();
         let blocks = render::blocks(Some(&content)).unwrap();
         let output = folder.join("vista.png");
-        let invocation = Invocation { output: Some(output.to_string_lossy().into_owned()), ..Invocation::call("blender", "capture_viewport") };
+        let invocation = Invocation {
+            output: Some(output.to_string_lossy().into_owned()),
+            ..Invocation::call("blender", "capture_viewport")
+        };
         let mut files = Vec::new();
         let text = save(&blocks, &invocation, Some(&mut files)).unwrap();
-        assert_eq!(std::fs::read(&output).unwrap(), base64::engine::general_purpose::STANDARD.decode("iVBORw0KGgo=").unwrap());
+        assert_eq!(
+            std::fs::read(&output).unwrap(),
+            base64::engine::general_purpose::STANDARD
+                .decode("iVBORw0KGgo=")
+                .unwrap()
+        );
         let second = folder.join("vista-2.png");
         assert_eq!(std::fs::read(&second).unwrap(), b"BLENDER");
-        assert!(text.starts_with("Ecco la vista.\n[image image/png, 8 bytes: "), "{text}");
-        assert!(text.contains(&format!("[file application/x-blender, 7 bytes: {}]", second.display())));
+        assert!(
+            text.starts_with("Ecco la vista.\n[image image/png, 8 bytes: "),
+            "{text}"
+        );
+        assert!(text.contains(&format!(
+            "[file application/x-blender, 7 bytes: {}]",
+            second.display()
+        )));
         assert!(text.contains("[memo://nota]\ntesto di una risorsa"));
         assert!(text.ends_with("The files are on disk: to see them, read them from there."));
         assert_eq!(files.len(), 2);
@@ -273,15 +365,27 @@ mod tests {
         assert_eq!(files[0]["bytes"], 8);
 
         // Without -o: in the temporary folder, with the name the program gave.
-        let invocation = Invocation { output: None, ..invocation };
+        let invocation = Invocation {
+            output: None,
+            ..invocation
+        };
         let text = save(&blocks, &invocation, None).unwrap();
-        let blend = text.split('\n').find(|l| l.contains("application/x-blender")).unwrap();
+        let blend = text
+            .split('\n')
+            .find(|l| l.contains("application/x-blender"))
+            .unwrap();
         let path = &blend[blend.find(": ").unwrap() + 2..blend.len() - 1];
         assert!(path.ends_with("tavolo.blend"), "{path}");
         assert!(Path::new(path).starts_with(super::folder()));
         let image = text.split('\n').find(|l| l.contains("image/png")).unwrap();
-        assert!(image.ends_with("-1-blender-capture_viewport.png]"), "{image}");
-        for line in text.split('\n').filter(|l| l.starts_with("[image") || l.starts_with("[file")) {
+        assert!(
+            image.ends_with("-1-blender-capture_viewport.png]"),
+            "{image}"
+        );
+        for line in text
+            .split('\n')
+            .filter(|l| l.starts_with("[image") || l.starts_with("[file"))
+        {
             let _ = std::fs::remove_file(&line[line.find(": ").unwrap() + 2..line.len() - 1]);
         }
         let _ = std::fs::remove_dir_all(&folder);
@@ -289,7 +393,9 @@ mod tests {
 
     #[test]
     fn i_dati_sbagliati_si_dicono_e_le_misure_si_leggono() {
-        let content = clak_wire::json::parse_str(r#"[{"type":"image","data":"%%%","mimeType":"image/png"}]"#).unwrap();
+        let content =
+            clak_wire::json::parse_str(r#"[{"type":"image","data":"%%%","mimeType":"image/png"}]"#)
+                .unwrap();
         let blocks = render::blocks(Some(&content)).unwrap();
         let text = save(&blocks, &Invocation::call("x", "y"), None).unwrap();
         assert_eq!(text, "[image unreadable: the program sent invalid data]");
@@ -302,9 +408,18 @@ mod tests {
     #[test]
     fn il_nome_viene_dall_uri_o_dal_comando() {
         let invocation = Invocation::call("revit", "export");
-        assert_eq!(name_for(&invocation, Some("file:///a/b/pianta%20uno.pdf?x=1"), None), "pianta_uno.pdf");
-        assert_eq!(name_for(&invocation, Some("memo://vista/"), Some("image/png")), "revit-export-vista.png");
-        assert_eq!(name_for(&invocation, None, Some("application/pdf; charset=x")), "revit-export.pdf");
+        assert_eq!(
+            name_for(&invocation, Some("file:///a/b/pianta%20uno.pdf?x=1"), None),
+            "pianta_uno.pdf"
+        );
+        assert_eq!(
+            name_for(&invocation, Some("memo://vista/"), Some("image/png")),
+            "revit-export-vista.png"
+        );
+        assert_eq!(
+            name_for(&invocation, None, Some("application/pdf; charset=x")),
+            "revit-export.pdf"
+        );
         assert_eq!(name_for(&invocation, None, None), "revit-export.bin");
     }
 }

@@ -24,8 +24,17 @@ impl Shell {
     /// - `converts`: Git Bash, and it changes the arguments (that is, without `MSYS_NO_PATHCONV`);
     /// - `msys_root`: where Git Bash makes `/` start (`C:/Program Files/Git`);
     /// - `windows_powershell`: whether the parent is `powershell.exe`, asked only if needed.
-    pub fn new(converts: bool, msys_root: Option<String>, windows_powershell: impl Fn() -> bool + Send + Sync + 'static) -> Shell {
-        Shell { converts, msys_root, windows_powershell: Box::new(windows_powershell), known_powershell: OnceLock::new() }
+    pub fn new(
+        converts: bool,
+        msys_root: Option<String>,
+        windows_powershell: impl Fn() -> bool + Send + Sync + 'static,
+    ) -> Shell {
+        Shell {
+            converts,
+            msys_root,
+            windows_powershell: Box::new(windows_powershell),
+            known_powershell: OnceLock::new(),
+        }
     }
 
     /// No traps: the tests, and the Mac.
@@ -39,7 +48,11 @@ impl Shell {
         {
             let set = |name: &str| std::env::var(name).is_ok_and(|v| !v.is_empty());
             let msys = set("MSYSTEM") && !set("MSYS_NO_PATHCONV");
-            let root = if msys { Shell::msys_root(std::env::var("EXEPATH").ok().as_deref()) } else { None };
+            let root = if msys {
+                Shell::msys_root(std::env::var("EXEPATH").ok().as_deref())
+            } else {
+                None
+            };
             Shell::new(msys, root, parent_is_windows_powershell)
         }
         #[cfg(not(windows))]
@@ -53,7 +66,9 @@ impl Shell {
 
     /// The parent is `powershell.exe`, version 5.1. `pwsh` (7) sends UTF-8.
     pub fn windows_powershell(&self) -> bool {
-        *self.known_powershell.get_or_init(|| (self.windows_powershell)())
+        *self
+            .known_powershell
+            .get_or_init(|| (self.windows_powershell)())
     }
 
     /// Where Git Bash makes `/` start: `EXEPATH` is its `bin` folder (`C:\Program Files\Git\bin`).
@@ -96,11 +111,15 @@ impl Shell {
             return None;
         }
         let bytes = value.as_bytes();
-        let original = if bytes.len() == 3 && bytes[0].is_ascii_alphabetic() && &value[1..] == ":/" {
+        let original = if bytes.len() == 3 && bytes[0].is_ascii_alphabetic() && &value[1..] == ":/"
+        {
             Some(format!("/{}", (bytes[0] as char).to_ascii_lowercase()))
         } else {
             match self.msys_root.as_deref().filter(|r| !r.is_empty()) {
-                Some(root) if value.len() > root.len() && starts_with_ignore_case(value, &format!("{root}/")) => {
+                Some(root)
+                    if value.len() > root.len()
+                        && starts_with_ignore_case(value, &format!("{root}/")) =>
+                {
                     Some(value[root.len()..].to_owned())
                 }
                 _ => None,
@@ -124,12 +143,15 @@ impl Shell {
 }
 
 fn starts_with_ignore_case(text: &str, prefix: &str) -> bool {
-    text.get(..prefix.len()).is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+    text.get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
 }
 
 fn ends_with_ignore_case(text: &str, suffix: &str) -> bool {
     text.len() >= suffix.len()
-        && text.get(text.len() - suffix.len()..).is_some_and(|end| end.eq_ignore_ascii_case(suffix))
+        && text
+            .get(text.len() - suffix.len()..)
+            .is_some_and(|end| end.eq_ignore_ascii_case(suffix))
 }
 
 /// Is the process that launched this one `powershell.exe`? The system's process snapshot
@@ -138,7 +160,8 @@ fn ends_with_ignore_case(text: &str, suffix: &str) -> bool {
 fn parent_is_windows_powershell() -> bool {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 
@@ -154,15 +177,28 @@ fn parent_is_windows_powershell() -> bool {
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
         let mut more = Process32FirstW(snapshot, &mut entry) != 0;
         while more {
-            let end = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-            entries.push((entry.th32ProcessID, entry.th32ParentProcessID, String::from_utf16_lossy(&entry.szExeFile[..end])));
+            let end = entry
+                .szExeFile
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            entries.push((
+                entry.th32ProcessID,
+                entry.th32ParentProcessID,
+                String::from_utf16_lossy(&entry.szExeFile[..end]),
+            ));
             more = Process32NextW(snapshot, &mut entry) != 0;
         }
         CloseHandle(snapshot);
 
         let me = GetCurrentProcessId();
-        let Some(&(_, parent, _)) = entries.iter().find(|(pid, _, _)| *pid == me) else { return false };
-        entries.iter().find(|(pid, _, _)| *pid == parent).is_some_and(|(_, _, name)| name.eq_ignore_ascii_case("powershell.exe"))
+        let Some(&(_, parent, _)) = entries.iter().find(|(pid, _, _)| *pid == me) else {
+            return false;
+        };
+        entries
+            .iter()
+            .find(|(pid, _, _)| *pid == parent)
+            .is_some_and(|(_, _, name)| name.eq_ignore_ascii_case("powershell.exe"))
     }
 }
 
@@ -172,8 +208,14 @@ mod tests {
 
     #[test]
     fn la_radice_di_git_bash_si_ricava_da_exepath() {
-        assert_eq!(Shell::msys_root(Some(r"C:\Program Files\Git\bin")).as_deref(), Some("C:/Program Files/Git"));
-        assert_eq!(Shell::msys_root(Some(r"C:\Program Files\Git\usr\bin")).as_deref(), Some("C:/Program Files/Git"));
+        assert_eq!(
+            Shell::msys_root(Some(r"C:\Program Files\Git\bin")).as_deref(),
+            Some("C:/Program Files/Git")
+        );
+        assert_eq!(
+            Shell::msys_root(Some(r"C:\Program Files\Git\usr\bin")).as_deref(),
+            Some("C:/Program Files/Git")
+        );
         assert_eq!(Shell::msys_root(None), None);
     }
 

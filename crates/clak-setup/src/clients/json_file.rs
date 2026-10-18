@@ -23,7 +23,12 @@ pub struct JsonFileClient {
 }
 
 impl JsonFileClient {
-    pub fn new(name: impl Into<String>, files: Vec<PathBuf>, command: &[String], note: impl Into<String>) -> JsonFileClient {
+    pub fn new(
+        name: impl Into<String>,
+        files: Vec<PathBuf>,
+        command: &[String],
+        note: impl Into<String>,
+    ) -> JsonFileClient {
         JsonFileClient {
             name: name.into(),
             note: note.into(),
@@ -66,21 +71,39 @@ impl JsonFileClient {
         if self.typed {
             entry.insert("type", Json::String("stdio".into()));
         }
-        entry.insert("command", Json::String(self.command.first().cloned().unwrap_or_default()));
-        entry.insert("args", Json::Array(self.command.iter().skip(1).cloned().map(Json::String).collect()));
+        entry.insert(
+            "command",
+            Json::String(self.command.first().cloned().unwrap_or_default()),
+        );
+        entry.insert(
+            "args",
+            Json::Array(
+                self.command
+                    .iter()
+                    .skip(1)
+                    .cloned()
+                    .map(Json::String)
+                    .collect(),
+            ),
+        );
         Json::Object(entry)
     }
 
     fn load(&self, path: &Path) -> Result<(Object, String, bool)> {
         let (raw, bom) = safe_file::read(path)?;
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         if raw.trim().is_empty() {
             return Ok((Object::default(), raw, bom));
         }
         let data = match json::parse(&raw) {
             Ok(data) => data,
             Err(JsonError::Repeated { .. }) => {
-                return Err(SetupError(format!("{name} has a repeated key: not touching it.")));
+                return Err(SetupError(format!(
+                    "{name} has a repeated key: not touching it."
+                )));
             }
             Err(JsonError::Syntax { line }) => {
                 return Err(SetupError(format!(
@@ -95,7 +118,9 @@ impl JsonFileClient {
                 return Ok((object, raw, bom));
             }
         }
-        Err(SetupError(format!("{name} doesn't have the expected shape: not touching it.")))
+        Err(SetupError(format!(
+            "{name} doesn't have the expected shape: not touching it."
+        )))
     }
 
     fn save(path: &Path, data: Object, raw: &str, bom: bool) -> Result<()> {
@@ -103,11 +128,18 @@ impl JsonFileClient {
         // The indentation is that of the first indented line that was there.
         let mut indent = "  ".to_owned();
         for line in raw.split('\n').skip(1) {
-            let lead: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+            let lead: String = line
+                .chars()
+                .take_while(|c| *c == ' ' || *c == '\t')
+                .collect();
             if lead.is_empty() {
                 continue;
             }
-            indent = if lead.starts_with('\t') { "\t".into() } else { " ".repeat(lead.chars().count().min(8)) };
+            indent = if lead.starts_with('\t') {
+                "\t".into()
+            } else {
+                " ".repeat(lead.chars().count().min(8))
+            };
             break;
         }
         let mut text = Json::Object(data).pretty(&indent, newline);
@@ -119,11 +151,19 @@ impl JsonFileClient {
 
     /// The executable and arguments of an entry.
     pub(crate) fn read(entry: &Object) -> (Option<String>, Vec<String>) {
-        let command = entry.get("command").and_then(Json::as_str).map(str::to_owned);
+        let command = entry
+            .get("command")
+            .and_then(Json::as_str)
+            .map(str::to_owned);
         let args = entry
             .get("args")
             .and_then(Json::as_array)
-            .map(|items| items.iter().map(|a| a.as_str().map(str::to_owned).unwrap_or_else(|| a.text())).collect())
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|a| a.as_str().map(str::to_owned).unwrap_or_else(|| a.text()))
+                    .collect()
+            })
             .unwrap_or_default();
         (command, args)
     }
@@ -149,11 +189,19 @@ impl McpClient for JsonFileClient {
         }
         match self.load(&path) {
             Ok((data, _, _)) => {
-                let Some(entry) = data.get(&self.section).and_then(|s| s.get(SERVER)).and_then(Json::as_object) else {
+                let Some(entry) = data
+                    .get(&self.section)
+                    .and_then(|s| s.get(SERVER))
+                    .and_then(Json::as_object)
+                else {
                     return ClientStatus::new(ClientState::Absent, path);
                 };
                 let (command, args) = JsonFileClient::read(entry);
-                let state = if same(&self.command, command.as_deref(), &args) { ClientState::Ok } else { ClientState::Stale };
+                let state = if same(&self.command, command.as_deref(), &args) {
+                    ClientState::Ok
+                } else {
+                    ClientState::Stale
+                };
                 ClientStatus::with(state, path, line(command.as_deref(), &args), command)
             }
             Err(e) => ClientStatus::with(ClientState::Unreadable, path, e.0, None),
@@ -175,7 +223,9 @@ impl McpClient for JsonFileClient {
     fn remove(&self) -> Result<()> {
         let path = self.file();
         let (mut data, raw, bom) = self.load(&path)?;
-        let Some(Json::Object(servers)) = data.get_mut(&self.section) else { return Ok(()) };
+        let Some(Json::Object(servers)) = data.get_mut(&self.section) else {
+            return Ok(());
+        };
         if servers.remove(SERVER).is_some() {
             JsonFileClient::save(&path, data, &raw, bom)?;
         }

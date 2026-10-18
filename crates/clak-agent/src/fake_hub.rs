@@ -25,7 +25,8 @@ struct State {
 
 impl FakeHub {
     pub fn new(script: Vec<Value>) -> FakeHub {
-        let home = std::env::temp_dir().join(format!("clak-hub-{}", clak_wire::json::random_hex(4)));
+        let home =
+            std::env::temp_dir().join(format!("clak-hub-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&home).expect("test folder");
         let state = Arc::new(State {
             script,
@@ -40,7 +41,11 @@ impl FakeHub {
 
     /// The requests received, in order.
     pub fn requests(&self) -> Vec<Object> {
-        self.state.received.lock().map(|r| r.clone()).unwrap_or_default()
+        self.state
+            .received
+            .lock()
+            .map(|r| r.clone())
+            .unwrap_or_default()
     }
 
     /// Waits until `count` connections have been closed by the client.
@@ -72,7 +77,10 @@ impl Drop for FakeHub {
     fn drop(&mut self) {
         self.state.stop.store(true, Ordering::SeqCst);
         // A connection to wake up whoever is waiting for the next client.
-        let _ = clak_wire::ipc::connect(&clak_wire::location::computed_control(&self.home), Duration::from_millis(200));
+        let _ = clak_wire::ipc::connect(
+            &clak_wire::location::computed_control(&self.home),
+            Duration::from_millis(200),
+        );
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }
@@ -84,12 +92,16 @@ fn serve<S: std::io::Read + Write>(stream: S, state: &State) {
     if lines.read_until(b'\n', &mut first).unwrap_or(0) == 0 {
         return;
     }
-    let Some(request) = clak_wire::json::object(first.trim_ascii_end()) else { return };
+    let Some(request) = clak_wire::json::object(first.trim_ascii_end()) else {
+        return;
+    };
     if let Ok(mut received) = state.received.lock() {
         received.push(request);
     }
     for message in &state.script {
-        let _ = lines.get_mut().write_all(&clak_wire::json::encode_line(message));
+        let _ = lines
+            .get_mut()
+            .write_all(&clak_wire::json::encode_line(message));
     }
     let _ = lines.get_mut().flush();
     // Until the client closes: that is how, once time is up, it withdraws the request.
@@ -103,10 +115,13 @@ fn serve<S: std::io::Read + Write>(stream: S, state: &State) {
 #[cfg(windows)]
 fn listen(control: String, state: Arc<State>) {
     use std::os::windows::io::FromRawHandle;
-    use windows_sys::Win32::Foundation::{ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{
+        ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
     use windows_sys::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
+        PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
     };
 
     let wide: Vec<u16> = control.encode_utf16().chain(Some(0)).collect();
@@ -157,7 +172,8 @@ fn listen(control: String, state: Arc<State>) {
 
 #[cfg(unix)]
 fn listen(control: String, state: Arc<State>) {
-    let listener = std::os::unix::net::UnixListener::bind(&control).expect("cannot create the test socket");
+    let listener =
+        std::os::unix::net::UnixListener::bind(&control).expect("cannot create the test socket");
     std::thread::spawn(move || {
         for client in listener.incoming() {
             if state.stop.load(Ordering::SeqCst) {

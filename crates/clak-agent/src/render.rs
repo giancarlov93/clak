@@ -24,10 +24,18 @@ pub fn programs(response: &Object, style: Style) -> String {
             .into();
     }
 
-    let width = list.iter().map(|r| utf16_len(str_of(r, "name").unwrap_or(""))).max().unwrap_or(0);
+    let width = list
+        .iter()
+        .map(|r| utf16_len(str_of(r, "name").unwrap_or("")))
+        .max()
+        .unwrap_or(0);
     let mut text = format!("Connected programs ({}):\n\n", list.len());
     for r in &list {
-        let tools = r.get("tools").and_then(Value::as_i64).filter(|n| i32::try_from(*n).is_ok()).unwrap_or(0);
+        let tools = r
+            .get("tools")
+            .and_then(Value::as_i64)
+            .filter(|n| i32::try_from(*n).is_ok())
+            .unwrap_or(0);
         let name = str_of(r, "name").unwrap_or("");
         text.push_str(&format!(
             "  {}  {} — {}\n",
@@ -41,7 +49,11 @@ pub fn programs(response: &Object, style: Style) -> String {
             str_of(r, "origin").unwrap_or(""),
             tools,
             if tools == 1 { " command" } else { " commands" },
-            if flag(r, "allowed") { "permission granted" } else { "the first command will ask the user for permission" }
+            if flag(r, "allowed") {
+                "permission granted"
+            } else {
+                "the first command will ask the user for permission"
+            }
         ));
     }
     text.push('\n');
@@ -70,13 +82,23 @@ pub fn commands(response: &Object, style: Style, help: bool) -> String {
     if let Some(instructions) = str_of(response, "instructions").filter(|i| !i.is_empty()) {
         if style == Style::Mcp || help {
             let normalized = instructions.trim().replace("\r\n", "\n");
-            let lines: Vec<String> =
-                normalized.split('\n').map(|l| if l.is_empty() { String::new() } else { format!("  {l}") }).collect();
+            let lines: Vec<String> = normalized
+                .split('\n')
+                .map(|l| {
+                    if l.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  {l}")
+                    }
+                })
+                .collect();
             text.push_str("How it wants to be used:\n");
             text.push_str(&lines.join("\n"));
             text.push_str("\n\n");
         } else {
-            text.push_str(&format!("It has instructions: read them before using it, clak {name} -h\n\n"));
+            text.push_str(&format!(
+                "It has instructions: read them before using it, clak {name} -h\n\n"
+            ));
         }
     }
     if tools.is_empty() {
@@ -85,7 +107,11 @@ pub fn commands(response: &Object, style: Style, help: bool) -> String {
     let allowed = flag(response, "allowed");
     let mut changed = false;
     for tool in &tools {
-        let mark = if allowed && !flag(tool, "approved") { "*" } else { "" };
+        let mark = if allowed && !flag(tool, "approved") {
+            "*"
+        } else {
+            ""
+        };
         changed |= !mark.is_empty();
         text.push_str(&format!(
             "  {}{mark} — {}\n",
@@ -94,7 +120,10 @@ pub fn commands(response: &Object, style: Style, help: bool) -> String {
         ));
         let detail = match style {
             Style::Cli => usage(name, tool),
-            Style::Mcp => format!("parameters: {}", compact(tool.get("input_schema").unwrap_or(&Value::Null))),
+            Style::Mcp => format!(
+                "parameters: {}",
+                compact(tool.get("input_schema").unwrap_or(&Value::Null))
+            ),
         };
         text.push_str(&format!("      {detail}\n"));
     }
@@ -114,17 +143,27 @@ pub fn commands(response: &Object, style: Style, help: bool) -> String {
 /// Everything about a command: what it is for, the parameters, an example.
 pub fn command(response: &Object, command: &str) -> Option<String> {
     let name = str_of(response, "name").unwrap_or("");
-    let tool = objects(response.get("tools")).into_iter().find(|t| str_of(t, "name") == Some(command))?;
-    let mut text = format!("{}\n\n{}\n", usage(name, tool), str_of(tool, "description").unwrap_or(""));
+    let tool = objects(response.get("tools"))
+        .into_iter()
+        .find(|t| str_of(t, "name") == Some(command))?;
+    let mut text = format!(
+        "{}\n\n{}\n",
+        usage(name, tool),
+        str_of(tool, "description").unwrap_or("")
+    );
     let (properties, required) = schema(tool);
     if !properties.is_empty() {
         text.push_str("\nParameters:\n");
         for (key, value) in properties {
             let property = value.as_object();
             let kind = match property.and_then(|p| p.get("type")) {
-                Some(Value::Array(kinds)) => {
-                    Some(kinds.iter().map(|k| k.as_str().unwrap_or("")).collect::<Vec<_>>().join("|"))
-                }
+                Some(Value::Array(kinds)) => Some(
+                    kinds
+                        .iter()
+                        .map(|k| k.as_str().unwrap_or(""))
+                        .collect::<Vec<_>>()
+                        .join("|"),
+                ),
                 Some(other) => other.as_str().map(str::to_owned),
                 None => None,
             };
@@ -135,7 +174,10 @@ pub fn command(response: &Object, command: &str) -> Option<String> {
             if required.contains(key.as_str()) {
                 text.push_str(", required");
             }
-            if let Some(description) = property.and_then(|p| str_of(p, "description")).filter(|d| !d.is_empty()) {
+            if let Some(description) = property
+                .and_then(|p| str_of(p, "description"))
+                .filter(|d| !d.is_empty())
+            {
                 text.push_str(&format!(": {}", one_line(Some(description))));
             }
             text.push('\n');
@@ -160,7 +202,10 @@ pub fn command(response: &Object, command: &str) -> Option<String> {
 /// The properties of a command's schema, and which are required.
 fn schema(tool: &Object) -> (serde_json::Map<String, Value>, HashSet<&str>) {
     let input = object_of(tool, "input_schema");
-    let properties = input.and_then(|s| object_of(s, "properties")).cloned().unwrap_or_default();
+    let properties = input
+        .and_then(|s| object_of(s, "properties"))
+        .cloned()
+        .unwrap_or_default();
     let required = input
         .and_then(|s| s.get("required"))
         .and_then(Value::as_array)
@@ -172,10 +217,19 @@ fn schema(tool: &Object) -> (serde_json::Map<String, Value>, HashSet<&str>) {
 /// The usage line: `clak revit run_python --code TEXT --intent read|write [--timeout N]`.
 fn usage(program: &str, tool: &Object) -> String {
     let (properties, required) = schema(tool);
-    let mut parts = vec![format!("clak {program} {}", str_of(tool, "name").unwrap_or(""))];
+    let mut parts = vec![format!(
+        "clak {program} {}",
+        str_of(tool, "name").unwrap_or("")
+    )];
     for (key, value) in &properties {
-        let flag = format!("--{key} {}", placeholder(value.as_object())).trim_end().to_owned();
-        parts.push(if required.contains(key.as_str()) { flag } else { format!("[{flag}]") });
+        let flag = format!("--{key} {}", placeholder(value.as_object()))
+            .trim_end()
+            .to_owned();
+        parts.push(if required.contains(key.as_str()) {
+            flag
+        } else {
+            format!("[{flag}]")
+        });
     }
     parts.join(" ")
 }
@@ -202,9 +256,14 @@ fn choices(property: Option<&Object>) -> Option<String> {
     if values.is_empty() || values.len() > 8 {
         return None;
     }
-    let texts: Vec<String> = values.iter().map(|v| v.as_str().map_or_else(|| compact(v), str::to_owned)).collect();
+    let texts: Vec<String> = values
+        .iter()
+        .map(|v| v.as_str().map_or_else(|| compact(v), str::to_owned))
+        .collect();
     let joined = texts.join("|");
-    let plain = texts.iter().all(|t| !t.is_empty() && !t.chars().any(char::is_whitespace));
+    let plain = texts
+        .iter()
+        .all(|t| !t.is_empty() && !t.chars().any(char::is_whitespace));
     (utf16_len(&joined) <= 60 && plain).then_some(joined)
 }
 
@@ -216,9 +275,11 @@ pub fn result(content: Option<&Value>) -> String {
         Some(Value::String(text)) => text.clone(),
         Some(scalar @ (Value::Bool(_) | Value::Number(_))) => compact(scalar),
         Some(other) => match blocks(Some(other)) {
-            Some(list) if list.iter().all(|b| str_of(b, "type") == Some("text")) => {
-                list.iter().map(|b| str_of(b, "text").unwrap_or("")).collect::<Vec<_>>().join("\n")
-            }
+            Some(list) if list.iter().all(|b| str_of(b, "type") == Some("text")) => list
+                .iter()
+                .map(|b| str_of(b, "text").unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join("\n"),
             _ => pretty(other),
         },
     }
@@ -245,9 +306,12 @@ pub fn blocks(content: Option<&Value>) -> Option<Vec<&Object>> {
     }
     let well_formed = blocks.iter().all(|b| match str_of(b, "type") {
         Some("text") => str_of(b, "text").is_some(),
-        Some("image" | "audio") => str_of(b, "data").is_some() && str_of(b, "mimeType").is_some_and(|m| !m.is_empty()),
+        Some("image" | "audio") => {
+            str_of(b, "data").is_some() && str_of(b, "mimeType").is_some_and(|m| !m.is_empty())
+        }
         Some("resource") => object_of(b, "resource").is_some_and(|r| {
-            str_of(r, "uri").is_some_and(|u| !u.is_empty()) && (str_of(r, "blob").is_some() || str_of(r, "text").is_some())
+            str_of(r, "uri").is_some_and(|u| !u.is_empty())
+                && (str_of(r, "blob").is_some() || str_of(r, "text").is_some())
         }),
         _ => false,
     });
@@ -258,7 +322,9 @@ pub fn blocks(content: Option<&Value>) -> Option<Vec<&Object>> {
 pub fn is_binary(block: &Object) -> bool {
     match str_of(block, "type") {
         Some("image" | "audio") => true,
-        Some("resource") => object_of(block, "resource").and_then(|r| str_of(r, "blob")).is_some(),
+        Some("resource") => object_of(block, "resource")
+            .and_then(|r| str_of(r, "blob"))
+            .is_some(),
         _ => false,
     }
 }
@@ -267,7 +333,11 @@ pub fn is_binary(block: &Object) -> bool {
 pub fn number(value: f64) -> String {
     let text = format!("{value:.3}");
     let text = text.trim_end_matches('0').trim_end_matches('.');
-    if text == "-0" { "0".into() } else { text.into() }
+    if text == "-0" {
+        "0".into()
+    } else {
+        text.into()
+    }
 }
 
 fn one_line(text: Option<&str>) -> String {
@@ -307,14 +377,29 @@ mod tests {
     #[test]
     fn si_riconoscono_i_blocchi_di_mcp_e_solo_quelli_ben_fatti() {
         assert!(blocks(Some(&content(r#"[{"type":"text","text":"a"},{"type":"image","data":"AA==","mimeType":"image/png"}]"#))).is_some());
-        assert!(blocks(Some(&content(r#"[{"type":"resource","resource":{"uri":"file:///x/a.pdf","blob":"AA=="}}]"#))).is_some());
-        assert!(blocks(Some(&content(r#"[{"type":"audio","data":"AA==","mimeType":"audio/wav"}]"#))).is_some());
+        assert!(
+            blocks(Some(&content(
+                r#"[{"type":"resource","resource":{"uri":"file:///x/a.pdf","blob":"AA=="}}]"#
+            )))
+            .is_some()
+        );
+        assert!(
+            blocks(Some(&content(
+                r#"[{"type":"audio","data":"AA==","mimeType":"audio/wav"}]"#
+            )))
+            .is_some()
+        );
         assert!(blocks(Some(&content(r#"[{"type":"image","data":"AA=="}]"#))).is_none()); // without mimeType
         assert!(blocks(Some(&content(r#"[{"type":"text","text":"a"}, 3]"#))).is_none());
         assert!(blocks(Some(&content(r#"[{"nome":"un dato qualunque"}]"#))).is_none());
         assert!(blocks(Some(&content("[]"))).is_none());
         // Text only: the text is printed, not the JSON.
-        assert_eq!(result(Some(&content(r#"[{"type":"text","text":"uno"},{"type":"text","text":"due"}]"#))), "uno\ndue");
+        assert_eq!(
+            result(Some(&content(
+                r#"[{"type":"text","text":"uno"},{"type":"text","text":"due"}]"#
+            ))),
+            "uno\ndue"
+        );
         assert_eq!(result(Some(&json!(3))), "3");
         assert_eq!(result(Some(&json!(null))), "");
         assert_eq!(result(Some(&json!({"a": 1}))), "{\n  \"a\": 1\n}");
@@ -340,11 +425,16 @@ mod tests {
              "approved":true,"input_schema":{"type":"object","properties":{"code":{"type":"string"},
              "intent":{"type":"string","enum":["read","write"]},"timeout":{"type":"integer","default":60}},"required":["code","intent"]}}]}"#,
         ));
-        assert!(commands(&response, Style::Cli, false).contains("clak revit run_python --code TEXT --intent read|write [--timeout N]"));
+        assert!(
+            commands(&response, Style::Cli, false)
+                .contains("clak revit run_python --code TEXT --intent read|write [--timeout N]")
+        );
         let help = command(&response, "run_python").unwrap();
         assert!(help.contains("default: 60"));
         assert!(help.contains("--parameter @file"));
-        assert!(help.contains("  --intent (string), required\n      values: \"read\", \"write\"\n"));
+        assert!(
+            help.contains("  --intent (string), required\n      values: \"read\", \"write\"\n")
+        );
         assert!(command(&response, "altro").is_none());
     }
 
@@ -361,7 +451,10 @@ mod tests {
         assert!(commands(&response, Style::Mcp, false).contains("  Read the pets first."));
         // Without instructions, -h is the list.
         response.remove("instructions");
-        assert_eq!(commands(&response, Style::Cli, false), commands(&response, Style::Cli, true));
+        assert_eq!(
+            commands(&response, Style::Cli, false),
+            commands(&response, Style::Cli, true)
+        );
     }
 
     #[test]
@@ -376,7 +469,9 @@ mod tests {
         assert!(cli.contains("* new or changed since permission was granted"));
         let mcp = commands(&response, Style::Mcp, false);
         assert!(mcp.contains("      parameters: {\"type\":\"object\"}\n"));
-        assert!(mcp.ends_with(r#"To run one: run {"program": "word", "command": "<command>", "arguments": {...}}"#));
+        assert!(mcp.ends_with(
+            r#"To run one: run {"program": "word", "command": "<command>", "arguments": {...}}"#
+        ));
     }
 
     #[test]
