@@ -4,3 +4,6 @@
 *.tmp
 crates/clak-app/binaries/
 crates/clak-app/THIRD-PARTY-NOTICES.txt
+
+# Signing and notarization: the App Store Connect API key and its settings (scripts/bundle.mjs).
+/.secrets/

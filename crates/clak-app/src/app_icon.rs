@@ -30,6 +30,21 @@ pub async fn app_icon(path: String, size: u32) -> Option<String> {
     found
 }
 
+/// The same icon as PNG bytes, for the tray menu. Blocking: off the main thread.
+pub fn png(path: &str, size: u32) -> Option<Vec<u8>> {
+    let key = (size, path.to_owned());
+    let cached = CACHE.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
+    let url = match cached {
+        Some(found) => found,
+        None => {
+            let found = read(Path::new(path), size);
+            CACHE.lock().unwrap_or_else(|p| p.into_inner()).insert(key, found.clone());
+            found
+        }
+    }?;
+    base64::engine::general_purpose::STANDARD.decode(url.strip_prefix("data:image/png;base64,")?).ok()
+}
+
 fn read(path: &Path, size: u32) -> Option<String> {
     if !path.is_absolute() || !path.exists() {
         return None;
@@ -150,23 +165,24 @@ mod windows {
 }
 
 /// On the Mac: the `.icns` of the outermost app bundle, turned into a PNG by `sips`.
+/// The outermost `.app` the executable lives in: the app the user recognizes.
 #[cfg(target_os = "macos")]
-fn png_of(path: &Path, size: u32) -> Option<Vec<u8>> {
-    use std::path::PathBuf;
-    use std::process::Command;
-
-    let mut bundle = PathBuf::new();
-    let mut found = false;
+pub fn bundle_of(path: &Path) -> Option<std::path::PathBuf> {
+    let mut bundle = std::path::PathBuf::new();
     for part in path.components() {
         bundle.push(part);
         if part.as_os_str().to_string_lossy().ends_with(".app") {
-            found = true;
-            break;
+            return Some(bundle);
         }
     }
-    if !found {
-        return None;
-    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn png_of(path: &Path, size: u32) -> Option<Vec<u8>> {
+    use std::process::Command;
+
+    let bundle = bundle_of(path)?;
     let contents = bundle.join("Contents");
     let plist = contents.join("Info.plist");
     let key = |name: &str| -> Option<String> {

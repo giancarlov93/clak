@@ -114,13 +114,14 @@ impl Bridge {
         self.inner().state.clone()
     }
 
-    /// What the panel asks the hub: revoke, forget, describe, history.
+    /// What the panel asks the hub: revoke, forget, describe, history, a call in full (only
+    /// with the hub inside the app).
     pub fn send(&self, message: Map<String, Value>) {
         let mut inner = self.inner();
         match &mut inner.link {
             Link::Local(host) => {
                 let (outbox, mut replies) = Outbox::channel();
-                clak_hub::control_channel::panel_message(host.broker(), &message, &outbox);
+                clak_hub::control_channel::panel_message(host.broker(), &message, &outbox, true);
                 drop(outbox);
                 while let Ok(reply) = replies.try_recv() {
                     let _ = self.messages.send(reply);

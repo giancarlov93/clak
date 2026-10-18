@@ -33,9 +33,15 @@ tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-opener = "2"
 base64.workspace = true
-tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["block2", "NSData", "NSGeometry", "NSNotification", "NSOperation", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["block2", "NSAppearance", "NSButton", "NSColor", "NSColorSpace", "NSControl", "NSGraphics", "NSImage", "NSResponder", "NSStatusBarButton", "NSStatusItem", "NSView", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
 png = "0.17"
-windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }

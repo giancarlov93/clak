@@ -11,10 +11,10 @@ pub fn hub_hello(app: AppHandle) -> Value {
     bridge::of(&app).hello()
 }
 
-/// Revoke, forget, describe, history: the replies arrive as a `hub` event.
+/// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
-    const ALLOWED: [&str; 5] = ["revoke", "forget_session", "forget_app", "describe", "history"];
+    const ALLOWED: [&str; 6] = ["revoke", "forget_session", "forget_app", "describe", "history", "call"];
     if message.get("type").and_then(Value::as_str).is_some_and(|t| ALLOWED.contains(&t)) {
         bridge::of(&app).send(message);
     }
@@ -45,6 +45,28 @@ pub fn consent_resize(app: AppHandle, window: WebviewWindow, id: String, height:
 pub fn open_panel(app: AppHandle, tab: Option<String>) {
     crate::windows::hide_flyout(&app);
     crate::windows::panel(&app, tab.as_deref());
+}
+
+/// Starts one of the allowed applications. The page names it by its key, not by its path:
+/// only what the hub already remembers can be started.
+#[tauri::command]
+pub fn app_launch(app: AppHandle, key: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let state = bridge::of(&app).state();
+    let exe = state
+        .get("apps")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|a| a.get("key").and_then(Value::as_str) == Some(key.as_str()))
+        .and_then(|a| a.get("exe").and_then(Value::as_str))
+        .ok_or("this application is no longer among the allowed ones")?;
+    // On the Mac the app, not the executable inside it: opening that would start a Terminal.
+    #[cfg(target_os = "macos")]
+    let target = crate::app_icon::bundle_of(std::path::Path::new(exe)).map_or(exe.to_owned(), |b| b.to_string_lossy().into_owned());
+    #[cfg(not(target_os = "macos"))]
+    let target = exe.to_owned();
+    app.opener().open_path(target, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

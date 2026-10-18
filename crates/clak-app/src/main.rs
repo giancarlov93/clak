@@ -15,10 +15,14 @@
 mod agents;
 mod app_icon;
 mod bridge;
+#[cfg(windows)]
+mod closing;
 mod commands;
 mod editors;
 mod icon;
 mod look;
+#[cfg(target_os = "macos")]
+mod menubar;
 mod notices;
 mod prompt;
 mod setup;
@@ -110,6 +114,12 @@ fn main() {
         }
         std::process::exit(code);
     }
+    // From the installer: it replaces the files as soon as this returns, so wait until the
+    // running copy has really gone.
+    #[cfg(windows)]
+    if has(&args, "--quit") && std::env::var_os(closing::FORWARD).is_none() {
+        std::process::exit(closing::quit_and_wait(&args));
+    }
     let own = !has(&args, "--no-broker");
     let show = has(&args, "--show");
     let first_link = link(&args).cloned();
@@ -128,6 +138,7 @@ fn main() {
             commands::consent_answer,
             commands::consent_resize,
             commands::open_panel,
+            commands::app_launch,
             commands::quit,
             commands::prefs_get,
             commands::prefs_set,
@@ -172,6 +183,8 @@ fn main() {
             }
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            #[cfg(target_os = "macos")]
+            look::follow_accent(app.handle());
 
             let handle = app.handle().clone();
             let prefs = clak_setup::preferences::Preferences::new(&home);

@@ -104,6 +104,25 @@ pub fn windows(kind: Kind, pixels: u32) -> Drawn {
 
 /// The icon for the Mac menu bar: black (template) when there is no dot.
 pub fn macos(kind: Kind, pixels: u32) -> Drawn {
+    let mut map = macos_head(kind, pixels);
+    let dot = dot(kind);
+    if let Some(color) = dot {
+        map.draw_pixmap(0, 0, macos_dot(color, pixels).as_ref(), &tiny_skia::PixmapPaint::default(), Transform::identity(), None);
+    }
+    Drawn { rgba: unpremultiply(map), size: pixels, template: dot.is_none() }
+}
+
+/// With a dot the icon can't be a template, or the dot would lose its color: the bar
+/// draws it in two layers (menubar.rs), the head in the color of the bar's text and the
+/// dot as it is. PNG: head, dot.
+#[cfg(target_os = "macos")]
+pub fn macos_layers(kind: Kind, pixels: u32) -> Option<(Vec<u8>, Vec<u8>)> {
+    let color = dot(kind)?;
+    Some((macos_head(kind, pixels).encode_png().ok()?, macos_dot(color, pixels).encode_png().ok()?))
+}
+
+/// The head, black, with the prompt and, if there is a dot, its place punched out.
+fn macos_head(kind: Kind, pixels: u32) -> Pixmap {
     let mut map = Pixmap::new(pixels, pixels).expect("size");
     // The Mac's 18 grid, with the y axis pointing down (in AppKit it points up).
     let s = pixels as f32 / 18.0;
@@ -134,16 +153,22 @@ pub fn macos(kind: Kind, pixels: u32) -> Drawn {
     if let Some(prompt) = pb.finish() {
         map.stroke_path(&prompt, &clear, &stroke(1.8), scale, None);
     }
-    let dot = dot(kind);
-    if let Some(color) = dot {
-        if let Some(hole) = circle(14.0, flip(4.0), 4.5) {
+    if dot(kind).is_some() {
+        if let Some(hole) = circle(14.0, 18.0 - 4.0, 4.5) {
             map.fill_path(&hole, &clear, FillRule::Winding, scale, None);
         }
-        if let Some(core) = circle(14.0, flip(4.0), 3.0) {
-            map.fill_path(&core, &paint(color, 255), FillRule::Winding, scale, None);
-        }
     }
-    Drawn { rgba: unpremultiply(map), size: pixels, template: dot.is_none() }
+    map
+}
+
+/// The dot alone, in its color, where the head leaves room for it.
+fn macos_dot(color: (u8, u8, u8), pixels: u32) -> Pixmap {
+    let mut map = Pixmap::new(pixels, pixels).expect("size");
+    let s = pixels as f32 / 18.0;
+    if let Some(core) = circle(14.0, 18.0 - 4.0, 3.0) {
+        map.fill_path(&core, &paint(color, 255), FillRule::Winding, Transform::from_scale(s, s), None);
+    }
+    map
 }
 
 fn dot(kind: Kind) -> Option<(u8, u8, u8)> {

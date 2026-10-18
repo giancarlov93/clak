@@ -3,7 +3,8 @@
    clak.js; the material behind the page is provided by the window. */
 
 :root {
-  --accent: #2F5BEA;
+  /* The system's accent, when there is one (look.rs); otherwise Clak's blue. */
+  --accent: var(--system-accent-light, #2F5BEA);
   --accent-text: #fff;
   --text: #1b1b1b;
   --quiet: #5f5f5f;
@@ -26,7 +27,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --accent: #7FA0FF;
+    --accent: var(--system-accent-dark, #7FA0FF);
     --accent-text: #0a1230;
     --text: #fff;
     --quiet: #c5c5c5;
@@ -45,7 +46,7 @@
 }
 
 :root[data-theme="dark"] {
-  --accent: #7FA0FF;
+  --accent: var(--system-accent-dark, #7FA0FF);
   --accent-text: #0a1230;
   --text: #fff;
   --quiet: #c5c5c5;
@@ -58,11 +59,26 @@
   --solid: #202020;
 }
 
+/* The accent chosen in System Settings (look.rs); otherwise the system blue. AppKit puts
+   white text on it in both appearances. */
 html.mac {
-  --accent: #007AFF;
+  --accent: var(--system-accent-light, #007AFF);
+  --accent-text: #fff;
   --radius: 6px;
   --radius-card: 10px;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  html.mac:not([data-theme="light"]) {
+    --accent: var(--system-accent-dark, #0A84FF);
+    --accent-text: #fff;
+  }
+}
+
+html.mac[data-theme="dark"] {
+  --accent: var(--system-accent-dark, #0A84FF);
+  --accent-text: #fff;
 }
 
 * { box-sizing: border-box; }
@@ -134,3 +150,8 @@ button.danger { color: var(--danger); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(127, 127, 127, .35); border-radius: 5px; border: 3px solid transparent; background-clip: content-box; }
+
+/* On the Mac the title bar is hidden over the content: this strip is where the window is
+   dragged from. On Windows the system's title bar does it. */
+.titlebar { display: none; }
+html.mac .titlebar { display: block; position: fixed; top: 0; left: 0; right: 0; height: 28px; z-index: 1000; }

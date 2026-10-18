@@ -22,8 +22,11 @@ const Panel = (() => {
 
   const tab = (definition) => tabs.push(definition);
 
-  const show = (id) => {
+  /// A tab, and optionally a place inside it after a colon: "status:history:<grant id>".
+  const show = (where) => {
+    const [id, ...rest] = String(where || "").split(":");
     const target = tabs.find((t) => t.id === id) || tabs[0];
+    if (rest.length && target.id === id) target.route?.(rest.join(":"));
     current = target.id;
     for (const t of tabs) {
       t.page.classList.toggle("hidden", t.id !== current);

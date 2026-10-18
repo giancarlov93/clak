@@ -9,15 +9,26 @@
   let list = null;
   let state = Panel.state();
 
+  /// Starts the application; if it can't, the button says so for a moment, with the reason on hover.
+  const launch = (app, button) =>
+    Clak.invoke("app_launch", { key: app.key }).catch((e) => {
+      button.textContent = "Couldn't open";
+      button.title = String(e);
+      setTimeout(() => { button.textContent = "Open"; button.title = `Starts ${app.name}`; }, 3000);
+    });
+
   const row = (app, now) => {
     const signed = !!app.signer;
     return el("div", { class: Clak.mac ? "row allowed" : "card allowed", "data-id": app.key },
       Kit.tile("apps", 36, "#007aff", app.exe),
       el("div", { class: "lines" },
-        el("div", { class: "name" }, el("strong", null, app.name), Kit.badge(signed ? `signed by ${app.signer}` : "unsigned", signed ? "ok" : "warn")),
+        el("div", { class: "name" }, el("strong", null, app.name),
+          signed ? el("span", { title: "Signed by" }, Kit.badge(app.signer, "ok")) : Kit.badge("unsigned", "warn")),
         el("div", { class: "mono quiet ellipsis selectable", title: app.exe }, app.exe),
         el("div", { class: "quiet" }, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`)),
-      el("button", { title: "It will ask again the next time it connects", onclick: () => Panel.send({ type: "forget_app", key: app.key }) }, "Forget"));
+      el("div", { class: "actions" },
+        el("button", { title: `Starts ${app.name}`, onclick: (e) => launch(app, e.currentTarget) }, "Open"),
+        el("button", { title: "It will ask again the next time it connects", onclick: () => Panel.send({ type: "forget_app", key: app.key }) }, "Forget")));
   };
 
   const draw = () => {

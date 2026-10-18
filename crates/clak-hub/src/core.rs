@@ -131,13 +131,55 @@ fn folder(dir: &str) -> String {
     }
 }
 
-/// A finished call: only command, time, duration and outcome, never arguments or results.
+/// A finished call: command, time, duration and outcome. What the agent sent and what came
+/// back are kept too, but only in memory, trimmed, and for the latest calls alone
+/// ([`DETAIL_LIMIT`]): the panel shows them on request ([`Core::panel_call`]).
 #[derive(Debug, Clone)]
 pub struct CallRecord {
+    pub id: String,
     pub tool: String,
     pub at: f64,
     pub seconds: f64,
     pub outcome: &'static str,
+    pub detail: Option<CallDetail>,
+}
+
+/// The arguments and the reply of a call, trimmed by [`slim`].
+#[derive(Debug, Clone)]
+pub struct CallDetail {
+    pub arguments: Value,
+    pub result: Value,
+}
+
+/// How many of a permission's latest calls keep their arguments and reply.
+pub const DETAIL_LIMIT: usize = 100;
+/// The longest text kept from an argument or a reply, in characters.
+const TEXT_LIMIT: usize = 20_000;
+
+/// A value as the panel may keep it: long texts cut, images and audio replaced by their size.
+pub fn slim(value: &Value) -> Value {
+    match value {
+        Value::String(text) => match text.char_indices().nth(TEXT_LIMIT) {
+            Some((cut, _)) => {
+                let more = text[cut..].chars().count();
+                Value::String(format!("{}… [{more} more characters]", &text[..cut]))
+            }
+            None => value.clone(),
+        },
+        Value::Array(items) => Value::Array(items.iter().map(slim).collect()),
+        Value::Object(map) => {
+            let media = matches!(map.get("type").and_then(Value::as_str), Some("image" | "audio"));
+            Value::Object(
+                map.iter()
+                    .map(|(k, v)| match (media, k.as_str(), v) {
+                        (true, "data", Value::String(data)) => (k.clone(), Value::String(format!("[{} bytes, base64]", data.len()))),
+                        _ => (k.clone(), slim(v)),
+                    })
+                    .collect(),
+            )
+        }
+        _ => value.clone(),
+    }
 }
 
 pub mod outcome {
@@ -201,6 +243,10 @@ impl GrantEntry {
         if self.history.len() > HISTORY_LIMIT {
             self.history.pop_front();
         }
+        // Only the latest calls keep what was sent and received.
+        if let Some(older) = self.history.len().checked_sub(DETAIL_LIMIT + 1) {
+            self.history[older].detail = None;
+        }
     }
 }
 
@@ -222,6 +268,8 @@ struct PendingCall {
     session_key: String,
     grant_id: Option<String>,
     tool: String,
+    /// What the agent sent, already trimmed, for the call's detail.
+    arguments: Value,
     started: f64,
     progress: Progress,
 }
@@ -764,8 +812,7 @@ impl Core {
     }
 
     /// A permission's history for the panel: the calls, most recent first, and the counts per
-    /// command. No arguments or results: those do not pass from the hub to the panel, just
-    /// as they do not pass through the log.
+    /// command. No arguments or results: those only in [`Core::panel_call`], one call at a time.
     pub fn panel_history(&self, grant_id: Option<&str>) -> Value {
         match grant_id.and_then(|id| self.grants.get(id)) {
             Some(grant) => json!({
@@ -774,13 +821,39 @@ impl Core {
                 "found": true,
                 "limit": HISTORY_LIMIT,
                 "calls": grant.history.iter().rev().map(|c| json!({
-                    "tool": c.tool, "at": float(c.at), "seconds": round3(c.seconds), "outcome": c.outcome,
+                    "id": c.id, "tool": c.tool, "at": float(c.at), "seconds": round3(c.seconds), "outcome": c.outcome,
+                    "detail": c.detail.is_some(),
                 })).collect::<Vec<_>>(),
                 "stats": grant.stats.iter().map(|(tool, s)| json!({
                     "tool": tool, "calls": s.calls, "errors": s.errors, "seconds": round3(s.seconds),
                 })).collect::<Vec<_>>(),
             }),
             None => json!({ "type": "history", "grant_id": grant_id, "found": false, "calls": [], "stats": [] }),
+        }
+    }
+
+    /// One call in full: what the agent sent and what came back. Only for the app hosting
+    /// the hub (control_channel.rs, `panel_message`): never on the control channel, where
+    /// any process of the user, an agent included, could read another agent's calls.
+    pub fn panel_call(&self, grant_id: Option<&str>, call_id: Option<&str>) -> Value {
+        let call = grant_id
+            .and_then(|id| self.grants.get(id))
+            .and_then(|g| g.history.iter().find(|c| Some(c.id.as_str()) == call_id));
+        match call {
+            Some(c) => json!({
+                "type": "call",
+                "grant_id": grant_id,
+                "call_id": c.id,
+                "found": true,
+                "tool": c.tool,
+                "at": float(c.at),
+                "seconds": round3(c.seconds),
+                "outcome": c.outcome,
+                "kept": c.detail.is_some(),
+                "arguments": c.detail.as_ref().map(|d| d.arguments.clone()),
+                "result": c.detail.as_ref().map(|d| d.result.clone()),
+            }),
+            None => json!({ "type": "call", "grant_id": grant_id, "call_id": call_id, "found": false }),
         }
     }
 
@@ -805,11 +878,13 @@ impl Core {
         let app = self.apps.get(&conn_id)?;
         let routed = new_id("call");
         let (answer, receiver) = oneshot::channel();
+        let arguments = Value::Object(arguments.unwrap_or_default());
+        let kept = slim(&arguments);
         app.send(json!({
             "type": "call",
             "call_id": routed,
             "tool": tool.name,
-            "arguments": Value::Object(arguments.unwrap_or_default()),
+            "arguments": arguments,
             "harness": label,
         }));
         self.calls.insert(
@@ -820,6 +895,7 @@ impl Core {
                 session_key,
                 grant_id: Some(grant_id.to_owned()),
                 tool: tool.name.clone(),
+                arguments: kept,
                 started,
                 progress,
             },
@@ -832,10 +908,12 @@ impl Core {
         let Some(call) = self.calls.remove(routed) else { return };
         if let Some(grant) = call.grant_id.as_deref().and_then(|id| self.grants.get_mut(id)) {
             grant.record(CallRecord {
+                id: routed.to_owned(),
                 tool: call.tool.clone(),
                 at: call.started,
                 seconds: (now() - call.started).max(0.0),
                 outcome,
+                detail: Some(CallDetail { arguments: call.arguments.clone(), result: slim(&result) }),
             });
             self.dirty = true;
         }

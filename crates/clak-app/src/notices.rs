@@ -76,17 +76,53 @@ pub fn headline(state: &Value) -> String {
     .join(" · ")
 }
 
-/// The "Revoke …" menu items: permission id and text.
-pub fn revocations(state: &Value) -> Vec<(String, String)> {
-    list(state, "grants")
-        .iter()
-        .map(|grant| {
-            let title = find(state, "resources", text(grant, "resource_id"))
-                .map_or_else(|| text(grant, "resource_id").to_owned(), |r| text(&r["resource"], "title").to_owned());
-            let from = find(state, "sessions", text(grant, "session_id"))
-                .map(|s| format!(" from {}", text(s, "label")))
-                .unwrap_or_default();
-            (text(grant, "id").to_owned(), format!("Revoke “{title}”{from}"))
+/// A connected agent and the programs it may use, as the menu shows them.
+#[derive(Clone, PartialEq)]
+pub struct Agent {
+    pub label: String,
+    pub exe: Option<String>,
+    pub programs: Vec<Program>,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct Program {
+    pub grant: String,
+    /// "spesa.txt (Blocco)", or just "Blender" when the title is the program's name.
+    pub label: String,
+    pub exe: Option<String>,
+}
+
+fn since(value: &Value) -> f64 {
+    value.get("since").and_then(Value::as_f64).unwrap_or(0.0)
+}
+
+/// Who is using what: the agents in the order they connected, each with its programs.
+pub fn agents(state: &Value) -> Vec<Agent> {
+    let mut sessions: Vec<&Value> = list(state, "sessions").iter().collect();
+    sessions.sort_by(|a, b| since(a).total_cmp(&since(b)));
+    sessions
+        .into_iter()
+        .map(|session| {
+            let mut grants: Vec<&Value> =
+                list(state, "grants").iter().filter(|g| text(g, "session_id") == text(session, "id")).collect();
+            grants.sort_by(|a, b| since(a).total_cmp(&since(b)));
+            let programs = grants
+                .into_iter()
+                .map(|grant| {
+                    let resource = find(state, "resources", text(grant, "resource_id"));
+                    let info = resource.map(|r| &r["resource"]);
+                    let (title, app) = info.map_or((text(grant, "resource_id"), ""), |i| (text(i, "title"), text(i, "app")));
+                    let label = if app.is_empty() || app == title { title.to_owned() } else { format!("{title} ({app})") };
+                    // Connectors and the hub's own programs have no executable of their own.
+                    let exe = resource
+                        .filter(|r| r["origin"].get("kind").is_none())
+                        .and_then(|r| r["origin"].get("exe"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    Program { grant: text(grant, "id").to_owned(), label, exe }
+                })
+                .collect();
+            Agent { label: text(session, "label").to_owned(), exe: session.get("exe").and_then(Value::as_str).map(str::to_owned), programs }
         })
         .collect()
 }
@@ -124,5 +160,29 @@ mod tests {
         let gone = between(Some(&connected), &json!({"resources": connected["resources"], "sessions": [], "grants": []}));
         assert_eq!(gone[0].title, "“spesa.txt” no longer in use");
         assert_eq!(headline(&connected), "1 agent · 1 program · 1 permission");
+    }
+
+    #[test]
+    fn ogni_agente_porta_i_suoi_programmi() {
+        let state = json!({
+            "resources": [
+                {"id": "r1", "resource": {"app": "Blocco", "title": "spesa.txt"}, "origin": {"exe": "/A/Blocco"}},
+                {"id": "r2", "resource": {"app": "Rhino", "title": "Rhino"}, "origin": {"kind": "connector", "exe": "/x"}},
+            ],
+            "sessions": [
+                {"id": "s2", "label": "Codex", "since": 2.0},
+                {"id": "s1", "label": "Claude Code", "exe": "/C/claude", "since": 1.0},
+            ],
+            "grants": [
+                {"id": "g2", "resource_id": "r2", "session_id": "s1", "since": 4.0},
+                {"id": "g1", "resource_id": "r1", "session_id": "s1", "since": 3.0},
+            ],
+        });
+        let agents = agents(&state);
+        assert_eq!(agents.iter().map(|a| a.label.as_str()).collect::<Vec<_>>(), ["Claude Code", "Codex"]);
+        assert_eq!(agents[0].exe.as_deref(), Some("/C/claude"));
+        let programs: Vec<_> = agents[0].programs.iter().map(|p| (p.grant.as_str(), p.label.as_str(), p.exe.as_deref())).collect();
+        assert_eq!(programs, [("g1", "spesa.txt (Blocco)", Some("/A/Blocco")), ("g2", "Rhino", None)]);
+        assert!(agents[1].programs.is_empty());
     }
 }

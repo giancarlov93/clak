@@ -144,7 +144,9 @@ const Describe = (() => {
       get averageSeconds() { return this.calls === 0 ? 0 : this.seconds / this.calls; },
     }));
     const calls = (m.calls || []).map((c) => ({
-      tool: c.tool ?? "?", at: c.at || 0, seconds: c.seconds || 0, outcome: c.outcome ?? "?",
+      id: c.id || "", tool: c.tool ?? "?", at: c.at || 0, seconds: c.seconds || 0, outcome: c.outcome ?? "?",
+      // Whether the hub still has what was sent and received (only the latest calls).
+      detail: !!c.detail,
       // The program's fault: an error, no reply in time, closed halfway.
       failed: c.outcome === "error" || c.outcome === "timeout" || c.outcome === "closed",
     }));

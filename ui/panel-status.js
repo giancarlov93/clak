@@ -16,8 +16,11 @@
   let ctx = Panel.ctx();
   /// Where we are: the overview, a program, one of its commands, a permission's history.
   let view = { page: "overview" };
+  let waiting = null; // where the icon's box asked to go, until the hub answers
   let tools = null; // the last `tools` reply, read
   let history = null; // the last `history` reply, read
+  let call = null; // the last `call` reply: one call in full
+  let askedCall = null;
   let asked = null; // what the hub has already been asked for
 
   const running = () => !!state && !state.offline && !!state.broker;
@@ -26,6 +29,7 @@
   const go = (next) => {
     if (next.page === "program" && view.page !== "command") tools = null;
     if (next.page === "history") history = null;
+    if (next.page === "call") askedCall = null;
     if (next.page === "overview" || next.page === "history" || (next.page === "program" && view.id !== next.id)) asked = null;
     view = next;
     draw();
@@ -220,11 +224,109 @@
         el("div", { class: "meter" }, el("span", { style: `width:${Math.max(2, Math.round((failing ? u.errorRate : u.calls / top) * 100))}%` }))));
   };
 
+  const toneOf = (c) => (c.failed ? "err" : c.outcome === "ok" ? "ok" : "warn");
+
+  /// A history row: the latest calls open their detail, what was sent and what came back.
   const callRow = (c, now) => {
-    const kind = c.failed ? "err" : c.outcome === "ok" ? "ok" : "warn";
-    return el("tr", null, el("td", { class: "tone " + kind }, Kit.icon(kind === "warn" ? "minus" : kind)),
+    const kind = toneOf(c);
+    const open = () => go({ page: "call", id: view.id, call: c.id });
+    return el("tr", c.detail ? { class: "click", tabindex: "0", title: "What was sent and what came back", onclick: open, onkeydown: (e) => (e.key === "Enter" || e.key === " ") && open() } : null,
+      el("td", { class: "tone " + kind }, Kit.icon(kind === "warn" ? "minus" : kind)),
       el("td", { class: "quiet-text" }, D.when(c.at, now)), el("td", { class: "mono" }, c.tool),
-      el("td", { class: "quiet-text right" }, D.duration(c.seconds)), el("td", { class: c.failed ? "danger" : "quiet-text" }, D.outcome(c.outcome)));
+      el("td", { class: "quiet-text right" }, D.duration(c.seconds)), el("td", { class: c.failed ? "danger" : "quiet-text" }, D.outcome(c.outcome)),
+      el("td", { class: "chevron" }, c.detail ? Kit.icon("chevron") : null));
+  };
+
+  // --- one call: what the agent sent, what came back ----------------------------------
+
+  /// Pretty JSON if the text is JSON, otherwise null.
+  const asJson = (text) => {
+    const t = String(text).trim();
+    if (!/^[[{]/.test(t)) return null;
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2);
+    } catch {
+      return null;
+    }
+  };
+
+  /// A block of text to read, with its copy button: code and JSON in monospace.
+  const block = (text, mono) =>
+    el("div", { class: "payload" + (mono ? " mono" : "") },
+      el("pre", { class: "selectable" }, text),
+      Kit.iconButton("copy", "Copy", () => Kit.copy(text)));
+
+  /// An argument's value: short texts inline, long ones and code in a block, the rest as JSON.
+  const argumentValue = (v) => {
+    if (typeof v === "string") {
+      const json = asJson(v);
+      if (json) return block(json, true);
+      return v.includes("\n") || v.length > 80 ? block(v, true) : el("span", { class: "selectable value" }, v);
+    }
+    if (v === null || typeof v !== "object") return el("span", { class: "mono selectable value" }, String(v));
+    return block(JSON.stringify(v, null, 2), true);
+  };
+
+  const sent = (args) => {
+    const entries = args && typeof args === "object" ? Object.entries(args) : [];
+    if (!entries.length) return Kit.empty(null, "No arguments");
+    return el("div", { class: "card group args" }, entries.map(([name, v]) =>
+      el("div", { class: "arg" }, el("div", { class: "mono arg-name" }, name), argumentValue(v))));
+  };
+
+  /// The reply as MCP shapes it: a list of contents, texts read as text (or JSON), media by size.
+  const reply = (result) => {
+    const content = result?.content;
+    const items = Array.isArray(content) ? content : content == null ? [] : [content];
+    if (!items.length) return Kit.empty(null, "Empty reply");
+    return items.map((item) => {
+      if (typeof item === "string") return block(asJson(item) || item, !!asJson(item));
+      if (item?.type === "text") {
+        const json = asJson(item.text);
+        return block(json || item.text, !!json);
+      }
+      if (item?.type === "image" || item?.type === "audio") {
+        return el("div", { class: "payload media quiet" }, Kit.icon("program"),
+          `${item.type === "image" ? "Image" : "Audio"} · ${item.mimeType || "unknown type"} · ${item.data || ""}`);
+      }
+      return block(JSON.stringify(item, null, 2), true);
+    });
+  };
+
+  const callPage = (now) => {
+    const g = (state.grants || []).find((x) => x.id === view.id);
+    const r = g ? D.resourceOf(state, g.resource_id) : null;
+    const title = r ? D.resourceTitle(r) : view.title || "Permission";
+    const key = `${view.id}|${view.call}`;
+    if (askedCall !== key) {
+      askedCall = key;
+      call = null;
+      Panel.send({ type: "call", grant_id: view.id, call_id: view.call });
+    }
+    const c = call && call.call_id === view.call ? call : null;
+    const toHistory = () => go({ page: "history", id: view.id });
+    const head = Clak.mac ? crumbs([[title, toHistory]], c?.tool || "Call", true) : crumbs([["Status", toOverview], [title, toHistory]], c?.tool || "Call", true);
+    if (!c) return [...head, el("div", { class: "quiet status" }, "Loading…")];
+    if (!c.found) {
+      return [...head, Kit.bar("info", c.remote
+        ? "What was sent and received is shown only when the hub runs inside this app."
+        : "This call is no longer in the history.")];
+    }
+    const failed = c.outcome === "error" || c.outcome === "timeout" || c.outcome === "closed";
+    const kind = toneOf({ failed, outcome: c.outcome });
+    return [
+      ...head,
+      el("div", { class: "card hero call-hero" },
+        el("span", { class: "tile round " + kind }, Kit.icon(kind === "warn" ? "minus" : kind)),
+        el("div", null,
+          el("div", null, el("strong", { class: failed ? "danger" : "" }, D.outcome(c.outcome)), el("span", { class: "quiet" }, ` · ${D.duration(c.seconds)}`)),
+          el("div", { class: "quiet" }, `${D.when(c.at, now)} · ${D.ago(c.at, now)}${g ? ` · by ${D.agentOf(state, g)}` : ""}`))),
+      c.kept ? null : Kit.bar("info", "Only the latest calls keep what was sent and received."),
+      c.kept ? Kit.section("Sent by the agent") : null,
+      c.kept ? sent(c.arguments) : null,
+      c.kept ? Kit.section(failed ? "Error" : "Reply") : null,
+      c.kept ? el("div", { class: "reply" + (c.result?.is_error ? " failed" : "") }, reply(c.result)) : null,
+    ];
   };
 
   const historyPage = (now) => {
@@ -268,7 +370,7 @@
       calls.length ? Kit.section("Calls", { count: calls.length }) : null,
       calls.length
         ? el("div", { class: "card group" }, el("table", { class: "calls" },
-          el("thead", null, el("tr", null, el("th"), el("th", null, "When"), el("th", null, "Command"), el("th", { class: "right" }, "Time"), el("th", null, "Outcome"))),
+          el("thead", null, el("tr", null, el("th"), el("th", null, "When"), el("th", null, "Command"), el("th", { class: "right" }, "Time"), el("th", null, "Outcome"), el("th"))),
           el("tbody", null, calls.map((c) => callRow(c, now)))))
         : null,
       data && data.limit > 0 && calls.length >= data.limit ? el("div", { class: "quiet" }, `Last ${data.limit} · counts cover all`) : null,
@@ -295,7 +397,7 @@
     const now = Date.now();
     if (!running() && view.page !== "overview") view = { page: "overview" }; // without a hub there is nothing to look at
     const content =
-      view.page === "program" ? program(now) : view.page === "command" ? command(now) : view.page === "history" ? historyPage(now) : overview(now);
+      view.page === "program" ? program(now) : view.page === "command" ? command(now) : view.page === "history" ? historyPage(now) : view.page === "call" ? callPage(now) : overview(now);
     Kit.replace(page, content);
     drawFooter();
   };
@@ -320,15 +422,32 @@
       // Time passes even if the hub is silent: "5 min ago" is updated here.
       setInterval(() => !page.classList.contains("hidden") ? draw() : drawFooter(), 15000);
     },
+    /// From the icon's box: "history:<grant id>" or "program:<id>". Before the hub's first
+    /// state it waits for it, otherwise draw() would go back to the overview.
+    route(where) {
+      const [kind, id] = where.split(":");
+      const next = (kind === "history" || kind === "program") && id ? { page: kind, id } : { page: "overview" };
+      if (running()) go(next);
+      else waiting = next;
+    },
     render(s, c) {
       state = s;
       ctx = c;
+      if (waiting && running()) {
+        const next = waiting;
+        waiting = null;
+        go(next);
+        return;
+      }
       draw();
     },
     message(m) {
       if (m.type === "tools") {
         tools = D.tools(m);
         if (view.id === tools.resourceId) draw();
+      } else if (m.type === "call") {
+        call = m;
+        if (view.page === "call" && view.call === m.call_id) draw();
       } else if (m.type === "history") {
         history = D.history(m);
         if (view.id === history.grantId) draw();

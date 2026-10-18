@@ -65,19 +65,9 @@ async fn serve(stream: TcpStream, broker: Broker, stop: CancellationToken) {
         ping.tick().await;
         loop {
             tokio::select! {
-                message = queue.recv() => match message {
-                    Some(message) => {
-                        if sink.send(Message::text(json::text(&message))).await.is_err() {
-                            return;
-                        }
-                    }
-                    None => break,
-                },
-                _ = ping.tick() => {
-                    if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
-                        return;
-                    }
-                }
+                // Closing first: the outbox is dropped right after, and an empty queue must not
+                // end the writer before the Close frame goes out.
+                biased;
                 code = &mut closing_rx => {
                     // What is already queued goes out, then it closes.
                     while let Ok(message) = queue.try_recv() {
@@ -92,6 +82,19 @@ async fn serve(stream: TcpStream, broker: Broker, stop: CancellationToken) {
                     )
                     .await;
                     return;
+                }
+                message = queue.recv() => match message {
+                    Some(message) => {
+                        if sink.send(Message::text(json::text(&message))).await.is_err() {
+                            return;
+                        }
+                    }
+                    None => break,
+                },
+                _ = ping.tick() => {
+                    if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        return;
+                    }
                 }
             }
         }

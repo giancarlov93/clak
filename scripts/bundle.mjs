@@ -8,9 +8,15 @@
 // is CARGO_TARGET_DIR, by default outside the repo, in the user's cache: only the two copies
 // in crates/clak-app/binaries stay in the repo (ignored by git). With `--target` it builds
 // for another system (on an ARM Mac, the Intel Mac).
+//
+// On the Mac, signing and notarization: with APPLE_SIGNING_IDENTITY the app is signed with
+// that certificate instead of ad hoc; with APPLE_API_KEY, APPLE_API_ISSUER and
+// APPLE_API_KEY_PATH Tauri also notarizes it. In CI they come from the secrets
+// (release.yml); here, if they aren't in the environment, from .secrets/apple.env
+// (KEY=value lines, ignored by git).
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { copyFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
+import { join, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
@@ -24,6 +30,24 @@ if (!process.env.CARGO_TARGET_DIR) {
   process.env.CARGO_TARGET_DIR = join(base, "cargo-target", "clak");
 }
 const target = process.env.CARGO_TARGET_DIR;
+
+// A secret missing in CI (a fork, a repository without them) arrives empty: as if absent.
+for (const name of ["APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD", "APPLE_SIGNING_IDENTITY", "APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_API_KEY_PATH"]) {
+  if (process.env[name] === "") delete process.env[name];
+}
+const secrets = join(root, ".secrets", "apple.env");
+if (process.platform === "darwin" && existsSync(secrets)) {
+  for (const line of readFileSync(secrets, "utf8").split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!m || process.env[m[1]] !== undefined) continue; // the environment wins
+    process.env[m[1]] = m[1].endsWith("_PATH") && !isAbsolute(m[2]) ? join(root, m[2]) : m[2];
+  }
+}
+if (process.platform === "darwin") {
+  const identity = process.env.APPLE_SIGNING_IDENTITY;
+  const notarize = process.env.APPLE_API_KEY && process.env.APPLE_API_ISSUER && process.env.APPLE_API_KEY_PATH;
+  console.log(`signing: ${identity || "ad hoc"}; notarization: ${notarize ? "yes" : "no"}`);
+}
 
 const run = (cmd, args, cwd = root) => execFileSync(cmd, args, { cwd, stdio: "inherit", env: process.env });
 const at = process.argv.indexOf("--target");

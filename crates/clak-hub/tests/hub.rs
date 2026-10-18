@@ -433,7 +433,27 @@ async fn ogni_permesso_ha_la_cronologia_delle_chiamate_e_i_conti_per_comando() {
     assert_eq!(get_text["calls"], 4);
 
     // Only command, time, duration and outcome: no arguments, results or error texts.
-    assert!(!clak_wire::json::text(&Value::Object(history)).contains("segreto"));
+    let first = history["calls"].as_array().unwrap().last().unwrap().clone();
+    assert_eq!(first["detail"], true);
+    assert!(!clak_wire::json::text(&Value::Object(history.clone())).contains("segreto"));
+
+    // The call in full: on the control channel, never (any process could ask)...
+    let ask = json!({"type": "call", "grant_id": grants[0]["id"], "call_id": first["id"]});
+    let remote = hub.panel(std::slice::from_ref(&ask), "call").await;
+    assert_eq!(remote["found"], false);
+    assert!(!clak_wire::json::text(&Value::Object(remote)).contains("segreto"));
+    // ...to the app hosting the hub, yes: what the agent sent and what came back.
+    let (outbox, mut replies) = clak_hub::core::Outbox::channel();
+    clak_hub::control_channel::panel_message(hub.hub().broker(), ask.as_object().unwrap(), &outbox, true);
+    let call = replies.try_recv().unwrap();
+    assert_eq!((call["found"].clone(), call["tool"].clone()), (json!(true), json!("append_text")));
+    assert_eq!(call["arguments"]["text"], "testo segreto");
+    let broken = history["calls"][2]["id"].clone();
+    let ask = json!({"type": "call", "grant_id": grants[0]["id"], "call_id": broken});
+    clak_hub::control_channel::panel_message(hub.hub().broker(), ask.as_object().unwrap(), &outbox, true);
+    let call = replies.try_recv().unwrap();
+    assert_eq!(call["result"]["is_error"], true);
+    assert!(clak_wire::json::text(&call["result"]).contains("dato segreto"));
     let missing = hub.panel(&[json!({"type": "history", "grant_id": "grant_che_non_c_e"})], "history").await;
     assert_eq!(missing["found"], false);
     hub.stop().await;
@@ -594,4 +614,18 @@ async fn un_secondo_hub_sulla_stessa_cartella_non_parte() {
     let lock = clak_wire::location::Lockfile::read(&hub.home).unwrap();
     assert_eq!(lock.ws_port, hub.hub().ws_port());
     hub.stop().await;
+}
+
+#[test]
+fn il_dettaglio_di_una_chiamata_tiene_i_testi_ma_non_le_immagini() {
+    let long = "x".repeat(25_000);
+    let kept = clak_hub::core::slim(&json!({
+        "content": [{"type": "text", "text": long}, {"type": "image", "mimeType": "image/png", "data": "AAAA"}],
+        "n": 3,
+    }));
+    let text = kept["content"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with(&"x".repeat(20_000)) && text.ends_with("… [5000 more characters]"));
+    assert_eq!(kept["content"][1]["data"], "[4 bytes, base64]");
+    assert_eq!(kept["content"][1]["mimeType"], "image/png");
+    assert_eq!(kept["n"], 3);
 }

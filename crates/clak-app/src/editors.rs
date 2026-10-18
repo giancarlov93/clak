@@ -385,8 +385,10 @@ pub fn connector_draft(window: WebviewWindow) -> Option<Value> {
         "sign_in": draft.sign_in,
         "restricted": open.restricted(),
         "had_credential": open.had_credential,
-        // A token from the link means token; otherwise what the connector already uses, and for a new one the sign-in.
-        "oauth": !link_token && target.is_none_or(ConnectorEntry::is_oauth),
+        // A token from the link means token; opened to sign in, the sign-in (a server added
+        // without one, e.g. by an agent, has no OAuth yet); otherwise what the connector
+        // already uses, and for a new one the sign-in.
+        "oauth": !link_token && (draft.sign_in || target.is_none_or(ConnectorEntry::is_oauth)),
         "reauth": draft.sign_in || open.restricted(),
         "armed_in": if draft.from_link { ARMING.saturating_sub(open.opened.elapsed()).as_millis() as u64 } else { 0 },
     }))

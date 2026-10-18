@@ -1,0 +1,4 @@
+# Every change needs the owner's review: with "Require review from Code Owners" on main,
+# no collaborator can merge alone. Above all the workflow, the build scripts and the
+# dependencies, which run with the signing secrets.
+* @giancarlov93

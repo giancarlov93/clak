@@ -11,7 +11,7 @@
 use crate::core::{Broker, Outbox, Progress};
 use crate::requests;
 use clak_wire::json::{self, MAX_MESSAGE_BYTES, new_id};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -102,13 +102,15 @@ where
     let monitor = new_id("mon");
     broker.run(|c| c.watch(&monitor, outbox.clone()));
     while let Some(message) = next(&mut lines, stop).await {
-        panel_message(broker, &message, outbox);
+        panel_message(broker, &message, outbox, false);
     }
     broker.run(|c| c.unwatch(&monitor));
 }
 
 /// What the panel asks: the same from the channel and from the app hosting the hub.
-pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outbox) {
+/// `inside` is that app: only it gets a call in full (`call`), with what the agent sent and
+/// what came back. On the channel any process of the user could ask, an agent included.
+pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outbox, inside: bool) {
     let text = |key: &str| message.get(key).and_then(Value::as_str);
     broker.run(|c| {
         match text("type") {
@@ -121,6 +123,14 @@ pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outb
             }
             Some("history") => {
                 reply.send(c.panel_history(text("grant_id")));
+                return;
+            }
+            Some("call") => {
+                reply.send(if inside {
+                    c.panel_call(text("grant_id"), text("call_id"))
+                } else {
+                    json!({ "type": "call", "grant_id": text("grant_id"), "call_id": text("call_id"), "found": false, "remote": true })
+                });
                 return;
             }
             _ => {}
