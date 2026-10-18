@@ -125,14 +125,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ripulisce_e_accorcia() {
-        assert_eq!(clean("  due\n\tparole\u{202E} ", 80), "due parole");
+    fn cleans_and_truncates() {
+        assert_eq!(clean("  two\n\twords\u{202E} ", 80), "two words");
         assert_eq!(clean("abcdef", 4), "abc…");
         assert_eq!(clean("", 4), "");
     }
 
     #[test]
-    fn la_codifica_degli_indirizzi() {
+    fn url_encoding() {
         assert_eq!(escape_data("a/b c~è"), "a%2Fb%20c~%C3%A8");
         assert_eq!(escape_form("a&b c"), "a%26b+c");
         assert_eq!(unescape_data("a%2Fb%20c%zz%"), "a/b c%zz%");

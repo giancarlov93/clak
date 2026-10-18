@@ -64,7 +64,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn le_sequenze_percentuali() {
+    fn percent_sequences() {
         assert_eq!(unescape_lossy("a%2Bb+c%"), "a+b c%");
         assert_eq!(unescape_strict("%E2%80%AE").as_deref(), Some("\u{202E}"));
         assert_eq!(unescape_strict("%FF"), None);

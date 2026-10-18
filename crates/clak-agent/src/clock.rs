@@ -73,7 +73,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn il_timbro_ha_la_forma_di_sempre() {
+    fn the_stamp_keeps_its_usual_shape() {
         let stamp = Local::now().stamp();
         assert_eq!(stamp.len(), "20261017-153012-345".len());
         assert_eq!(&stamp[8..9], "-");

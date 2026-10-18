@@ -182,7 +182,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_query_si_legge_e_vince_la_prima() {
+    fn the_query_is_parsed_and_the_first_wins() {
         let values = parse_query("code=a%2Bb&state=x+y&state=z&flag");
         assert_eq!(values["code"], "a+b");
         assert_eq!(values["state"], "x y");

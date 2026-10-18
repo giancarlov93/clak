@@ -20,7 +20,7 @@ fn failure(text: &str) -> Option<YamlError> {
 // ---- structure ----
 
 #[test]
-fn mappe_e_liste_a_blocchi() {
+fn block_mappings_and_sequences() {
     assert_eq!(
         json("a: 1\nb:\n  c: x\n  d:\n    - 1\n    - two\ne:\n- p\n- q\nf: last"),
         r#"{"a":1,"b":{"c":"x","d":[1,"two"]},"e":["p","q"],"f":"last"}"#
@@ -28,7 +28,7 @@ fn mappe_e_liste_a_blocchi() {
 }
 
 #[test]
-fn voci_compatte_in_una_lista() {
+fn compact_entries_in_a_sequence() {
     assert_eq!(
         json(
             "- name: a\n  tags:\n  - x\n  - y\n- name: b\n  more:\n    deep: true\n- - inner\n  - list\n-\n  late: 1\n-\n- plain"
@@ -38,17 +38,17 @@ fn voci_compatte_in_una_lista() {
 }
 
 #[test]
-fn valori_vuoti_sono_null() {
+fn empty_values_are_null() {
     assert_eq!(
-        json("a:\nb: # nulla\nc: ~\n"),
+        json("a:\nb: # nothing\nc: ~\n"),
         r#"{"a":null,"b":null,"c":null}"#
     );
     assert_eq!(json(""), "null");
-    assert_eq!(json("# solo un commento\n"), "null");
+    assert_eq!(json("# just a comment\n"), "null");
 }
 
 #[test]
-fn collezioni_in_linea_anche_su_più_righe() {
+fn flow_collections_even_across_lines() {
     assert_eq!(
         json("a: {b: 1, c: [x, y]}"),
         r#"{"a":{"b":1,"c":["x","y"]}}"#
@@ -59,7 +59,7 @@ fn collezioni_in_linea_anche_su_più_righe() {
     );
     assert_eq!(
         json(
-            "a: {b: 1,   # commento\n  c: [x, y,\n    z],\n  d: }\ne: [1, 2, ]\nf: [k: v, \"q\": 1]\ng: {\"json\": \"like\", \"n\": 1.5}\nh: {a, b: 2}"
+            "a: {b: 1,   # comment\n  c: [x, y,\n    z],\n  d: }\ne: [1, 2, ]\nf: [k: v, \"q\": 1]\ng: {\"json\": \"like\", \"n\": 1.5}\nh: {a, b: 2}"
         ),
         r#"{"a":{"b":1,"c":["x","y","z"],"d":null},"e":[1,2],"f":[{"k":"v"},{"q":1}],"g":{"json":"like","n":1.5},"h":{"a":null,"b":2}}"#
     );
@@ -68,34 +68,34 @@ fn collezioni_in_linea_anche_su_più_righe() {
 // ---- scalars ----
 
 #[test]
-fn scalari_semplici_anche_su_più_righe() {
+fn plain_scalars_even_across_lines() {
     let text = [
         "url: https://example.com/a/b?x=1#frag",
         "time: 12:30",
-        "hash: a#b # questo è un commento",
-        "spaced: due parole   ",
-        "long: questa riga",
-        "  continua qui",
-        "  e qui",
+        "hash: a#b # this is a comment",
+        "spaced: two words   ",
+        "long: this line",
+        "  goes on here",
+        "  and here",
         "",
-        "  e dopo una riga vuota",
+        "  and after a blank line",
         "next: ok",
         "dash: -x",
     ]
     .join("\n");
     assert_eq!(
         json(&text),
-        r#"{"url":"https://example.com/a/b?x=1#frag","time":"12:30","hash":"a#b","spaced":"due parole","long":"questa riga continua qui e qui\ne dopo una riga vuota","next":"ok","dash":"-x"}"#
+        r#"{"url":"https://example.com/a/b?x=1#frag","time":"12:30","hash":"a#b","spaced":"two words","long":"this line goes on here and here\nand after a blank line","next":"ok","dash":"-x"}"#
     );
-    assert_eq!(json("- uno\n  due\n- tre"), r#"["uno due","tre"]"#);
+    assert_eq!(json("- one\n  two\n- three"), r#"["one two","three"]"#);
     assert_eq!(
-        json("solo testo\nsu due righe"),
-        r#""solo testo su due righe""#
+        json("just text\non two lines"),
+        r#""just text on two lines""#
     );
 }
 
 #[test]
-fn i_tipi_degli_scalari_semplici() {
+fn plain_scalar_types() {
     let cases = [
         ("", "null"),
         ("~", "null"),
@@ -151,7 +151,7 @@ fn i_tipi_degli_scalari_semplici() {
 }
 
 #[test]
-fn fra_apici_e_virgolette_è_sempre_testo() {
+fn quoted_scalars_are_always_text() {
     assert_eq!(json("a: '123'"), r#"{"a":"123"}"#);
     assert_eq!(json(r#"a: "true""#), r#"{"a":"true"}"#);
     assert_eq!(json("a: ''"), r#"{"a":""}"#);
@@ -176,21 +176,21 @@ fn fra_apici_e_virgolette_è_sempre_testo() {
 }
 
 #[test]
-fn blocchi_letterali_e_piegati() {
+fn literal_and_folded_blocks() {
     let d = doc(
-        "literal: |\n  uno\n    due\n\n  tre\nfolded: >\n  uno\n  due\n\n  tre\n    rientrata\n  quattro\nstrip: |-\n  x\n\nkeep: |+\n  x\n\n\nclip: >-\n  a\n  b\nexplicit: |2\n    rientro\n  testo\ncomment: | # un commento\n  c\nlast: |\n  fine",
+        "literal: |\n  one\n    two\n\n  three\nfolded: >\n  one\n  two\n\n  three\n    indented\n  four\nstrip: |-\n  x\n\nkeep: |+\n  x\n\n\nclip: >-\n  a\n  b\nexplicit: |2\n    indent\n  text\ncomment: | # a comment\n  c\nlast: |\n  end",
     );
-    assert_eq!(d["literal"], "uno\n  due\n\ntre\n");
-    assert_eq!(d["folded"], "uno due\ntre\n  rientrata\nquattro\n");
+    assert_eq!(d["literal"], "one\n  two\n\nthree\n");
+    assert_eq!(d["folded"], "one two\nthree\n  indented\nfour\n");
     assert_eq!(d["strip"], "x");
     assert_eq!(d["keep"], "x\n\n\n");
     assert_eq!(d["clip"], "a b");
-    assert_eq!(d["explicit"], "  rientro\ntesto\n");
+    assert_eq!(d["explicit"], "  indent\ntext\n");
     assert_eq!(d["comment"], "c\n");
-    assert_eq!(d["last"], "fine"); // no line break at the end of the file, so none to keep
+    assert_eq!(d["last"], "end"); // no line break at the end of the file, so none to keep
     assert_eq!(
-        json("- |\n  in lista\n- >-\n  piegato\n  qui\n"),
-        r#"["in lista\n","piegato qui"]"#
+        json("- |\n  in a list\n- >-\n  folded\n  here\n"),
+        r#"["in a list\n","folded here"]"#
     );
     assert_eq!(json("a: |\nb: 1"), r#"{"a":"","b":1}"#);
 }
@@ -198,21 +198,21 @@ fn blocchi_letterali_e_piegati() {
 // ---- document ----
 
 #[test]
-fn commenti_direttive_e_solo_il_primo_documento() {
+fn comments_directives_and_only_the_first_document() {
     assert_eq!(
         json(
-            "%YAML 1.2\n%TAG ! tag:example.com,2000:\n# in testa\n\n---   # inizio\na: 1\n\n   # rientrato\nb: 2\n...\n---\nc: 3"
+            "%YAML 1.2\n%TAG ! tag:example.com,2000:\n# at the top\n\n---   # start\na: 1\n\n   # indented\nb: 2\n...\n---\nc: 3"
         ),
         r#"{"a":1,"b":2}"#
     );
-    assert_eq!(json("--- |\n  testo\n---\naltro"), r#""testo\n""#);
+    assert_eq!(json("--- |\n  text\n---\nother"), r#""text\n""#);
     assert_eq!(json("---\n---\na: 1"), "null");
     assert_eq!(json("a: 1\r\nb: 2\r\n"), r#"{"a":1,"b":2}"#);
     assert_eq!(json("\u{FEFF}a: 1"), r#"{"a":1}"#);
 }
 
 #[test]
-fn ancore_e_alias() {
+fn anchors_and_aliases() {
     assert_eq!(
         json(
             "base: &b\n  x: 1\n  y: [1, 2]\ncopy: *b\nlist: [&s hello, *s]\nseq:\n  - &item {k: v}\n  - *item\nmerge:\n  <<: *b\n  z: 3"
@@ -220,13 +220,13 @@ fn ancore_e_alias() {
         r#"{"base":{"x":1,"y":[1,2]},"copy":{"x":1,"y":[1,2]},"list":["hello","hello"],"seq":[{"k":"v"},{"k":"v"}],"merge":{"<<":{"x":1,"y":[1,2]},"z":3}}"#
     );
     assert_eq!(
-        failure("a: *nessuno").unwrap().reason,
-        "unknown alias “*nessuno”"
+        failure("a: *nobody").unwrap().reason,
+        "unknown alias “*nobody”"
     );
 }
 
 #[test]
-fn i_tag_si_ignorano_tranne_str() {
+fn tags_are_ignored_except_str() {
     assert_eq!(
         json(
             "a: !!str 123\nb: !!int \"5\"\nc: !custom 5\nd: !!str\ne: !!str true\nf: !<tag:yaml.org,2002:str> 1\ng: !!map {x: !!str 1}\nh: [!!str 2, !foo 3]"
@@ -236,7 +236,7 @@ fn i_tag_si_ignorano_tranne_str() {
 }
 
 #[test]
-fn le_chiavi_sono_il_testo_dello_scalare() {
+fn keys_are_the_scalar_text() {
     assert_eq!(
         json("200: a\n'201': b\ntrue: c\nnull: d\n1.50: e\n"),
         r#"{"200":"a","201":"b","true":"c","null":"d","1.50":"e"}"#
@@ -246,7 +246,7 @@ fn le_chiavi_sono_il_testo_dello_scalare() {
 // ---- what stops ----
 
 #[test]
-fn ciò_che_non_si_legge_si_ferma() {
+fn what_cannot_be_read_stops() {
     let cases = [
         (
             "a:\n\tb: 1",
@@ -255,10 +255,10 @@ fn ciò_che_non_si_legge_si_ferma() {
         ("a: 1\nb: 2\na: 3", "duplicate key “a” at line 3"),
         ("a: {x: 1, x: 2}", "duplicate key “x” at line 1"),
         (
-            "a: \"non chiuso\nb: 2",
+            "a: \"not closed\nb: 2",
             "unterminated quoted scalar at line 1",
         ),
-        ("a: 'non chiuso", "unterminated quoted scalar at line 1"),
+        ("a: 'not closed", "unterminated quoted scalar at line 1"),
         ("a:\n  b: 1\n c: 2", "bad indentation at line 3"),
         ("a:\n  - 1\n - 2", "bad indentation at line 3"),
         (
@@ -272,7 +272,7 @@ fn ciò_che_non_si_legge_si_ferma() {
         ("a: {[x]: b}", "a mapping key must be a scalar at line 1"),
         ("a: [1, 2", "unterminated flow sequence at line 1"),
         ("a: {b: 1", "unterminated flow mapping at line 1"),
-        ("a: 1\nsolo testo", "could not find expected ':' at line 2"),
+        ("a: 1\njust text", "could not find expected ':' at line 2"),
         ("a: \"\\q\"", "invalid escape “\\q” at line 1"),
         ("a: - b", "unexpected character “-” at line 1"),
         ("- a\nb: 1", "unexpected text at line 2"),
@@ -288,7 +288,7 @@ fn ciò_che_non_si_legge_si_ferma() {
 }
 
 #[test]
-fn una_valanga_di_alias_si_ferma() {
+fn an_alias_avalanche_stops() {
     let mut text = format!("l0: &l0 [{}]\n", ["x"; 10].join(", "));
     for level in 1..=9 {
         text += &format!(
@@ -305,7 +305,7 @@ fn una_valanga_di_alias_si_ferma() {
 }
 
 #[test]
-fn troppo_profondo_si_ferma() {
+fn too_deep_stops() {
     assert_eq!(
         failure(&format!("{}{}", "[".repeat(300), "]".repeat(300)))
             .unwrap()
@@ -331,7 +331,7 @@ fn troppo_profondo_si_ferma() {
 // ---- real documents ----
 
 #[test]
-fn uno_swagger_2_come_petstore() {
+fn a_swagger_2_like_petstore() {
     let d = doc(r##"swagger: '2.0'
 info:
   version: 1.0.0
@@ -448,20 +448,20 @@ definitions:
 }
 
 #[test]
-fn un_openapi_3() {
+fn an_openapi_3() {
     let d = doc(r##"openapi: 3.0.3
 info:
   title: Orders
   version: "2.1"
   description: |
-    Gestione degli ordini.
+    Order management.
 
-    Due paragrafi, con `codice`.
+    Two paragraphs, with `code`.
 servers:
   - url: https://{region}.api.example.com/{basePath}
     description: >-
-      Il server di produzione,
-      scelto per regione.
+      The production server,
+      chosen by region.
     variables:
       region:
         default: eu
@@ -517,13 +517,13 @@ components:
     assert_eq!(d["info"]["version"], "2.1");
     assert_eq!(
         d["info"]["description"],
-        "Gestione degli ordini.\n\nDue paragrafi, con `codice`.\n"
+        "Order management.\n\nTwo paragraphs, with `code`.\n"
     );
     let server = &d["servers"][0];
     assert_eq!(server["url"], "https://{region}.api.example.com/{basePath}");
     assert_eq!(
         server["description"],
-        "Il server di produzione, scelto per regione."
+        "The production server, chosen by region."
     );
     assert_eq!(server["variables"]["region"]["enum"], json!(["eu", "us"]));
     assert_eq!(

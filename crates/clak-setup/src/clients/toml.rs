@@ -762,9 +762,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legge_tabelle_chiavi_puntate_e_liste_di_tabelle() {
+    fn reads_tables_dotted_keys_and_arrays_of_tables() {
         let table = parse(
-            "# commento\nmodel = \"o3\"\nn = 1_000\nf = -1.5e3\nd = 1979-05-27T07:32:00Z\nok = true\n\n[mcp_servers.clak]\ncommand = 'C:\\x\\shim.exe'\nargs = [\"-v\", # c\n  'b',\n]\n\n[[p]]\na = 1\n[[p]]\na = 2\n[p.sub]\nb = \"\"\"\nx\\\n   y\"\"\"\n",
+            "# comment\nmodel = \"o3\"\nn = 1_000\nf = -1.5e3\nd = 1979-05-27T07:32:00Z\nok = true\n\n[mcp_servers.clak]\ncommand = 'C:\\x\\shim.exe'\nargs = [\"-v\", # c\n  'b',\n]\n\n[[p]]\na = 1\n[[p]]\na = 2\n[p.sub]\nb = \"\"\"\nx\\\n   y\"\"\"\n",
         )
         .unwrap();
         let clak = table["mcp_servers"].as_table().unwrap()["clak"]
@@ -781,26 +781,26 @@ mod tests {
     }
 
     #[test]
-    fn rifiuta_cio_che_non_e_toml() {
+    fn rejects_what_is_not_toml() {
         for text in [
             "model = \n",
-            "[rotto\n",
+            "[broken\n",
             "a = 1\na = 2\n",
             "[t]\n[t]\n",
             "x = { a = 1 }\n[x.b]\n",
             "x = { a = 1 }\nx.b = 2\n",
             "a = 01\n",
             "a = \"\\q\"\n",
-            "a = 'aperta\n",
+            "a = 'unclosed\n",
             "a = 1 b\n",
-            "mcp_servers = { altro = { command = \"x\" } }\n[mcp_servers.clak]\ncommand = 'y'\n",
+            "mcp_servers = { other = { command = \"x\" } }\n[mcp_servers.clak]\ncommand = 'y'\n",
         ] {
             assert!(parse(text).is_err(), "{text}");
         }
     }
 
     #[test]
-    fn valori_scalari() {
+    fn scalar_values() {
         for ok in [
             "true",
             "1",

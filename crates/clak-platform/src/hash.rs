@@ -56,10 +56,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn l_impronta_e_quella_del_contenuto_e_segue_le_modifiche() {
+    fn the_fingerprint_is_of_the_contents_and_follows_changes() {
         let dir = std::env::temp_dir().join(format!("clak-platform-hash-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("programma.bin");
+        let file = dir.join("program.bin");
         std::fs::write(&file, b"abc").unwrap();
         let path = file.to_str().unwrap();
         assert_eq!(
@@ -73,7 +73,7 @@ mod tests {
             Some("88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589")
         );
         assert_eq!(
-            executable_hash(dir.join("non-esiste").to_str().unwrap()),
+            executable_hash(dir.join("does-not-exist").to_str().unwrap()),
             None
         );
         assert_eq!(executable_hash(dir.to_str().unwrap()), None);
@@ -81,7 +81,7 @@ mod tests {
     }
 
     #[test]
-    fn l_eseguibile_di_questo_processo_ha_un_impronta() {
+    fn this_process_executable_has_a_fingerprint() {
         let me = std::env::current_exe().unwrap();
         let hash = executable_hash(me.to_str().unwrap()).unwrap();
         assert_eq!(hash.len(), 64);

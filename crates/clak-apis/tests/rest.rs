@@ -29,7 +29,7 @@ fn entry(name: &str, base_url: &str, auth: ApiAuth, endpoints: Vec<ApiEndpoint>)
 }
 
 #[tokio::test]
-async fn un_api_importata_risponde_agli_agenti_con_il_suo_accesso() {
+async fn an_imported_api_answers_agents_with_its_access() {
     let rest = FakeRest::start().await;
     rest.set_document(common::PETSTORE);
     let http = rest::new_http_client().unwrap();
@@ -109,13 +109,13 @@ async fn un_api_importata_risponde_agli_agenti_con_il_suo_accesso() {
     rest::call(
         &api,
         "setNotes",
-        &args(json!({"petId": "7", "body": r#"["uno","due"]"#})),
+        &args(json!({"petId": "7", "body": r#"["one","two"]"#})),
         token,
         &http,
         None,
     )
     .await;
-    assert_eq!(rest.last().body, r#"["uno","due"]"#);
+    assert_eq!(rest.last().body, r#"["one","two"]"#);
     assert_eq!(rest.last().method, "PUT");
     rest::call(
         &api,
@@ -181,7 +181,7 @@ async fn un_api_importata_risponde_agli_agenti_con_il_suo_accesso() {
 }
 
 #[tokio::test]
-async fn un_api_a_mano_con_bearer_basic_e_un_modulo() {
+async fn a_hand_made_api_with_bearer_basic_and_a_form() {
     let rest = FakeRest::start().await;
     let http = rest::new_http_client().unwrap();
     let endpoints = vec![
@@ -216,14 +216,14 @@ async fn un_api_a_mano_con_bearer_basic_e_un_modulo() {
     rest::call(
         &api,
         "search",
-        &args(json!({"q": "è così"})),
+        &args(json!({"q": "café déjà"})),
         Some(&tok),
         &http,
         None,
     )
     .await;
     assert_eq!(rest.last().path, "/search");
-    assert_eq!(rest.last().query, "?q=%C3%A8%20cos%C3%AC");
+    assert_eq!(rest.last().query, "?q=caf%C3%A9%20d%C3%A9j%C3%A0");
     assert_eq!(rest.last().headers["authorization"], "Bearer tok");
 
     rest::call(
@@ -306,7 +306,7 @@ async fn un_api_a_mano_con_bearer_basic_e_un_modulo() {
 }
 
 #[tokio::test]
-async fn un_altro_host_non_riceve_il_segreto() {
+async fn another_host_does_not_get_the_secret() {
     let rest = FakeRest::start().await;
     let other = FakeRest::start().await;
     let http = rest::new_http_client().unwrap();
@@ -399,7 +399,7 @@ async fn un_altro_host_non_riceve_il_segreto() {
 }
 
 #[tokio::test]
-async fn un_immagine_o_un_file_arrivano_come_allegato() {
+async fn an_image_or_a_file_arrives_as_an_attachment() {
     let rest = FakeRest::start().await;
     let http = rest::new_http_client().unwrap();
     let png = vec![0x89, 0x50, 0x4E, 0x47, 1, 2, 3];
@@ -446,7 +446,7 @@ async fn un_immagine_o_un_file_arrivano_come_allegato() {
 }
 
 #[tokio::test]
-async fn un_testo_lungo_si_tronca_e_lo_dice() {
+async fn a_long_text_is_truncated_and_says_so() {
     let rest = FakeRest::start().await;
     let http = rest::new_http_client().unwrap();
     let api = entry(
@@ -475,11 +475,11 @@ async fn un_testo_lungo_si_tronca_e_lo_dice() {
     rest.respond(|_| {
         Reply::new(200, "")
             .typed("text/plain; charset=ISO-8859-1")
-            .bytes(vec![b'c', 0xE8])
+            .bytes(vec![b'c', b'a', b'f', 0xE9])
     });
     assert_eq!(
         content(&rest::call(&api, "big", &args(json!({})), None, &http, None).await),
-        "cè"
+        "café"
     );
     rest.respond(|_| Reply::new(204, ""));
     assert_eq!(
@@ -489,7 +489,7 @@ async fn un_testo_lungo_si_tronca_e_lo_dice() {
 }
 
 #[tokio::test]
-async fn la_pagina_dopo_arriva_come_argomenti_del_comando() {
+async fn the_next_page_arrives_as_command_arguments() {
     let rest = FakeRest::start().await;
     let http = rest::new_http_client().unwrap();
     let endpoints = vec![
@@ -549,7 +549,7 @@ async fn la_pagina_dopo_arriva_come_argomenti_del_comando() {
 }
 
 #[tokio::test]
-async fn un_api_con_oauth_si_rinnova_dopo_un_401_e_poi_chiede_l_utente() {
+async fn an_oauth_api_renews_after_a_401_then_asks_the_user() {
     let rest = FakeRest::start().await;
     rest.require_token();
     let http = rest::new_http_client().unwrap();
@@ -675,7 +675,7 @@ async fn un_api_con_oauth_si_rinnova_dopo_un_401_e_poi_chiede_l_utente() {
 }
 
 #[tokio::test]
-async fn un_servizio_lento_o_spento_lo_dice() {
+async fn a_slow_or_down_service_says_so() {
     let rest = FakeRest::start().await;
     let http = rest::new_http_client().unwrap();
     let api = entry(

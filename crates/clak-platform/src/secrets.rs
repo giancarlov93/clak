@@ -319,13 +319,13 @@ mod tests {
     }
 
     #[test]
-    fn il_file_dei_segreti_tiene_i_blob_in_base64() {
+    fn the_secrets_file_keeps_blobs_in_base64() {
         let dir = temp("filebox");
         let path = dir.join("connectors.secrets");
         let secrets = FileBox::new(&path, Reverse);
         assert_eq!(secrets.secret("cn_1"), None);
         secrets
-            .set_secret("cn_1", Some("abc"), "Clak: uno")
+            .set_secret("cn_1", Some("abc"), "Clak: one")
             .unwrap();
         secrets
             .set_secret("cn_1#oauth", Some("{\"a\":1}"), "")
@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn la_scatola_in_memoria() {
+    fn the_in_memory_box() {
         let secrets = MemoryBox::new();
         secrets.set_secret("cn_1", Some("x"), "").unwrap();
         assert_eq!(secrets.secret("cn_1").as_deref(), Some("x"));
@@ -373,10 +373,10 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn dpapi_cifra_e_decifra_per_l_utente() {
-        let sealed = Dpapi.protect(b"segreto \xC3\xA8").unwrap();
-        assert_ne!(sealed, b"segreto \xC3\xA8");
-        assert_eq!(Dpapi.unprotect(&sealed).unwrap(), b"segreto \xC3\xA8");
+    fn dpapi_encrypts_and_decrypts_for_the_user() {
+        let sealed = Dpapi.protect(b"secret \xC3\xA8").unwrap();
+        assert_ne!(sealed, b"secret \xC3\xA8");
+        assert_eq!(Dpapi.unprotect(&sealed).unwrap(), b"secret \xC3\xA8");
         assert!(Dpapi.unprotect(b"not a blob").is_err());
 
         let dir = temp("dpapi");

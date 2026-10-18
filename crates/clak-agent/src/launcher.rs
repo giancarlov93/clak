@@ -193,12 +193,12 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn l_app_si_trova_intorno_all_eseguibile() {
+    fn the_app_is_found_around_the_executable() {
         assert_eq!(
             target_for(Path::new("/Applications/Clak.app/Contents/MacOS/clak")).as_deref(),
             Some("/Applications/Clak.app")
         );
-        assert_eq!(target_for(Path::new("/nessun/posto/clak")), None);
+        assert_eq!(target_for(Path::new("/no/such/place/clak")), None);
     }
 }
 
@@ -207,7 +207,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn una_riga_che_non_parte_non_parte() {
-        assert!(!start_command("\"C:\\nessun\\posto\\ClakApp.exe\""));
+    fn a_command_that_does_not_start_reports_it() {
+        assert!(!start_command("\"C:\\no\\such\\place\\ClakApp.exe\""));
     }
 }

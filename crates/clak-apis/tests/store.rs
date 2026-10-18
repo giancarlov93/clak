@@ -55,7 +55,7 @@ fn api(id: &str, name: &str) -> ApiEntry {
 }
 
 #[test]
-fn le_api_e_i_segreti_si_salvano_a_parte() {
+fn apis_and_secrets_are_saved_apart() {
     let folder = Folder::new();
     let home = folder.0.join("hub");
     let store = ApiStore::new(
@@ -79,7 +79,7 @@ fn le_api_e_i_segreti_si_salvano_a_parte() {
     let parsed: serde_json::Value = serde_json::from_str(&secrets).unwrap();
     assert!(parsed["api_1"].is_string()); // { "<id>": "<base64 of the blob>" }
 
-    let mut renamed = api("api_1", "Uno");
+    let mut renamed = api("api_1", "First");
     renamed.enabled = false;
     store.update(&renamed).unwrap();
     assert_eq!(store.get("api_1").unwrap(), renamed);
@@ -103,13 +103,13 @@ fn le_api_e_i_segreti_si_salvano_a_parte() {
 }
 
 #[test]
-fn i_file_dell_hub_per_windows_si_leggono() {
+fn the_windows_hub_files_are_read() {
     let folder = Folder::new();
     std::fs::create_dir_all(&folder.0).unwrap();
     // As System.Text.Json writes it: with the BOM if an editor touched it, and escaped characters.
     std::fs::write(
         folder.0.join("apis.json"),
-        "\u{FEFF}{\r\n  \"apis\": [\r\n    {\r\n      \"id\": \"api_9\",\r\n      \"name\": \"Caf\\u00E8\",\r\n      \"base_url\": \"https://x.example\",\r\n      \"enabled\": true,\r\n      \"since\": 1712345678,\r\n      \"auth\": { \"kind\": \"bearer\", \"name\": null },\r\n      \"command\": \"cafe\",\r\n      \"source\": null,\r\n      \"endpoints\": [ { \"name\": \"a\", \"method\": \"GET\", \"path\": \"/a\", \"parameters\": [] } ]\r\n    }\r\n  ]\r\n}",
+        "\u{FEFF}{\r\n  \"apis\": [\r\n    {\r\n      \"id\": \"api_9\",\r\n      \"name\": \"Caf\\u00E9\",\r\n      \"base_url\": \"https://x.example\",\r\n      \"enabled\": true,\r\n      \"since\": 1712345678,\r\n      \"auth\": { \"kind\": \"bearer\", \"name\": null },\r\n      \"command\": \"cafe\",\r\n      \"source\": null,\r\n      \"endpoints\": [ { \"name\": \"a\", \"method\": \"GET\", \"path\": \"/a\", \"parameters\": [] } ]\r\n    }\r\n  ]\r\n}",
     )
     .unwrap();
     // A secret encrypted by another user (or corrupted) can't be decrypted: it's absent.
@@ -124,7 +124,7 @@ fn i_file_dell_hub_per_windows_si_leggono() {
     );
     let all = store.all();
     assert_eq!(all.len(), 1);
-    assert_eq!(all[0].name, "Cafè");
+    assert_eq!(all[0].name, "Café");
     assert_eq!(all[0].since, 1712345678.0);
     assert_eq!(all[0].command.as_deref(), Some("cafe"));
     assert_eq!(store.secret("api_9"), None);
@@ -136,7 +136,7 @@ fn i_file_dell_hub_per_windows_si_leggono() {
 }
 
 #[test]
-fn nella_scatola_in_memoria_niente_tocca_il_disco_tranne_l_elenco() {
+fn the_memory_box_writes_only_the_list_to_disk() {
     let folder = Folder::new();
     let memory = Arc::new(MemoryBox::new());
     let store = ApiStore::new(&folder.0, memory.clone());

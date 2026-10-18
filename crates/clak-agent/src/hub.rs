@@ -205,7 +205,7 @@ mod tests {
     use crate::fake_hub::FakeHub;
 
     #[test]
-    fn le_righe_di_attesa_arrivano_prima_della_risposta() {
+    fn waiting_lines_arrive_before_the_response() {
         let hub = FakeHub::new(vec![
             FakeHub::progress("consent", "waiting for the user to answer…"),
             FakeHub::progress("allowed", "permission granted."),
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn se_il_tempo_scade_mentre_si_aspetta_l_utente_e_no_answer_e_la_domanda_si_ritira() {
+    fn timing_out_while_waiting_for_the_user_is_no_answer_and_withdraws_the_question() {
         let hub = FakeHub::new(vec![FakeHub::progress(
             "consent",
             "waiting for the user to answer…",
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn se_il_tempo_scade_mentre_si_aspetta_il_programma_e_wait_timeout() {
+    fn timing_out_while_waiting_for_the_program_is_wait_timeout() {
         // After the user's yes, the wait is for the program: it may have acted anyway.
         for script in [
             vec![
@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn l_hub_chiuso_dall_utente_non_si_riapre() {
+    fn a_hub_closed_by_the_user_is_not_reopened() {
         let home =
             std::env::temp_dir().join(format!("clak-paused-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&home).unwrap();
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn i_secondi_restano_nei_limiti() {
+    fn seconds_stay_within_bounds() {
         assert_eq!(seconds(0.5), Duration::from_millis(500));
         assert_eq!(seconds(1e300), Duration::from_secs(u32::MAX.into()));
     }

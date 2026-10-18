@@ -375,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn si_riconoscono_i_blocchi_di_mcp_e_solo_quelli_ben_fatti() {
+    fn mcp_blocks_are_recognized_only_when_well_formed() {
         assert!(blocks(Some(&content(r#"[{"type":"text","text":"a"},{"type":"image","data":"AA==","mimeType":"image/png"}]"#))).is_some());
         assert!(
             blocks(Some(&content(
@@ -391,14 +391,14 @@ mod tests {
         );
         assert!(blocks(Some(&content(r#"[{"type":"image","data":"AA=="}]"#))).is_none()); // without mimeType
         assert!(blocks(Some(&content(r#"[{"type":"text","text":"a"}, 3]"#))).is_none());
-        assert!(blocks(Some(&content(r#"[{"nome":"un dato qualunque"}]"#))).is_none());
+        assert!(blocks(Some(&content(r#"[{"name":"any data"}]"#))).is_none());
         assert!(blocks(Some(&content("[]"))).is_none());
         // Text only: the text is printed, not the JSON.
         assert_eq!(
             result(Some(&content(
-                r#"[{"type":"text","text":"uno"},{"type":"text","text":"due"}]"#
+                r#"[{"type":"text","text":"one"},{"type":"text","text":"two"}]"#
             ))),
-            "uno\ndue"
+            "one\ntwo"
         );
         assert_eq!(result(Some(&json!(3))), "3");
         assert_eq!(result(Some(&json!(null))), "");
@@ -406,12 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn l_elenco_dice_il_prossimo_passo() {
+    fn the_list_says_the_next_step() {
         let response = object(content(
-            r#"{"resources":[{"name":"word","app":"Word","title":"contratto.docx","origin":"winword.exe","tools":3,"allowed":false}]}"#,
+            r#"{"resources":[{"name":"word","app":"Word","title":"contract.docx","origin":"winword.exe","tools":3,"allowed":false}]}"#,
         ));
         let text = programs(&response, Style::Cli);
-        assert!(text.contains("word  Word — contratto.docx"));
+        assert!(text.contains("word  Word — contract.docx"));
         assert!(text.contains("3 commands · the first command will ask the user for permission"));
         assert!(text.ends_with("clak <name> list"));
         assert!(programs(&response, Style::Mcp).contains("commands {"));
@@ -419,9 +419,9 @@ mod tests {
     }
 
     #[test]
-    fn l_elenco_basta_per_scrivere_la_chiamata_e_l_aiuto_dice_i_predefiniti() {
+    fn the_list_is_enough_to_write_the_call_and_the_help_gives_defaults() {
         let response = object(content(
-            r#"{"name":"revit","app":"Revit","title":"modello.rvt","allowed":true,"tools":[{"name":"run_python","description":"Esegue uno script.",
+            r#"{"name":"revit","app":"Revit","title":"model.rvt","allowed":true,"tools":[{"name":"run_python","description":"Runs a script.",
              "approved":true,"input_schema":{"type":"object","properties":{"code":{"type":"string"},
              "intent":{"type":"string","enum":["read","write"]},"timeout":{"type":"integer","default":60}},"required":["code","intent"]}}]}"#,
         ));
@@ -435,11 +435,11 @@ mod tests {
         assert!(
             help.contains("  --intent (string), required\n      values: \"read\", \"write\"\n")
         );
-        assert!(command(&response, "altro").is_none());
+        assert!(command(&response, "other").is_none());
     }
 
     #[test]
-    fn le_istruzioni_di_un_programma_stanno_nel_suo_aiuto() {
+    fn a_programs_instructions_are_in_its_help() {
         let mut response = object(content(
             r#"{"name":"petstore","app":"Petstore","title":"API","allowed":true,"instructions":"Read the pets first.\nThen sell.","tools":[]}"#,
         ));
@@ -458,14 +458,14 @@ mod tests {
     }
 
     #[test]
-    fn i_comandi_nuovi_si_segnano_e_mcp_mostra_lo_schema() {
+    fn new_commands_are_marked_and_mcp_shows_the_schema() {
         let response = object(json!({
             "name": "word", "app": "Word", "title": "a.docx", "allowed": true,
-            "tools": [{"name": "append_text", "description": "Aggiunge\ntesto.", "approved": false,
+            "tools": [{"name": "append_text", "description": "Adds\ntext.", "approved": false,
                        "input_schema": {"type": "object"}}]
         }));
         let cli = commands(&response, Style::Cli, false);
-        assert!(cli.starts_with("Word — a.docx  (clak word)\n\n  append_text* — Aggiunge testo.\n      clak word append_text\n"));
+        assert!(cli.starts_with("Word — a.docx  (clak word)\n\n  append_text* — Adds text.\n      clak word append_text\n"));
         assert!(cli.contains("* new or changed since permission was granted"));
         let mcp = commands(&response, Style::Mcp, false);
         assert!(mcp.contains("      parameters: {\"type\":\"object\"}\n"));
@@ -475,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn i_numeri_con_al_piu_tre_decimali() {
+    fn numbers_have_at_most_three_decimals() {
         assert_eq!(number(60.0), "60");
         assert_eq!(number(1.5), "1.5");
         assert_eq!(number(1.0 / 3.0), "0.333");

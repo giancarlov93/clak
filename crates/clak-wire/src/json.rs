@@ -253,7 +253,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn due_chiavi_uguali_non_si_leggono() {
+    fn duplicate_keys_are_rejected() {
         assert!(parse(br#"{"a":1,"a":2}"#).is_err());
         assert!(parse(br#"{"a":{"b":1,"b":1}}"#).is_err());
         assert_eq!(
@@ -263,20 +263,20 @@ mod tests {
     }
 
     #[test]
-    fn i_numeri_in_virgola_restano_in_virgola() {
+    fn floats_stay_floats() {
         assert_eq!(text(&float(60.0)), "60.0");
         assert_eq!(text(&float(1.5)), "1.5");
     }
 
     #[test]
-    fn l_impronta_non_dipende_dall_ordine_delle_chiavi() {
+    fn the_digest_ignores_key_order() {
         assert_eq!(digest(&json!({"a":1,"b":2})), digest(&json!({"b":2,"a":1})));
         assert_ne!(digest(&json!({"a":1})), digest(&json!({"a":2})));
         assert_eq!(digest(&json!({})).len(), 16);
     }
 
     #[test]
-    fn la_verita_dei_valori() {
+    fn value_truthiness() {
         assert!(!truthy(Some(&json!(""))));
         assert!(!truthy(Some(&json!(0))));
         assert!(!truthy(Some(&json!({}))));
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn i_testi_non_ascii_non_si_scappano() {
-        assert_eq!(text(&json!("perché")), "\"perché\"");
+    fn non_ascii_text_is_not_escaped() {
+        assert_eq!(text(&json!("café")), "\"café\"");
     }
 }

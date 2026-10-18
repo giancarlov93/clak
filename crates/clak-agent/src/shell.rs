@@ -207,7 +207,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_radice_di_git_bash_si_ricava_da_exepath() {
+    fn the_git_bash_root_is_derived_from_exepath() {
         assert_eq!(
             Shell::msys_root(Some(r"C:\Program Files\Git\bin")).as_deref(),
             Some("C:/Program Files/Git")
@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn la_shell_di_questo_processo_si_legge_senza_errori() {
+    fn the_shell_of_this_process_is_read_without_errors() {
         // Which one it is depends on who runs the tests: it just has to be able to tell.
         let shell = Shell::current();
         let _ = shell.windows_powershell();

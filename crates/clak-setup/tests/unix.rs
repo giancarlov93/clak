@@ -27,7 +27,7 @@ fn target(path: &Path) -> Option<String> {
 }
 
 #[test]
-fn senza_la_cartella_non_si_crea_niente_e_si_dice_cosa_fare() {
+fn without_the_folder_nothing_is_created_and_it_says_what_to_do() {
     let sandbox = Sandbox::new();
     assert_eq!(link(&sandbox).status().state, PathLinkState::NoFolder);
     assert!(link(&sandbox).add().unwrap_err().0.contains(".zprofile"));
@@ -35,7 +35,7 @@ fn senza_la_cartella_non_si_crea_niente_e_si_dice_cosa_fare() {
 }
 
 #[test]
-fn si_aggiunge_si_riconosce_e_si_toglie_rimettendo_tutto_com_era() {
+fn it_is_added_recognized_and_removed_restoring_everything() {
     let sandbox = Sandbox::new();
     let bin = sandbox.dir(&["home", ".local", "bin"]);
     let claude = sandbox.write("home/.local/bin/claude", "#!/bin/sh\n");
@@ -71,11 +71,11 @@ fn si_aggiunge_si_riconosce_e_si_toglie_rimettendo_tutto_com_era() {
 }
 
 #[test]
-fn un_collegamento_a_un_altra_copia_dell_app_si_aggiorna() {
+fn a_link_to_another_copy_of_the_app_is_updated() {
     let sandbox = Sandbox::new();
     let bin = sandbox.dir(&["home", ".local", "bin"]);
     symlink(
-        "/Volumes/Altro/Clak.app/Contents/MacOS/clak",
+        "/Volumes/Other/Clak.app/Contents/MacOS/clak",
         bin.join("clak"),
     )
     .unwrap();
@@ -86,7 +86,7 @@ fn un_collegamento_a_un_altra_copia_dell_app_si_aggiorna() {
     // On removal too: it is ours even if it points to an app that is gone.
     std::fs::remove_file(bin.join("clak")).unwrap();
     symlink(
-        "/Volumes/Altro/Clak.app/Contents/MacOS/clak",
+        "/Volumes/Other/Clak.app/Contents/MacOS/clak",
         bin.join("clak"),
     )
     .unwrap();
@@ -95,16 +95,16 @@ fn un_collegamento_a_un_altra_copia_dell_app_si_aggiorna() {
 }
 
 #[test]
-fn un_clak_che_non_e_nostro_non_si_tocca() {
-    for kind in ["file", "altro collegamento", "cartella"] {
+fn a_clak_that_is_not_ours_is_left_alone() {
+    for kind in ["file", "other link", "folder"] {
         let sandbox = Sandbox::new();
         let bin = sandbox.dir(&["home", ".local", "bin"]);
         let path = bin.join("clak");
         match kind {
             "file" => {
-                sandbox.write("home/.local/bin/clak", "#!/bin/sh\necho mio\n");
+                sandbox.write("home/.local/bin/clak", "#!/bin/sh\necho mine\n");
             }
-            "cartella" => {
+            "folder" => {
                 sandbox.dir(&["home", ".local", "bin", "clak"]);
             }
             _ => symlink("/usr/local/lib/clak/clak", &path).unwrap(),
@@ -117,15 +117,15 @@ fn un_clak_che_non_e_nostro_non_si_tocca() {
         assert!(link(&sandbox).add().is_err());
         link(&sandbox).remove().unwrap();
         match kind {
-            "file" => assert_eq!(read(&path), "#!/bin/sh\necho mio\n"),
-            "cartella" => assert!(path.is_dir()),
+            "file" => assert_eq!(read(&path), "#!/bin/sh\necho mine\n"),
+            "folder" => assert!(path.is_dir()),
             _ => assert_eq!(target(&path).as_deref(), Some("/usr/local/lib/clak/clak")),
         }
     }
 }
 
 #[test]
-fn il_collegamento_relativo_alla_stessa_app_e_il_nostro() {
+fn a_relative_link_to_the_same_app_is_ours() {
     let sandbox = Sandbox::new();
     let bin = sandbox.dir(&["home", ".local", "bin"]);
     let cli = format!(
@@ -144,7 +144,7 @@ fn il_collegamento_relativo_alla_stessa_app_e_il_nostro() {
 }
 
 #[test]
-fn l_avvio_al_login_si_accende_si_spegne_e_riconosce_le_altre_copie() {
+fn login_autostart_turns_on_and_off_and_recognizes_other_copies() {
     let sandbox = Sandbox::new();
     let folder = sandbox.path("home/Library/LaunchAgents");
     let exe = "/Applications/Clak & Co.app/Contents/MacOS/ClakApp";
@@ -154,7 +154,7 @@ fn l_avvio_al_login_si_accende_si_spegne_e_riconosce_le_altre_copie() {
     assert_eq!(autostart.state(), AutostartState::On);
     assert_eq!(autostart.registered().as_deref(), Some(exe));
     assert_eq!(
-        Autostart::with_folder("/Altrove/Clak.app/Contents/MacOS/ClakApp", &folder).state(),
+        Autostart::with_folder("/Elsewhere/Clak.app/Contents/MacOS/ClakApp", &folder).state(),
         AutostartState::Elsewhere
     );
     autostart.disable().unwrap();
@@ -174,11 +174,11 @@ fn app(sandbox: &Sandbox, name: &str) -> String {
 }
 
 #[test]
-fn cio_che_indicava_un_app_sparita_si_sposta_su_questa() {
+fn what_pointed_to_a_vanished_app_moves_to_this_one() {
     let sandbox = Sandbox::new();
-    let here = app(&sandbox, "nuova/Clak.app");
-    let other = app(&sandbox, "altra/Clak.app");
-    let gone = format!("{}/sparita/Clak.app/Contents/MacOS", sandbox.root.display());
+    let here = app(&sandbox, "new/Clak.app");
+    let other = app(&sandbox, "other/Clak.app");
+    let gone = format!("{}/gone/Clak.app/Contents/MacOS", sandbox.root.display());
     let bin = sandbox.dir(&["home", ".local", "bin"]);
     symlink(format!("{gone}/clak"), bin.join("clak")).unwrap();
     sandbox.write(
@@ -227,17 +227,17 @@ fn cio_che_indicava_un_app_sparita_si_sposta_su_questa() {
 }
 
 #[test]
-fn uno_shim_sparito_ma_di_altri_non_si_tocca() {
+fn a_vanished_shim_belonging_to_others_is_left_alone() {
     let sandbox = Sandbox::new();
     let cursor = sandbox.write(
         "home/.cursor/mcp.json",
         &format!(
-            "{{\"mcpServers\": {{\"clak\": {{\"command\": \"{}/sparito/altro-shim\"}}}}}}\n",
+            "{{\"mcpServers\": {{\"clak\": {{\"command\": \"{}/gone/other-shim\"}}}}}}\n",
             sandbox.root.display()
         ),
     );
     let before = read(&cursor);
-    let here = app(&sandbox, "nuova/Clak.app");
+    let here = app(&sandbox, "new/Clak.app");
     assert!(
         installation::repair_gone(
             &sandbox.places,

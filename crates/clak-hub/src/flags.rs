@@ -260,30 +260,30 @@ mod tests {
     }
 
     #[test]
-    fn i_flag_si_convertono_secondo_lo_schema() {
+    fn flags_are_converted_by_the_schema() {
         let args = apply(
             &tool(),
             None,
             &flags(json!([
-                {"name":"text","value":"ciao"}, {"name":"count","value":"3"},
+                {"name":"text","value":"hello"}, {"name":"count","value":"3"},
                 {"name":"tags","value":"a"}, {"name":"tags","value":"b"}, {"name":"force"}
             ])),
         )
         .unwrap();
         assert_eq!(
             Value::Object(args),
-            json!({"text":"ciao","count":3,"tags":["a","b"],"force":true})
+            json!({"text":"hello","count":3,"tags":["a","b"],"force":true})
         );
     }
 
     #[test]
-    fn i_valori_senza_nome_vanno_agli_obbligatori() {
+    fn unnamed_values_go_to_required_flags() {
         let args = apply(&tool(), None, &flags(json!([{"value":"eggs"}]))).unwrap();
         assert_eq!(args["text"], "eggs");
     }
 
     #[test]
-    fn gli_errori_dicono_l_uso_e_il_suggerimento() {
+    fn errors_tell_usage_and_suggestion() {
         let error = apply(&tool(), None, &flags(json!([{"name":"txet","value":"x"}]))).unwrap_err();
         assert!(error.contains("did you mean --text?"), "{error}");
         assert!(
@@ -293,11 +293,11 @@ mod tests {
         let error = apply(
             &tool(),
             None,
-            &flags(json!([{"name":"text","value":"x"},{"name":"count","value":"tre"}])),
+            &flags(json!([{"name":"text","value":"x"},{"name":"count","value":"three"}])),
         )
         .unwrap_err();
         assert!(
-            error.starts_with("--count: 'tre' is not an integer."),
+            error.starts_with("--count: 'three' is not an integer."),
             "{error}"
         );
         let error = apply(&tool(), None, &flags(json!([]))).unwrap_err();

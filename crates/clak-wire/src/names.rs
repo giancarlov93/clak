@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn suggerisce_il_nome_vicino() {
+    fn suggests_the_closest_name() {
         assert_eq!(
             closest(Some("intnet"), ["intent", "other"]),
             Some("intent".into())

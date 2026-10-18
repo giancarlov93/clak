@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn le_righe_di_attesa_vanno_su_stderr_e_senza_risposta_l_uscita_e_7() {
+    fn waiting_lines_go_to_stderr_and_no_answer_exits_7() {
         let hub = FakeHub::new(vec![FakeHub::progress(
             "consent",
             "waiting for the user to answer in the Clak window…",
@@ -426,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn un_errore_dell_hub_ha_il_suo_codice_di_uscita_e_arriva_com_e() {
+    fn a_hub_error_has_its_exit_code_and_arrives_as_is() {
         let hub = FakeHub::new(vec![FakeHub::response(json!({
             "ok": false, "code": "bad_request",
             "error": "'run_python' has no parameter --intnet: did you mean --intent? Usage: run_python --code TEXT --intent read|write",
@@ -446,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn il_comando_di_meno_h_scritto_male_ha_il_suggerimento() {
+    fn a_misspelled_command_with_dash_h_gets_the_suggestion() {
         let hub = FakeHub::new(vec![FakeHub::response(json!({
             "ok": true, "name": "word", "app": "Word", "title": "a.docx", "allowed": true,
             "tools": [{"name": "append_text", "description": "d", "input_schema": {"type": "object"}}],
@@ -468,31 +468,34 @@ mod tests {
     }
 
     #[test]
-    fn con_json_il_risultato_nella_busta_e_un_testo_json_resta_json() {
+    fn with_json_a_json_text_result_stays_json_in_the_envelope() {
         let hub = FakeHub::new(vec![FakeHub::response(
-            json!({"ok": true, "content": [{"type": "text", "text": "{\"muri\": 3}"}]}),
+            json!({"ok": true, "content": [{"type": "text", "text": "{\"walls\": 3}"}]}),
         )]);
         let ran = clak(&hub, &["revit", "count_walls", "--json"]);
         assert_eq!(ran.exit, 0);
         assert_eq!(
             clak_wire::json::text(&parse(&ran.out)),
-            r#"{"ok":true,"exit":0,"result":{"muri":3}}"#
+            r#"{"ok":true,"exit":0,"result":{"walls":3}}"#
         );
-        assert_eq!(clak(&hub, &["revit", "count_walls"]).out, "{\"muri\": 3}\n");
+        assert_eq!(
+            clak(&hub, &["revit", "count_walls"]).out,
+            "{\"walls\": 3}\n"
+        );
     }
 
     #[test]
-    fn i_file_di_un_risultato_con_json_sono_percorsi_non_base64() {
+    fn with_json_the_files_of_a_result_are_paths_not_base64() {
         let folder =
             std::env::temp_dir().join(format!("clak-files-{}", clak_wire::json::random_hex(4)));
         let hub = FakeHub::new(vec![FakeHub::response(json!({"ok": true, "content": [
-            {"type": "text", "text": "Ecco la vista."}, {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
+            {"type": "text", "text": "Here is the view."}, {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
         ]}))]);
-        let output = folder.join("vista.png");
+        let output = folder.join("view.png");
         let output_text = output.to_string_lossy().into_owned();
         let ran = clak(&hub, &["blender", "capture", "--json", "-o", &output_text]);
         let result = parse(&ran.out)["result"].clone();
-        assert_eq!(result["text"], "Ecco la vista.");
+        assert_eq!(result["text"], "Here is the view.");
         assert_eq!(
             result["files"],
             json!([{"path": output_text, "mime": "image/png", "bytes": 8}])
@@ -502,9 +505,9 @@ mod tests {
     }
 
     #[test]
-    fn un_risultato_lungo_va_in_un_file_e_meno_o_meno_lo_stampa() {
+    fn a_long_result_goes_to_a_file_and_dash_o_dash_prints_it() {
         let long = (0..5000)
-            .map(|i| format!("riga {i}"))
+            .map(|i| format!("line {i}"))
             .collect::<Vec<_>>()
             .join("\n");
         let hub = FakeHub::new(vec![FakeHub::response(
@@ -531,40 +534,40 @@ mod tests {
     }
 
     #[test]
-    fn meno_o_scrive_il_risultato_in_un_file() {
+    fn dash_o_writes_the_result_to_a_file() {
         let folder =
             std::env::temp_dir().join(format!("clak-out-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
         let hub = FakeHub::new(vec![FakeHub::response(
-            json!({"ok": true, "content": "perché"}),
+            json!({"ok": true, "content": "résumé"}),
         )]);
         let file = folder.join("r.txt");
         let ran = clak(&hub, &["revit", "dump", "-o", &file.to_string_lossy()]);
         assert_eq!(ran.exit, 0);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "perché");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "résumé");
         assert_eq!(
             ran.out,
-            format!("Written to {} (7 bytes).\n", file.display())
+            format!("Written to {} (8 bytes).\n", file.display())
         );
         let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
-    fn un_errore_del_programma_e_uscita_1_con_il_testo_su_stderr() {
+    fn a_program_error_exits_1_with_the_text_on_stderr() {
         let hub = FakeHub::new(vec![FakeHub::response(
-            json!({"ok": true, "is_error": true, "content": [{"type": "text", "text": "muro non trovato"}]}),
+            json!({"ok": true, "is_error": true, "content": [{"type": "text", "text": "wall not found"}]}),
         )]);
         let ran = clak(&hub, &["revit", "delete", "--json"]);
         assert_eq!(ran.exit, 1);
         assert_eq!(
             ran.err,
-            "clak: 'revit delete' returned an error:\nmuro non trovato\n"
+            "clak: 'revit delete' returned an error:\nwall not found\n"
         );
         assert_eq!(parse(&ran.out)["code"], "tool_error");
     }
 
     #[test]
-    fn lo_stato_e_l_elenco() {
+    fn the_status_and_the_list() {
         let hub = FakeHub::new(vec![FakeHub::response(
             json!({"ok": true, "agent": {"name": "Claude Code"}, "authorized": true, "resources": 2}),
         )]);
@@ -595,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn hub_chiuso_dall_utente_e_uscita_4() {
+    fn a_hub_closed_by_the_user_exits_4() {
         let home =
             std::env::temp_dir().join(format!("clak-cli-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&home).unwrap();
@@ -609,9 +612,9 @@ mod tests {
     }
 
     #[test]
-    fn un_errore_d_uso_con_json_va_anche_nella_busta() {
+    fn with_json_a_usage_error_also_goes_in_the_envelope() {
         let hub = FakeHub::new(vec![]);
-        let ran = clak(&hub, &["list", "--json", "--wait", "mai"]);
+        let ran = clak(&hub, &["list", "--json", "--wait", "never"]);
         assert_eq!(ran.exit, 2);
         assert_eq!(
             ran.err,
@@ -622,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn aiuto_e_versione_non_disturbano_l_hub() {
+    fn help_and_version_do_not_bother_the_hub() {
         let hub = FakeHub::new(vec![]);
         let help = clak(&hub, &["-h"]);
         assert_eq!((help.exit, help.out.as_str()), (0, output::help().as_str()));
@@ -632,8 +635,8 @@ mod tests {
     }
 
     #[test]
-    fn lo_standard_input_si_legge_in_utf8_o_utf16() {
-        assert_eq!(decode_stdin("città".as_bytes()), "città");
+    fn standard_input_is_read_as_utf8_or_utf16() {
+        assert_eq!(decode_stdin("café".as_bytes()), "café");
         assert_eq!(decode_stdin(&[0xEF, 0xBB, 0xBF, b'a']), "a");
         assert_eq!(decode_stdin(&[0xFF, 0xFE, b'a', 0]), "a");
     }

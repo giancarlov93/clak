@@ -389,7 +389,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn i_testi_si_ripuliscono() {
+    fn texts_are_cleaned() {
         assert_eq!(clean(Some("  a\n\tb  \u{202E}c "), 80), "a b c");
         assert_eq!(clean(Some("abcdef"), 4), "abc…");
         assert_eq!(clean(None, 4), "");

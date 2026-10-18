@@ -45,7 +45,7 @@ pub fn spill(text: &str, invocation: &Invocation, extension: &str) -> std::io::R
 
 /// Writes the files and returns the text to print: the texts as they are, one line with
 /// the path for each file. With `-o` the first file goes there and the others next to it
-/// (`vista-2.png`); without it, in `%TEMP%\clak`, with the name the program gave it if
+/// (`view-2.png`); without it, in `%TEMP%\clak`, with the name the program gave it if
 /// it has one.
 ///
 /// `files`, if given, receives a `{path, mime, bytes}` for each file written: for
@@ -211,7 +211,7 @@ fn unescape(text: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| text.to_owned())
 }
 
-/// `vista.png` → `vista-2.png`, in the same folder.
+/// `view.png` → `view-2.png`, in the same folder.
 fn numbered(path: &str, n: usize) -> PathBuf {
     let full = full_path(path);
     let stem = full
@@ -323,19 +323,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn i_file_di_un_risultato_vanno_su_disco_e_al_loro_posto_c_e_il_percorso() {
+    fn a_results_files_go_to_disk_and_their_paths_take_their_place() {
         let folder =
             std::env::temp_dir().join(format!("clak-files-{}", clak_wire::json::random_hex(4)));
         std::fs::create_dir_all(&folder).unwrap();
         let content = clak_wire::json::parse_str(
-            r#"[{"type":"text","text":"Ecco la vista."},
+            r#"[{"type":"text","text":"Here is the view."},
                 {"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"},
-                {"type":"resource","resource":{"uri":"file:///progetti/tavolo.blend","mimeType":"application/x-blender","blob":"QkxFTkRFUg=="}},
-                {"type":"resource","resource":{"uri":"memo://nota","text":"testo di una risorsa"}}]"#,
+                {"type":"resource","resource":{"uri":"file:///projects/table.blend","mimeType":"application/x-blender","blob":"QkxFTkRFUg=="}},
+                {"type":"resource","resource":{"uri":"memo://note","text":"text of a resource"}}]"#,
         )
         .unwrap();
         let blocks = render::blocks(Some(&content)).unwrap();
-        let output = folder.join("vista.png");
+        let output = folder.join("view.png");
         let invocation = Invocation {
             output: Some(output.to_string_lossy().into_owned()),
             ..Invocation::call("blender", "capture_viewport")
@@ -348,17 +348,17 @@ mod tests {
                 .decode("iVBORw0KGgo=")
                 .unwrap()
         );
-        let second = folder.join("vista-2.png");
+        let second = folder.join("view-2.png");
         assert_eq!(std::fs::read(&second).unwrap(), b"BLENDER");
         assert!(
-            text.starts_with("Ecco la vista.\n[image image/png, 8 bytes: "),
+            text.starts_with("Here is the view.\n[image image/png, 8 bytes: "),
             "{text}"
         );
         assert!(text.contains(&format!(
             "[file application/x-blender, 7 bytes: {}]",
             second.display()
         )));
-        assert!(text.contains("[memo://nota]\ntesto di una risorsa"));
+        assert!(text.contains("[memo://note]\ntext of a resource"));
         assert!(text.ends_with("The files are on disk: to see them, read them from there."));
         assert_eq!(files.len(), 2);
         assert_eq!(files[0]["mime"], "image/png");
@@ -375,7 +375,7 @@ mod tests {
             .find(|l| l.contains("application/x-blender"))
             .unwrap();
         let path = &blend[blend.find(": ").unwrap() + 2..blend.len() - 1];
-        assert!(path.ends_with("tavolo.blend"), "{path}");
+        assert!(path.ends_with("table.blend"), "{path}");
         assert!(Path::new(path).starts_with(super::folder()));
         let image = text.split('\n').find(|l| l.contains("image/png")).unwrap();
         assert!(
@@ -392,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn i_dati_sbagliati_si_dicono_e_le_misure_si_leggono() {
+    fn bad_data_is_reported_and_sizes_are_readable() {
         let content =
             clak_wire::json::parse_str(r#"[{"type":"image","data":"%%%","mimeType":"image/png"}]"#)
                 .unwrap();
@@ -406,15 +406,15 @@ mod tests {
     }
 
     #[test]
-    fn il_nome_viene_dall_uri_o_dal_comando() {
+    fn the_name_comes_from_the_uri_or_the_command() {
         let invocation = Invocation::call("revit", "export");
         assert_eq!(
-            name_for(&invocation, Some("file:///a/b/pianta%20uno.pdf?x=1"), None),
-            "pianta_uno.pdf"
+            name_for(&invocation, Some("file:///a/b/floor%20plan.pdf?x=1"), None),
+            "floor_plan.pdf"
         );
         assert_eq!(
-            name_for(&invocation, Some("memo://vista/"), Some("image/png")),
-            "revit-export-vista.png"
+            name_for(&invocation, Some("memo://view/"), Some("image/png")),
+            "revit-export-view.png"
         );
         assert_eq!(
             name_for(&invocation, None, Some("application/pdf; charset=x")),

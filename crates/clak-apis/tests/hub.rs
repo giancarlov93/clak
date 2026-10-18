@@ -34,7 +34,7 @@ fn draft(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_api_importata_risponde_agli_agenti_con_il_suo_accesso() {
+async fn an_imported_api_answers_agents_with_its_access() {
     let rest = FakeRest::start().await;
     rest.set_document(common::PETSTORE);
     let hub = TestHub::start().await;
@@ -139,10 +139,10 @@ async fn un_api_importata_risponde_agli_agenti_con_il_suo_accesso() {
         "claude",
         "petstore",
         "setNotes",
-        json!({"petId": "7", "body": r#"["uno","due"]"#}),
+        json!({"petId": "7", "body": r#"["one","two"]"#}),
     )
     .await;
-    assert_eq!(rest.last().body, r#"["uno","due"]"#);
+    assert_eq!(rest.last().body, r#"["one","two"]"#);
 
     // A missing required argument isn't even sent.
     let before = rest.requests().len();
@@ -165,7 +165,7 @@ async fn un_api_importata_risponde_agli_agenti_con_il_suo_accesso() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_api_a_mano_con_bearer_basic_e_un_modulo() {
+async fn a_hand_made_api_with_bearer_basic_and_a_form() {
     let rest = FakeRest::start().await;
     let hub = TestHub::start().await;
     hub.prompt.set_allow_all(true);
@@ -202,9 +202,9 @@ async fn un_api_a_mano_con_bearer_basic_e_un_modulo() {
     assert_eq!(entry.base_url, rest.origin);
     hub.api(&entry.id, |a| a["cli"] == "svc").await;
 
-    hub.call("claude", "svc", "search", json!({"q": "è così"}))
+    hub.call("claude", "svc", "search", json!({"q": "café déjà"}))
         .await;
-    assert_eq!(rest.last().query, "?q=%C3%A8%20cos%C3%AC");
+    assert_eq!(rest.last().query, "?q=caf%C3%A9%20d%C3%A9j%C3%A0");
     assert_eq!(rest.last().headers["authorization"], "Bearer tok");
 
     hub.call(
@@ -245,7 +245,7 @@ async fn un_api_a_mano_con_bearer_basic_e_un_modulo() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rinominare_un_api_tiene_i_permessi_e_un_altro_host_non_riceve_il_segreto() {
+async fn renaming_an_api_keeps_permissions_and_another_host_gets_no_secret() {
     let rest = FakeRest::start().await;
     let other = FakeRest::start().await;
     let hub = TestHub::start().await;
@@ -351,7 +351,7 @@ async fn rinominare_un_api_tiene_i_permessi_e_un_altro_host_non_riceve_il_segret
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_comando_abbandonato_si_ferma_anche_nell_api() {
+async fn an_abandoned_command_stops_in_the_api_too() {
     let rest = FakeRest::start().await;
     let hub = TestHub::start_with(Setup {
         call_timeout: Some(Duration::from_millis(500)),
@@ -396,7 +396,7 @@ async fn un_comando_abbandonato_si_ferma_anche_nell_api() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn le_api_ripartono_con_l_hub_e_un_api_sbagliata_non_si_salva() {
+async fn apis_restart_with_the_hub_and_a_bad_api_is_not_saved() {
     let rest = FakeRest::start().await;
     let hub = TestHub::start().await;
     let ping = vec![ApiEndpoint::new("ping", "GET", "/ping", None, vec![])];
@@ -471,7 +471,7 @@ async fn le_api_ripartono_con_l_hub_e_un_api_sbagliata_non_si_salva() {
 // --- OAuth --------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_api_con_oauth_si_aggiunge_con_l_accesso_nel_browser_e_si_rinnova_da_sola() {
+async fn an_oauth_api_is_added_by_browser_sign_in_and_renews_itself() {
     let rest = FakeRest::start().await;
     rest.require_token();
     let hub = TestHub::start().await;
@@ -568,7 +568,7 @@ async fn un_api_con_oauth_si_aggiunge_con_l_accesso_nel_browser_e_si_rinnova_da_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_api_solo_app_prende_il_token_con_il_segreto_del_client() {
+async fn an_app_only_api_gets_the_token_with_the_client_secret() {
     let rest = FakeRest::start().await;
     rest.require_token();
     let hub = TestHub::start().await;

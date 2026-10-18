@@ -147,11 +147,11 @@ impl Platform for FakePlatform {
                     pid: 20_000 + self.pids.fetch_add(1, Ordering::SeqCst),
                     started: 133_000_000_000_000_000,
                     started_at: Some(1_700_000_000.0),
-                    exe: Some(format!(r"C:\agenti\{name}.exe")),
+                    exe: Some(format!(r"C:\agents\{name}.exe")),
                     name: name.to_owned(),
                     chain: vec![format!("{name}.exe")],
                     signed: "valid".into(),
-                    signer: Some("Prove".into()),
+                    signer: Some("Tests".into()),
                 })
                 .clone(),
         )
@@ -162,7 +162,7 @@ impl Platform for FakePlatform {
     }
 
     fn attest_loopback(&self, _peer_port: u16, _local_port: u16) -> Value {
-        json!({ "exe": r"C:\prove\blocco.exe", "signed": "valid", "signer": "Prove", "pid": 4242 })
+        json!({ "exe": r"C:\tests\notepad.exe", "signed": "valid", "signer": "Tests", "pid": 4242 })
     }
 
     fn executable_hash(&self, _path: &str) -> Option<String> {
@@ -302,7 +302,7 @@ impl TestHub {
             .unwrap_or_default();
         request.insert("type".into(), json!("request"));
         request.insert("op".into(), json!(op));
-        request.entry("cwd").or_insert(json!(r"C:\Progetti\prova"));
+        request.entry("cwd").or_insert(json!(r"C:\Projects\demo"));
         if let Some(agent) = agent {
             request.insert("test_agent".into(), json!(agent));
         }
@@ -400,9 +400,9 @@ impl TestHub {
         resource.on_event(move |kind, message| {
             let _ = sender.send((kind.to_owned(), message.clone()));
         });
-        let text = Arc::new(Mutex::new(String::from("latte")));
+        let text = Arc::new(Mutex::new(String::from("milk")));
         let read = text.clone();
-        resource.tool("get_text", "Restituisce il testo.", None, move |_| {
+        resource.tool("get_text", "Returns the text.", None, move |_| {
             let value = read.lock().unwrap().clone();
             async move { clak_kit::text(value) }
         });
@@ -410,13 +410,13 @@ impl TestHub {
         let seen = last.clone();
         resource.tool(
             "append_text",
-            "Aggiunge una riga.",
+            "Adds a line.",
             Some(json!({"type":"object","properties":{"text":{"type":"string"},"times":{"type":"integer"}},"required":["text"]})),
             move |arguments| {
                 let line = arguments.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
                 *seen.lock().unwrap() = Some(arguments);
                 text.lock().unwrap().push_str(&format!("\n{line}"));
-                async { clak_kit::text("fatto") }
+                async { clak_kit::text("done") }
             },
         );
         self.apps.lock().unwrap().push(resource.clone());
@@ -429,7 +429,7 @@ impl TestHub {
 
     /// Connects the program and, if the hub asks, allows it.
     pub async fn register(&self) -> TestApp {
-        self.register_as("Blocco di prova", "spesa.txt").await
+        self.register_as("Test Notepad", "shopping.txt").await
     }
 
     pub async fn register_as(&self, app: &str, title: &str) -> TestApp {

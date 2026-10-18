@@ -118,7 +118,7 @@ mod tests {
     }
 
     #[test]
-    fn un_link_clak_si_legge_e_compila_soltanto() {
+    fn a_clak_link_is_read_and_only_fills_the_form() {
         assert_eq!(
             ConnectorLink::parse(Some(
                 "clak://connect?name=Jarvis&url=http%3A%2F%2Fmy-server%3A3000%2Fmcp&token=abc%2B1"
@@ -127,8 +127,8 @@ mod tests {
         );
         // Without a name, the computer; without a token, no token; upper case and trailing slash are fine.
         assert_eq!(
-            ConnectorLink::parse(Some("CLAK://Connect/?url=https://esempio.it/mcp")),
-            Ok(link("esempio.it", "https://esempio.it/mcp", None))
+            ConnectorLink::parse(Some("CLAK://Connect/?url=https://example.com/mcp")),
+            Ok(link("example.com", "https://example.com/mcp", None))
         );
         // A name with control characters and text-direction tricks comes through cleaned up.
         assert_eq!(
@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn sembra_un_link_solo_con_lo_schema_clak() {
+    fn it_looks_like_a_link_only_with_the_clak_scheme() {
         assert!(ConnectorLink::looks(Some(
             "clak://connect?url=https://x.it"
         )));
@@ -155,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn un_link_malformato_dice_perche_senza_ripeterne_i_valori() {
+    fn a_malformed_link_says_why_without_repeating_its_values() {
         let cases = [
             ("clak://connect?name=X", "the link has no address (url)"),
             (
@@ -171,7 +171,7 @@ mod tests {
                 "the address in the link is not valid: The address must start with http:// or https://.",
             ),
             (
-                "clak://connect?url=https://io:segreto@x.it/mcp",
+                "clak://connect?url=https://me:secret@x.it/mcp",
                 "the address in the link is not valid: The address can't contain a user name or password: the token goes in its own field.",
             ),
             (
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn un_link_troppo_lungo_non_si_legge() {
+    fn a_too_long_link_is_not_read() {
         let raw = format!(
             "clak://connect?url=https://x.it&name={}",
             "a".repeat(ConnectorLink::MAX_LENGTH)

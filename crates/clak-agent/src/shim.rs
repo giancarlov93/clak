@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn l_handshake_e_la_lista_dei_tool() {
+    fn the_handshake_and_the_tool_list() {
         let replies = talk(
             &Shim::new(),
             &[
@@ -453,7 +453,7 @@ mod tests {
                 json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
                 json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
                 json!({"jsonrpc": "2.0", "id": 3, "method": "initialize", "params": {"protocolVersion": "1999-01-01"}}),
-                json!({"jsonrpc": "2.0", "id": 4, "method": "nessuno"}),
+                json!({"jsonrpc": "2.0", "id": 4, "method": "nonexistent"}),
                 json!({"jsonrpc": "2.0", "id": 5, "result": {}}),
             ],
         );
@@ -484,12 +484,12 @@ mod tests {
         );
         assert_eq!(
             by_id(&replies, 4)["error"],
-            json!({"code": -32601, "message": "Method not found: nessuno"})
+            json!({"code": -32601, "message": "Method not found: nonexistent"})
         );
     }
 
     #[test]
-    fn l_epoca_nuova_porta_la_busta() {
+    fn the_modern_protocol_brings_the_envelope() {
         let meta = json!({"_meta": {META_VERSION: MODERN}});
         let replies = talk(
             &Shim::new(),
@@ -517,16 +517,16 @@ mod tests {
     }
 
     #[test]
-    fn i_tool_chiedono_all_hub_e_rispondono_per_il_modello() {
+    fn tools_ask_the_hub_and_answer_for_the_model() {
         let hub = FakeHub::new(vec![FakeHub::response(json!({
-            "ok": true, "content": [{"type": "text", "text": "fatto"}, {"type": "image", "data": "AA==", "mimeType": "image/png"}],
+            "ok": true, "content": [{"type": "text", "text": "done"}, {"type": "image", "data": "AA==", "mimeType": "image/png"}],
         }))]);
         let replies = talk(
             &Shim::with_home(hub.home.clone()),
             &[
                 json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "run", "arguments": {
                     "program": "revit", "command": "capture", "arguments": {"view": 3}, "wait_seconds": 5}}}),
-                json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "altro"}}),
+                json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "other"}}),
             ],
         );
         let run = &by_id(&replies, 1)["result"];
@@ -542,12 +542,12 @@ mod tests {
         assert_eq!(other["isError"], true);
         assert_eq!(
             other["content"][0]["text"],
-            "There is no tool 'altro': the tools are programs, commands and run."
+            "There is no tool 'other': the tools are programs, commands and run."
         );
     }
 
     #[test]
-    fn un_errore_dell_hub_e_un_risultato_con_is_error() {
+    fn a_hub_error_is_a_result_with_is_error() {
         let hub = FakeHub::new(vec![FakeHub::response(
             json!({"ok": false, "code": "denied", "error": "The user refused."}),
         )]);

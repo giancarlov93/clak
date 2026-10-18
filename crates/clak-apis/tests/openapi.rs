@@ -49,7 +49,7 @@ fn names<T: AsRef<str>>(items: impl IntoIterator<Item = T>) -> Vec<String> {
 }
 
 #[test]
-fn un_openapi_3_da_nome_indirizzo_accesso_ed_endpoint() {
+fn an_openapi_3_gives_name_url_access_and_endpoints() {
     let source = Url::parse("https://pets.example.com/openapi.json").unwrap();
     let import = openapi::parse(common::PETSTORE, Some(&source)).unwrap();
     assert_eq!(import.name, "Petstore");
@@ -133,7 +133,7 @@ fn un_openapi_3_da_nome_indirizzo_accesso_ed_endpoint() {
 }
 
 #[test]
-fn uno_swagger_2_in_yaml_si_legge_allo_stesso_modo() {
+fn a_swagger_2_in_yaml_reads_the_same_way() {
     let import = openapi::parse(SWAGGER, None).unwrap();
     assert_eq!(import.name, "Old Shop");
     assert_eq!(
@@ -164,7 +164,7 @@ fn uno_swagger_2_in_yaml_si_legge_allo_stesso_modo() {
 }
 
 #[test]
-fn un_documento_sbagliato_dice_perche() {
+fn a_bad_document_says_why() {
     for (text, expected) in [
         ("{}", "Not an OpenAPI document"),
         ("openapi: 3.0.0\npaths: {}", "no endpoints"),
@@ -183,24 +183,24 @@ fn un_documento_sbagliato_dice_perche() {
 }
 
 #[test]
-fn il_json_accetta_commenti_e_virgole_in_coda() {
+fn json_accepts_comments_and_trailing_commas() {
     let import = openapi::parse(
         r#"{
           // a comment
           "openapi": "3.0.0", /* another, with "quotes" */
-          "info": { "title": "C // non è un commento", },
+          "info": { "title": "C // not a comment", },
           "paths": { "/x": { "get": { "operationId": "x", }, }, },
         }"#,
         None,
     )
     .unwrap();
-    assert_eq!(import.name, "C // non è un commento");
+    assert_eq!(import.name, "C // not a comment");
     assert_eq!(import.endpoints[0].name, "x");
     assert_eq!(import.base_url, None);
 }
 
 #[test]
-fn un_openapi_con_oauth_porta_indirizzi_e_scope() {
+fn an_openapi_with_oauth_brings_urls_and_scopes() {
     let source = Url::parse("https://hub.test/openapi.json").unwrap();
     let code = openapi::parse(
         r#"{
@@ -278,7 +278,7 @@ paths:
 }
 
 #[test]
-fn gli_altri_accessi_e_le_note() {
+fn other_access_kinds_and_notes() {
     let doc = |schemes: &str, security: &str| {
         format!(
             r#"{{"openapi": "3.0.0", "security": {security}, "components": {{"securitySchemes": {schemes}}},
@@ -327,7 +327,7 @@ fn gli_altri_accessi_e_le_note() {
 }
 
 #[test]
-fn gli_endpoint_che_restano_fuori() {
+fn endpoints_left_out() {
     let import = openapi::parse(
         r#"{"openapi": "3.0.0", "paths": {
           "/a": {"get": {"operationId": "a", "parameters": [{"name": "sid", "in": "cookie", "required": true}]}},
@@ -375,7 +375,7 @@ fn gli_endpoint_che_restano_fuori() {
 }
 
 #[tokio::test]
-async fn un_documento_si_scarica_da_un_indirizzo_o_da_un_file() {
+async fn a_document_loads_from_a_url_or_a_file() {
     let rest = FakeRest::start().await;
     rest.set_document(common::PETSTORE);
     let http = rest::new_http_client().unwrap();
