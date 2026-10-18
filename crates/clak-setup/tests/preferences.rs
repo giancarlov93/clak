@@ -37,3 +37,12 @@ fn automatic_updates_are_opt_in() {
     Preferences::new(&home).set_auto_update(true).unwrap();
     assert!(Preferences::new(&home).auto_update());
 }
+
+#[test]
+fn server_icons_are_opt_in() {
+    let sandbox = Sandbox::new();
+    let home = sandbox.dir(&["hub"]);
+    assert!(!Preferences::new(&home).server_icons());
+    Preferences::new(&home).set_server_icons(true).unwrap();
+    assert!(Preferences::new(&home).server_icons());
+}

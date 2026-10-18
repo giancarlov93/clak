@@ -14,6 +14,12 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- MCP servers and REST APIs can show their own icon in the MCP and APIs tabs, in Status, in
+  the tray box and in the tray menu: the one an MCP server declares, otherwise the one of its
+  website (SVG too). Server icons in Settings › Hub turns it on (off by default: it tells
+  each site that Clak uses it); Clak fetches them, not the page, and keeps them for a week in
+  `~/.clak/icons`.
+- Clak's own settings show Clak's icon in Status, in the tray box and in the tray menu.
 - Clak updates itself. When a newer version is out it says so (a notification, and Settings ›
   About), and Install and restart downloads it, checks its signature and installs it. Install
   updates automatically (off by default) does it alone, when no agent is connected. Check for

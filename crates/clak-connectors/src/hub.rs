@@ -764,6 +764,7 @@ fn compose(rows: &[ViewRow], c: &Core) -> Value {
                 "tools": app.map_or(0, |a| a.tools.len()),
                 "since": float(e.since),
                 "active_since": live.as_ref().and_then(|r| r.active_since).map(float),
+                "icon": live.as_ref().and_then(|r| r.icon.clone()),
             })
         })
         .collect();

@@ -135,6 +135,7 @@ struct State {
     protocol: Option<String>,
     instructions: Option<String>,
     server_name: Option<String>,
+    icon: Option<String>,
 }
 
 /// A server's MCP client. Used by several requests at once: the session and the
@@ -178,6 +179,11 @@ impl McpHttp {
         self.lock().server_name.clone()
     }
 
+    /// The icon the server declares (`serverInfo.icons`), if the app can show it.
+    pub fn icon(&self) -> Option<String> {
+        self.lock().icon.clone()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state
             .lock()
@@ -213,6 +219,7 @@ impl McpHttp {
                 .map(str::to_owned);
             state.server_name =
                 wire::str(result.get("serverInfo").and_then(|s| s.get("name"))).map(str::to_owned);
+            state.icon = crate::mcp::declared_icon(result.get("serverInfo"));
         }
         self.notify("notifications/initialized").await
     }

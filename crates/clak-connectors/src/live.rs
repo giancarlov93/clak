@@ -69,6 +69,8 @@ struct State {
     /// The id in the broker, while registered.
     conn_id: Option<String>,
     active_since: Option<f64>,
+    /// The icon the server declares, from its last `initialize`.
+    icon: Option<String>,
     credential: Option<Arc<dyn AccessToken>>,
     /// A program's environment variables (stdio).
     env: BTreeMap<String, String>,
@@ -82,6 +84,7 @@ pub(crate) struct Row {
     pub error: Option<String>,
     pub conn_id: Option<String>,
     pub active_since: Option<f64>,
+    pub icon: Option<String>,
     pub has_credential: bool,
     pub signin_host: Option<String>,
 }
@@ -137,6 +140,7 @@ impl Connector {
                 error: None,
                 conn_id: None,
                 active_since: None,
+                icon: None,
                 credential,
                 env,
                 client: None,
@@ -158,6 +162,7 @@ impl Connector {
             error: st.error.clone(),
             conn_id: st.conn_id.clone(),
             active_since: st.active_since,
+            icon: st.icon.clone(),
             has_credential: st.credential.is_some(),
             signin_host: st.credential.as_ref().and_then(|c| c.host()),
         }
@@ -440,6 +445,7 @@ impl Connector {
         {
             let mut st = self.lock();
             st.client = Some(client.clone());
+            st.icon = client.icon();
             let name = clean(Some(&st.entry.name), 40);
             let resource = self.resource(&st.entry);
             let origin = self.origin();

@@ -19,7 +19,13 @@
     if (o?.kind === "connector") return o.protocol === "rest" ? "api" : "connector";
     return "program";
   };
-  const exeOf = (r) => (r && !r.origin?.kind ? r.origin?.exe : null);
+  /// Where a program's icon comes from: its executable, or the MCP server or API behind it.
+  const exeOf = (r) => {
+    const o = r?.origin;
+    if (o?.kind === "connector") return D.iconSource(state, r.id);
+    if (o?.kind === "hub") return "clak";
+    return o?.kind ? null : o?.exe;
+  };
 
   /// A row that opens something, as a button: the whole row is the target.
   const clickable = (cls, onclick, label, ...children) =>

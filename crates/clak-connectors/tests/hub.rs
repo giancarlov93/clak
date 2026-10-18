@@ -66,6 +66,7 @@ async fn brings_all_commands(sse: bool) {
     let seen = hub.connector(&entry.id, phase::ACTIVE).await;
     assert_eq!(seen["tools"], 3);
     assert_eq!(seen["cli"], "fake");
+    assert_eq!(seen["icon"], "https://fake.test/icon-128.png");
     assert_eq!(server.lists(), 2); // two pages
 
     hub.prompt.set_allow_all(true);

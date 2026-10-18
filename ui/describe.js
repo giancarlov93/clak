@@ -20,6 +20,14 @@ const Describe = (() => {
     return session ? label(session) : "an agent";
   };
   const resourceOf = (state, id) => (state?.resources || []).find((r) => r.id === id);
+
+  /// The MCP server or REST API behind a resource, for its icon: `mcp:<id>` or `api:<id>`.
+  const iconSource = (state, resourceId) => {
+    const c = (state?.connectors || []).find((x) => x.resource_id && x.resource_id === resourceId);
+    if (c) return `mcp:${c.id}`;
+    const a = (state?.apis || []).find((x) => x.resource_id && x.resource_id === resourceId);
+    return a ? `api:${a.id}` : null;
+  };
   const info = (r) => r?.resource || { app: "?", title: "?" };
 
   // --- time -------------------------------------------------------------------
@@ -292,7 +300,7 @@ const Describe = (() => {
   };
 
   return {
-    plural, ago, clock, when, duration, signature, label, sessionOf, agentOf, resourceOf,
+    plural, ago, clock, when, duration, signature, label, sessionOf, agentOf, resourceOf, iconSource,
     sessionTitle, sessionDetail, resourceTitle, resourceShort, resourceDetail, origin,
     grantBrief, recent, grantDetail, allowedAppDetail, users, headline,
     history, usageLine, failureLine, outcome,

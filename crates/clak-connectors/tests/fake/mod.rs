@@ -631,7 +631,10 @@ fn initialize(shared: &Shared, parameters: &Map<String, Value>) -> Value {
     let mut result = json!({
         "protocolVersion": "2025-06-18",
         "capabilities": {"tools": {}},
-        "serverInfo": {"name": "fake", "version": "1.0"},
+        "serverInfo": {"name": "fake", "version": "1.0", "icons": [
+            {"src": "https://fake.test/icon-16.png", "mimeType": "image/png", "sizes": ["16x16"]},
+            {"src": "https://fake.test/icon-128.png", "mimeType": "image/png", "sizes": ["128x128"]},
+        ]},
     });
     if let Some(instructions) = &s.instructions {
         result["instructions"] = json!(instructions);

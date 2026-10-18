@@ -31,6 +31,7 @@ section { padding: 0 10px; overflow-y: auto; }
 html.mac .tile { --tint: var(--accent); background: var(--tint); color: #fff; border-radius: calc(var(--size) * 0.24); }
 .tile.image, html.mac .tile.image { background: none; border-radius: 0; }
 .tile img { display: block; width: 100%; height: 100%; }
+.tile.site img { border-radius: calc(var(--size) * 0.22); }
 
 /* A row that is a button: no button look, a soft highlight under the pointer. */
 html button.hit {

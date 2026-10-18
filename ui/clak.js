@@ -27,27 +27,55 @@ const Clak = (() => {
 
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
-  /// The real icon of a program or an agent, read from its executable by the app: a
-  /// `data:` URL, or null for one without an icon of its own. Asked once per path and size.
+  /// The real icon of a program or an agent, read from its executable by the app, or of an
+  /// MCP server or a REST API (`mcp:<id>`, `api:<id>`, server_icon.rs), or Clak's own (`clak`): a `data:` URL, or null for
+  /// one without an icon of its own. Asked once per path and size.
+  const SERVER = /^(mcp|api):|^clak$/;
   const icons = new Map();
   const appIcon = (path, size) => {
     if (!path) return Promise.resolve(null);
     const pixels = Math.ceil(size * (window.devicePixelRatio || 1));
     const key = `${pixels}|${path}`;
-    if (!icons.has(key)) icons.set(key, invoke("app_icon", { path, size: pixels }).catch(() => null));
+    const ask = SERVER.test(path)
+      ? () => invoke("server_icon", { source: path, size: pixels })
+      : () => invoke("app_icon", { path, size: pixels });
+    if (!icons.has(key)) icons.set(key, ask().catch(() => null));
     return icons.get(key);
   };
+
+  /// What a tile showed before its icon: put back if the icon goes away.
+  const glyphs = new WeakMap();
+
+  const putIcon = (node, path, size) =>
+    appIcon(path, size).then((url) => {
+      if (!url || node.dataset.icon !== path) return;
+      node.classList.add("image");
+      // A server's icon is often a full square: rounded like the app icons around it.
+      node.classList.toggle("site", SERVER.test(path) && path !== "clak");
+      node.replaceChildren(el("img", { src: url, alt: "", width: size, height: size, draggable: "false" }));
+    });
 
   /// Puts the icon of `path` into `node` once it arrives; until then (and without one) the
   /// node keeps what it shows.
   const withIcon = (node, path, size) => {
-    appIcon(path, size).then((url) => {
-      if (!url) return;
-      node.classList.add("image");
-      node.replaceChildren(el("img", { src: url, alt: "", width: size, height: size, draggable: "false" }));
-    });
+    if (!path) return node;
+    glyphs.set(node, [...node.childNodes]);
+    node.dataset.icon = path;
+    node.dataset.iconSize = size;
+    putIcon(node, path, size);
     return node;
   };
+
+  // Server icons turned on or off in Settings: the tiles on screen ask again.
+  listen("server-icons", () => {
+    for (const key of [...icons.keys()]) if (SERVER.test(key.split("|")[1])) icons.delete(key);
+    for (const node of document.querySelectorAll("[data-icon]")) {
+      if (!SERVER.test(node.dataset.icon)) continue;
+      node.classList.remove("image", "site");
+      node.replaceChildren(...(glyphs.get(node) || []));
+      putIcon(node, node.dataset.icon, Number(node.dataset.iconSize));
+    }
+  });
 
   return { mac, invoke, listen, el, plural, appIcon, withIcon };
 })();

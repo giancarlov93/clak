@@ -128,6 +128,7 @@ html.mac .tile { --tint: var(--accent); background: var(--tint); color: #fff; bo
 .tile.plain { color: var(--quiet); }
 .tile.image, html.mac .tile.image { background: none; border-radius: 0; }
 .tile.image img { display: block; width: var(--size); height: var(--size); }
+.tile.image.site img { border-radius: calc(var(--size) * 0.22); }
 html.mac .tile.ok, html.mac .tile.err, html.mac .tile.plain { color: #fff; }
 html.mac .tile.ok { background: #34c759; }
 html.mac .tile.err { background: #ff3b30; }

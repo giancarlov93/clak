@@ -48,7 +48,7 @@
 
     return el("div", { class: "card ed-card" + (a.enabled ? "" : " off"), "data-id": a.id },
       el("div", { class: "row-body top" },
-        E.tile(oauth ? "key" : "api", TINT),
+        Clak.withIcon(E.tile(oauth ? "key" : "api", TINT), `api:${a.id}`, 36),
         el("div", { class: "lines" },
           el("div", { class: "ed-title" },
             el("strong", { class: "ed-name" }, a.name),
