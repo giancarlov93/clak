@@ -406,8 +406,10 @@ precise `app` name: allowing one plugin of a host doesn't allow another with a d
 `app`.
 
 **Agents.** Every agent needs its own permission for every resource, asked by the hub.
-Grants end when the agent's process ends, when the user revokes them, or when the
-connection closes.
+The one exception is an agent the user launched from Clak with a preset: the user chose
+its programs beforehand, so its grants arrive without a question (still as `granted`, and
+only for the commands the preset lists). Grants end when the agent's process ends, when the
+user revokes them, or when the connection closes.
 
 **The token.** The hub listens on a loopback port that any local process, and any web
 page, could try. The token, in a file only the user can read, is what keeps them out.

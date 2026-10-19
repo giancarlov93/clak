@@ -11,6 +11,7 @@
 //! [`Broker::consent`], [`Broker::confirm`] and in whoever waits for an answer.
 
 use crate::consent::{AgentIdentity, ConsentRequest, HubOptions, Verdict};
+use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
 use crate::wire::{ResourceDef, ToolDef, origin_label, origin_short};
 use crate::{cli_names, texts};
@@ -87,6 +88,9 @@ pub struct AppConn {
     pub status: Option<String>,
     /// How the program wants to be used, if it says so: `clak <program> -h` shows it.
     pub instructions: Option<String>,
+    /// The key of its application in `apps.json` (executable and signature), for a program
+    /// that connected from a process: a preset names the application by it.
+    pub key: Option<String>,
     outbox: Outbox,
 }
 
@@ -115,6 +119,10 @@ pub struct SessionEntry {
     /// Where it came from the first time: the command line or the MCP shim.
     pub via: String,
     pub since: f64,
+    /// Launched from Clak: authorized without a question.
+    pub launched: bool,
+    /// The preset it was launched with: its programs need no question either.
+    pub preset: Option<Preset>,
 }
 
 impl SessionEntry {
@@ -308,6 +316,8 @@ pub struct Core {
     sink: Option<mpsc::UnboundedSender<String>>,
     connectors: Value,
     apis: Value,
+    /// Launches waiting for their agent.
+    launches: Vec<Launch>,
 }
 
 impl Core {
@@ -337,12 +347,22 @@ impl Core {
                 "cwd": s.cwd,
                 "via": s.via,
                 "since": float(s.since),
+                "launched": s.launched,
+                "preset": s.preset.as_ref().map(|p| &p.name),
+            })).collect::<Vec<_>>(),
+            "launches": self.launches.iter().map(|l| json!({
+                "id": l.id,
+                "agent": l.agent,
+                "preset": l.preset.as_ref().map(|p| &p.name),
+                "since": float(l.created),
+                "expires": float(l.expires),
             })).collect::<Vec<_>>(),
             "resources": self.apps.values().map(|a| json!({
                 "id": a.conn_id,
                 "name": a.name,
                 "resource": a.resource.to_json(),
                 "origin": a.origin,
+                "key": a.key,
                 "status": a.status,
                 "since": float(a.since),
                 "tools": a.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
@@ -500,6 +520,7 @@ impl Core {
             since: now(),
             status: None,
             instructions: None,
+            key: None,
             outbox,
         };
         let line = format!(
@@ -529,6 +550,13 @@ impl Core {
     pub fn app_by_id_mut(&mut self, conn_id: &str) -> Option<&mut AppConn> {
         self.touch();
         self.apps.get_mut(conn_id)
+    }
+
+    /// The key of the program's application, once its permission is known.
+    pub fn set_key(&mut self, conn_id: &str, key: Option<String>) {
+        if let Some(app) = self.apps.get_mut(conn_id) {
+            app.key = key;
+        }
     }
 
     pub fn app_names(&self) -> Vec<String> {
@@ -678,6 +706,8 @@ impl Core {
             cwd: cwd.map(str::to_owned),
             via: via.to_owned(),
             since: now(),
+            launched: false,
+            preset: None,
         };
         let line = format!(
             "agent connected: {} [{}, pid {}, via {via}]",
@@ -749,6 +779,17 @@ impl Core {
 
     /// The agent's permission on the program (if not already there); returns its id.
     pub fn grant(&mut self, session_key: &str, conn_id: &str) -> Option<String> {
+        self.grant_tools(session_key, conn_id, |_| true)
+    }
+
+    /// The permission with only the commands `approve` accepts: the others ask, as a new
+    /// command does.
+    fn grant_tools(
+        &mut self,
+        session_key: &str,
+        conn_id: &str,
+        approve: impl Fn(&ToolDef) -> bool,
+    ) -> Option<String> {
         if let Some(known) = self.grant_of(session_key, conn_id) {
             return Some(known.id.clone());
         }
@@ -761,6 +802,7 @@ impl Core {
             approved: app
                 .tools
                 .iter()
+                .filter(|t| approve(t))
                 .map(|t| (t.name.clone(), t.digest.clone()))
                 .collect(),
             since: now(),
@@ -818,6 +860,126 @@ impl Core {
             app.send(json!({ "type": "revoked", "grant_id": grant.id, "reason": "user", "harness": label }));
         }
         self.touch();
+    }
+
+    // =====================================================================
+    // Launches
+    // =====================================================================
+
+    /// The user pressed Launch: the agent that shows up is authorized without a question.
+    /// A command-line agent gets a secret, returned for its `CLAK_LAUNCH`; an app none (see
+    /// [`launch`]).
+    pub fn prepare_launch(
+        &mut self,
+        agent: &str,
+        secret: bool,
+        preset: Option<Preset>,
+    ) -> Option<String> {
+        self.expire_launches();
+        let created = now();
+        let token = secret.then(|| clak_wire::json::random_hex(24));
+        let ttl = if secret {
+            launch::TOKEN_TTL
+        } else {
+            launch::APP_TTL
+        };
+        self.log(match &preset {
+            Some(p) => format!("launch of {agent} with the preset «{}»", p.name),
+            None => format!("launch of {agent}"),
+        });
+        self.launches.push(Launch {
+            id: new_id("launch"),
+            agent: agent.to_owned(),
+            token: token.clone(),
+            preset,
+            created,
+            expires: created + ttl,
+        });
+        self.touch();
+        token
+    }
+
+    /// Whether an app's launch is waiting: only then the processes above an agent are read.
+    pub fn awaits_app(&self) -> bool {
+        let now = now();
+        self.launches
+            .iter()
+            .any(|l| l.token.is_none() && l.expires > now)
+    }
+
+    /// Whether any launch is waiting.
+    pub fn awaits_launch(&self) -> bool {
+        let now = now();
+        self.launches.iter().any(|l| l.expires > now)
+    }
+
+    fn expire_launches(&mut self) {
+        let now = now();
+        let before = self.launches.len();
+        self.launches.retain(|l| l.expires > now);
+        if self.launches.len() != before {
+            self.touch();
+        }
+    }
+
+    /// A launched agent shows up: it is authorized, with its preset, and the launch is used
+    /// up; the programs of the preset already connected get their permission. False if no
+    /// launch waits for it, or it is already connected (a session stays as it is).
+    pub fn redeem(
+        &mut self,
+        agent: &AgentIdentity,
+        token: Option<&str>,
+        above: &[String],
+        cwd: Option<&str>,
+        via: &str,
+    ) -> bool {
+        self.expire_launches();
+        if self.session(agent).is_some() {
+            return false;
+        }
+        let Some(at) = self
+            .launches
+            .iter()
+            .position(|l| l.admits(agent, token, above))
+        else {
+            return false;
+        };
+        let launch = self.launches.remove(at);
+        let key = self.authorize(agent, cwd, via);
+        let session = self.sessions.get_mut(&key).expect("just authorized");
+        session.launched = true;
+        session.preset = launch.preset;
+        let line = match &session.preset {
+            Some(p) => format!(
+                "{} launched from Clak, preset «{}»",
+                session.label(),
+                p.name
+            ),
+            None => format!("{} launched from Clak", session.label()),
+        };
+        self.log(line);
+        let ready: Vec<String> = self
+            .apps
+            .keys()
+            .filter(|id| self.preset_program(&key, id).is_some())
+            .cloned()
+            .collect();
+        for conn_id in ready {
+            self.preset_grant(&key, &conn_id);
+        }
+        true
+    }
+
+    fn preset_program(&self, session_key: &str, conn_id: &str) -> Option<&PresetProgram> {
+        let preset = self.sessions.get(session_key)?.preset.as_ref()?;
+        preset.program_for(self.apps.get(conn_id)?)
+    }
+
+    /// The permission a preset gives on a program: its commands only (all, if it doesn't
+    /// list them). None if the session's preset doesn't cover the program.
+    pub fn preset_grant(&mut self, session_key: &str, conn_id: &str) -> Option<String> {
+        let program = self.preset_program(session_key, conn_id)?.clone();
+        self.grant_tools(session_key, conn_id, |tool| program.covers(&tool.name))
     }
 
     // =====================================================================
@@ -1128,6 +1290,7 @@ impl Broker {
             sink,
             connectors: json!([]),
             apis: json!([]),
+            launches: Vec::new(),
         };
         Broker(Arc::new(Inner {
             core: Mutex::new(core),

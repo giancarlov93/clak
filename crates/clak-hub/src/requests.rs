@@ -47,6 +47,11 @@ pub async fn handle(
     } else {
         "cli"
     };
+    let token = request
+        .get("launch")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty());
+    redeem(broker, &agent, token, cwd.as_deref(), via).await;
     let context = Context {
         broker,
         agent: &agent,
@@ -68,6 +73,37 @@ pub async fn handle(
     Ok(result.unwrap_or_else(|e: Malformed| {
         error("bad_request", &format!("malformed request: {}", e.text()))
     }))
+}
+
+/// An agent launched from Clak: authorized here, without a question, with its preset (see
+/// [`crate::launch`]). The processes above it are read only if an app's launch is waiting.
+async fn redeem(
+    broker: &Broker,
+    agent: &AgentIdentity,
+    token: Option<&str>,
+    cwd: Option<&str>,
+    via: &str,
+) {
+    let (known, waiting, app) = broker.run(|c| {
+        (
+            c.session(agent).is_some(),
+            c.awaits_launch(),
+            c.awaits_app(),
+        )
+    });
+    if known || !waiting || (token.is_none() && !app) {
+        return;
+    }
+    let above = if app {
+        let platform = broker.options().platform.clone();
+        let pid = agent.pid;
+        tokio::task::spawn_blocking(move || platform.above(pid))
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    broker.run(|c| c.redeem(agent, token, &above, cwd, via));
 }
 
 struct Context<'a> {
@@ -269,6 +305,10 @@ async fn call(
     };
     let mut waited = false;
     let mut grant_id = current();
+    if grant_id.is_none() {
+        // Launched with a preset that covers the program: no question.
+        grant_id = cx.broker.run(|c| c.preset_grant(&key, &conn_id));
+    }
     if grant_id.is_none() {
         let new_session = cx.broker.run(|c| c.session(cx.agent).is_none());
         cx.tell.waiting(&if new_session {

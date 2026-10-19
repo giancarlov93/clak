@@ -21,6 +21,7 @@ mod commands;
 mod editors;
 mod front;
 mod icon;
+mod launch;
 mod look;
 #[cfg(target_os = "macos")]
 mod menubar;
@@ -164,6 +165,12 @@ fn main() {
             agents::agents_repair,
             agents::settings_status,
             agents::settings_open,
+            // The Launch section and the presets (launch.rs).
+            launch::launch_status,
+            launch::launch_agent,
+            launch::preset_save,
+            launch::preset_remove,
+            launch::launch_choose_folder,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,
             editors::editor_stop,

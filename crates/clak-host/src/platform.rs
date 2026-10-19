@@ -57,4 +57,12 @@ impl Platform for SystemPlatform {
     fn executable_hash(&self, path: &str) -> Option<String> {
         clak_platform::executable_hash(path)
     }
+
+    fn above(&self, pid: u32) -> Vec<String> {
+        clak_platform::process_lineage(pid)
+            .into_iter()
+            .skip(1)
+            .map(|a| a.name)
+            .collect()
+    }
 }

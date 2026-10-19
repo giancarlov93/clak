@@ -1,5 +1,5 @@
-// The Agents tab: the command line on the PATH, the skill that teaches how to use clak, the MCP
-// clients that host the shim. The rules and the actions live in agents.rs (clak-setup): here only
+// The Agents tab: the agents to launch and their presets (panel-launch.js), the command line on
+// the PATH, the skill that teaches how to use clak, the MCP clients that host the shim. The rules and the actions live in agents.rs (clak-setup): here only
 // the rows, the buttons and what happened below each one. It is re-read on every opening and
 // when the window comes back to the foreground: other programs change those files too.
 "use strict";
@@ -137,8 +137,12 @@
     mount(section) {
       page = section;
       body = el("div");
-      page.append(Kit.title("Agents"), body);
-      window.addEventListener("focus", () => !page.classList.contains("hidden") && refresh());
+      page.append(Kit.title("Agents"), ...Launch.mount(), body);
+      window.addEventListener("focus", () => {
+        if (page.classList.contains("hidden")) return;
+        refresh();
+        Launch.refresh();
+      });
       // On the Mac there is no installer: whatever pointed at a copy that is gone moves to
       // this one, and it stays written below the rows it touched.
       if (Clak.mac) {
@@ -150,9 +154,15 @@
         }).catch(() => {});
       }
       refresh();
+      Launch.refresh();
     },
     shown() {
       refresh();
+      Launch.refresh();
+    },
+    /// The presets' programs: connected or not.
+    render() {
+      Launch.draw();
     },
   });
 })();

@@ -30,6 +30,16 @@ impl fmt::Display for HubUnavailable {
 
 impl std::error::Error for HubUnavailable {}
 
+/// The variable Clak sets for an agent it launches.
+pub const LAUNCH_VARIABLE: &str = "CLAK_LAUNCH";
+
+fn launch_token() -> Option<String> {
+    std::env::var(LAUNCH_VARIABLE)
+        .ok()
+        .map(|t| t.trim().to_owned())
+        .filter(|t| !t.is_empty() && t.len() <= 128)
+}
+
 /// Asks the hub and waits for the response.
 ///
 /// - `wait`: how long to wait for the response. It includes the time the user takes to
@@ -49,6 +59,10 @@ pub fn ask(
     mut progress: impl FnMut(&Object),
 ) -> Result<Object, HubUnavailable> {
     request.insert("type".into(), "request".into());
+    // Launched from Clak: the secret that authorizes this agent without a question.
+    if let Some(token) = launch_token() {
+        request.insert("launch".into(), Value::String(token));
+    }
     if request.get("cwd").is_none_or(Value::is_null) {
         let cwd = std::env::current_dir()
             .map(|d| d.to_string_lossy().into_owned())
