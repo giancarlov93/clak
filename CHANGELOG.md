@@ -60,6 +60,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows, Clak started by an agent inside Claude Desktop ran inside its package: its
+  updates went into Claude's own folder, and the PATH, the shortcuts and the notifications
+  pointed to a Clak that nothing else could see. Now Clak opens outside it, and an installer
+  opened from inside an app asks to be opened from File Explorer.
 - On Windows, Open the panel in the tray box left a blank window, and Clak stopped
   responding until it was ended from Task Manager.
 - The menu bar icon with a green or amber dot stayed black on a dark bar.

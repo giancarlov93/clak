@@ -125,6 +125,11 @@ fn main() {
     if has(&args, "--quit") && std::env::var_os(closing::FORWARD).is_none() {
         std::process::exit(closing::quit_and_wait(&args));
     }
+    // Started by an agent inside another app's package: open again outside it.
+    #[cfg(windows)]
+    if setup::leave_package(&home) {
+        std::process::exit(0);
+    }
     let own = !has(&args, "--no-broker");
     let show = has(&args, "--show");
     let first_link = link(&args).cloned();

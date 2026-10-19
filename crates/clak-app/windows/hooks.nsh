@@ -3,6 +3,16 @@
 ; removed it removes only what is its own ("--uninstall").
 
 !macro NSIS_HOOK_PREINSTALL
+  ; Opened by an app that runs in a package (an agent in Claude Desktop): Windows would put
+  ; the files in that package's own folder, which nothing outside it sees. 122 is
+  ; ERROR_INSUFFICIENT_BUFFER: there is a package name to read.
+  System::Call 'kernel32::GetCurrentPackageFamilyName(*i 0 R6, p 0) i .R7'
+  ${If} $R7 = 122
+    IfSilent +2
+      MessageBox MB_ICONSTOP|MB_OK "This installer was opened by another app (for example an agent in Claude Desktop), and Windows would install Clak inside that app. Open the installer from File Explorer."
+    Abort
+  ${EndIf}
+
   ; A running copy must be closed before overwriting it; "--update" makes it reopen afterwards.
   IfFileExists "$INSTDIR\ClakApp.exe" 0 clak_closed
     ExecWait '"$INSTDIR\ClakApp.exe" --quit --update'
