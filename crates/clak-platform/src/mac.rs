@@ -65,6 +65,37 @@ pub fn bsd_info(pid: u32) -> Option<BsdInfo> {
     })
 }
 
+/// The terminal device of a process, `/dev/ttys003`, if it has one.
+pub fn tty_of(pid: u32) -> Option<String> {
+    unsafe extern "C" {
+        fn devname(dev: libc::dev_t, kind: libc::mode_t) -> *const std::ffi::c_char;
+    }
+    if pid == 0 || pid > i32::MAX as u32 {
+        return None;
+    }
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = size_of::<libc::proc_bsdinfo>() as i32;
+    let read = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            (&mut info as *mut libc::proc_bsdinfo).cast(),
+            size,
+        )
+    };
+    // NODEV (all ones): no terminal.
+    if read != size || info.e_tdev == u32::MAX {
+        return None;
+    }
+    let name = unsafe { devname(info.e_tdev as libc::dev_t, libc::S_IFCHR) };
+    if name.is_null() {
+        return None;
+    }
+    let name = unsafe { CStr::from_ptr(name) }.to_str().ok()?;
+    Some(format!("/dev/{name}"))
+}
+
 /// The full path of a process's executable.
 pub fn path_of(pid: u32) -> Option<String> {
     if pid > i32::MAX as u32 {

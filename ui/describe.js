@@ -21,6 +21,10 @@ const Describe = (() => {
   };
   const resourceOf = (state, id) => (state?.resources || []).find((r) => r.id === id);
 
+  /// A program with a window of its own, which can be brought to the front: one connected
+  /// from a process. MCP servers, APIs and Clak's settings have none.
+  const showable = (r) => !!r && !r.origin?.kind && r.origin?.pid > 0;
+
   /// The MCP server or REST API behind a resource, for its icon: `mcp:<id>` or `api:<id>`.
   const iconSource = (state, resourceId) => {
     const c = (state?.connectors || []).find((x) => x.resource_id && x.resource_id === resourceId);
@@ -300,7 +304,7 @@ const Describe = (() => {
   };
 
   return {
-    plural, ago, clock, when, duration, signature, label, sessionOf, agentOf, resourceOf, iconSource,
+    plural, ago, clock, when, duration, signature, label, sessionOf, agentOf, resourceOf, showable, iconSource,
     sessionTitle, sessionDetail, resourceTitle, resourceShort, resourceDetail, origin,
     grantBrief, recent, grantDetail, allowedAppDetail, users, headline,
     history, usageLine, failureLine, outcome,

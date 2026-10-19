@@ -13,7 +13,7 @@ const Kit = (() => {
     people: "", folder: "", chevron: "", back: "", copy: "", skill: "",
     client: "", file: "", refresh: "", search: "", trash: "", power: "",
     bell: "", speaker: "", options: "", calls: "", warn: "", stopwatch: "",
-    shield: "", ok: "", err: "", info: "", off: "", minus: "", plus: "",
+    shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "",
   };
 
   // On the Mac: 16 px strokes, like SF symbols at regular weight.
@@ -48,6 +48,7 @@ const Kit = (() => {
     calls: '<path d="M2 5.5h11M10 2.5l3 3-3 3M14 10.5H3M6 7.5l-3 3 3 3"/>',
     stopwatch: '<circle cx="8" cy="9" r="5.5"/><path d="M8 9V6M6.5 1.5h3"/>',
     shield: '<path d="M8 1.5l5.5 2v4c0 3.5-2.4 6-5.5 7-3.1-1-5.5-3.5-5.5-7v-4z"/><path d="M5.5 8l1.8 1.8 3.5-3.5"/>',
+    show: '<path d="M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
     ok: filled('<circle cx="8" cy="8" r="6.5" fill="currentColor" stroke="none"/>', "M5 8.2l2 2 4-4"),
     warn: filled('<path d="M8 1.5l6.8 12H1.2z" fill="currentColor" stroke="none"/>', "M8 6v3.5M8 11.3v.4"),
     err: filled('<circle cx="8" cy="8" r="6.5" fill="currentColor" stroke="none"/>', "M5.7 5.7l4.6 4.6M10.3 5.7l-4.6 4.6"),
@@ -114,6 +115,16 @@ const Kit = (() => {
   const iconButton = (name, label, onclick) =>
     el("button", { class: "icon-button", title: label, "aria-label": label, onclick }, icon(name));
 
+  /// Brings an agent (`session`) or a program (`resource`) to the front: the app whose
+  /// window shows it. If it can't, the button says why on hover, for a moment.
+  const bringToFront = (button, kind, id) =>
+    Clak.invoke("bring_to_front", { kind, id }).catch((e) => {
+      const help = button.title;
+      button.title = `Couldn't bring it to the front: ${e}`;
+      button.classList.add("failed");
+      setTimeout(() => { button.title = help; button.classList.remove("failed"); }, 3000);
+    });
+
   /// A button that looks like a link, with the icon in front.
   const link = (text, name, onclick, help) =>
     el("button", { class: "link", title: help, onclick }, name ? icon(name) : null, el("span", null, text));
@@ -161,5 +172,5 @@ const Kit = (() => {
     }
   };
 
-  return { icon, navIcon, tile, TINTS, title, section, card, empty, badge, tag, bar, iconButton, link, toggle, clickRow, replace, copy };
+  return { icon, navIcon, tile, TINTS, title, section, card, empty, badge, tag, bar, iconButton, link, toggle, clickRow, replace, copy, bringToFront };
 })();

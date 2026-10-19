@@ -60,6 +60,17 @@ pub async fn open_panel(app: AppHandle, tab: Option<String>) {
     crate::windows::panel(&app, tab.as_deref());
 }
 
+/// Brings an agent (`session`) or a program (`resource`) to the front. The page names it
+/// by its id: only what the hub sees connected now, never a pid chosen by the page.
+#[tauri::command]
+pub async fn bring_to_front(app: AppHandle, kind: String, id: String) -> Result<(), String> {
+    let pid = crate::front::pid_of(&bridge::of(&app).state(), &kind, &id)
+        .ok_or("it is no longer connected, or it has no window")?;
+    tauri::async_runtime::spawn_blocking(move || crate::front::bring(pid))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Starts one of the allowed applications. The page names it by its key, not by its path:
 /// only what the hub already remembers can be started.
 #[tauri::command]
