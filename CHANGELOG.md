@@ -60,6 +60,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows, the desktop and Start menu shortcuts and the notifications showed a generic
+  icon instead of Clak's.
 - On Windows, Open the panel in the tray box left a blank window, and Clak stopped
   responding until it was ended from Task Manager.
 - The menu bar icon with a green or amber dot stayed black on a dark bar.
