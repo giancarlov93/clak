@@ -362,6 +362,7 @@ impl Core {
                 "name": a.name,
                 "resource": a.resource.to_json(),
                 "origin": a.origin,
+                "key": a.key,
                 "status": a.status,
                 "since": float(a.since),
                 "tools": a.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),

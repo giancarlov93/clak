@@ -424,3 +424,25 @@ table.calls td:last-child { width: 1px; }
 .payload.media { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .reply { display: flex; flex-direction: column; gap: 8px; }
 .reply.failed .payload { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-bg); }
+
+/* --- Launch (panel-launch.js) ----------------------------------------------------------- */
+
+.launch .folder-line, .preset-editor .folder-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.launch .folder-line .glyph { font-size: 12px; }
+.launch .folder-line .glyph svg { width: 12px; height: 12px; }
+.launch .folder-line button.link { padding: 1px 6px; font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 1px 8px 2px; border-radius: 10px; background: var(--subtle); white-space: nowrap; }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.chip.on .dot { background: var(--ok); }
+.chip button.small-link { padding: 0 4px; min-height: 0; font-size: 12px; color: var(--accent); }
+.preset-editor { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px; }
+.preset-editor .field { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 12px; }
+.preset-editor .field.top { align-items: start; }
+.preset-editor .field > span:first-child { color: var(--quiet); }
+.preset-editor .picks { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
+.preset-editor .pick { display: flex; align-items: center; gap: 8px; }
+.preset-editor .indent-pick { margin-left: 24px; color: var(--quiet); }
+.preset-editor .tools { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 4px 48px; font-size: 12px; }
+.preset-editor .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.preset-editor .hint { font-size: 12px; }

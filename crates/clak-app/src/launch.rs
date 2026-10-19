@@ -1,0 +1,148 @@
+//! The Launch section of the Agents tab: the agents installed here, launched from the app,
+//! and the presets. Finding and launching live in `clak_setup::launcher`, the presets in
+//! `clak_setup::presets`, the authorization in `clak_hub::launch`: here only the commands.
+//!
+//! A launch is prepared on the hub before the agent starts, so that it is authorized when
+//! it shows up. With the hub in another process the agent still starts, and asks as usual.
+
+use crate::bridge;
+use clak_hub::launch::{Preset, PresetProgram};
+use clak_setup::{Places, launcher, presets};
+use serde_json::{Map, Value, json};
+use std::path::PathBuf;
+use tauri::{AppHandle, WebviewWindow};
+use tauri_plugin_dialog::DialogExt;
+
+/// The agents installed, the presets, and whether a launch is authorized (hub in here).
+#[tauri::command]
+pub async fn launch_status(app: AppHandle) -> Value {
+    let bridge = bridge::of(&app);
+    let home = bridge.home().clone();
+    let authorizes = bridge.mode() == bridge::Mode::Local;
+    tauri::async_runtime::spawn_blocking(move || {
+        json!({
+            "installed": launcher::installed(&Places::real())
+                .iter()
+                .map(launcher::Installed::to_json)
+                .collect::<Vec<_>>(),
+            "presets": presets::all(&home),
+            "authorizes": authorizes,
+        })
+    })
+    .await
+    .unwrap_or_else(|_| json!({ "installed": [], "presets": [], "authorizes": false }))
+}
+
+/// Launches an agent (by its catalog id) or a preset (by its id): the preset brings its
+/// agent, its folder and its programs. `folder`, if given, wins over the preset's.
+#[tauri::command]
+pub async fn launch_agent(
+    app: AppHandle,
+    agent: Option<String>,
+    preset: Option<String>,
+    folder: Option<String>,
+) -> Result<(), String> {
+    let bridge = bridge::of(&app);
+    let home = bridge.home().clone();
+    let places = Places::real();
+    let (installed, chosen) = tauri::async_runtime::spawn_blocking({
+        let (home, places, preset) = (home.clone(), places.clone(), preset.clone());
+        move || {
+            let chosen = preset.as_deref().and_then(|id| presets::get(&home, id));
+            (launcher::installed(&places), chosen)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if preset.is_some() && chosen.is_none() {
+        return Err("this preset no longer exists".into());
+    }
+    let agent_id = chosen
+        .as_ref()
+        .and_then(|p| p.get("agent").and_then(Value::as_str).map(str::to_owned))
+        .or(agent)
+        .ok_or("no agent chosen")?;
+    let agent = launcher::find(&installed, &agent_id)
+        .cloned()
+        .ok_or("this agent is not installed on this computer")?;
+    let folder = folder
+        .filter(|f| !f.is_empty())
+        .or_else(|| {
+            chosen
+                .as_ref()
+                .and_then(|p| p.get("folder").and_then(Value::as_str).map(str::to_owned))
+        })
+        .map(PathBuf::from);
+    let preset = chosen.as_ref().map(hub_preset);
+    // Prepared before the agent starts: its first request finds the launch waiting.
+    let token = bridge
+        .with_hub(|c| c.prepare_launch(&agent.name, !agent.app, preset))
+        .flatten();
+    tauri::async_runtime::spawn_blocking(move || {
+        launcher::launch(
+            &places,
+            &agent,
+            folder.as_deref(),
+            token.as_deref(),
+            &home.join("launch"),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// The preset as the hub wants it: its name and its programs.
+fn hub_preset(preset: &Map<String, Value>) -> Preset {
+    Preset {
+        name: preset
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        programs: preset
+            .get("programs")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(PresetProgram::from_json)
+            .collect(),
+    }
+}
+
+#[tauri::command]
+pub async fn preset_save(app: AppHandle, preset: Map<String, Value>) -> Result<Value, String> {
+    let home = bridge::of(&app).home().clone();
+    tauri::async_runtime::spawn_blocking(move || presets::save(&home, preset))
+        .await
+        .map_err(|e| e.to_string())?
+        .map(Value::Object)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn preset_remove(app: AppHandle, id: String) -> Result<(), String> {
+    let home = bridge::of(&app).home().clone();
+    tauri::async_runtime::spawn_blocking(move || presets::remove(&home, &id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// The folder an agent works in, chosen by the user.
+#[tauri::command]
+pub async fn launch_choose_folder(window: WebviewWindow) -> Option<String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .dialog()
+        .file()
+        .set_title("The folder the agent works in")
+        .set_parent(&window)
+        .pick_folder(move |path| {
+            let _ = sender.send(path);
+        });
+    let path = receiver.await.ok().flatten()?;
+    path.into_path()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}

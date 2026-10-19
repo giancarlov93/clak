@@ -14,6 +14,14 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- Launch, in the Agents tab: the agents installed on this computer (Claude Code, Codex, Gemini
+  CLI, OpenCode, Claude Desktop, VS Code, Cursor, Windsurf), launched from Clak and authorized
+  without a question. A command-line agent opens in a terminal in the folder you pick, with a
+  one-time secret valid for 12 hours; an app counts if its new session arrives within three
+  minutes, signed or running inside it.
+- Presets: an agent, a folder and the programs it may use without asking, all their commands
+  or only some. A known application covers all its documents; the preset opens the ones that
+  aren't running. Other programs and commands still ask.
 - Show brings a connected agent to the front (in Status and in the tray box), and the eye a
   program it uses, when the program has a window: the app it runs in comes forward. On the
   Mac, Terminal and iTerm also select the agent's tab (macOS asks first whether Clak may
