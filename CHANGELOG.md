@@ -32,10 +32,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   each site that Clak uses it); Clak fetches them, not the page, and keeps them for a week in
   `~/.clak/icons`.
 - Clak's own settings show Clak's icon in Status, in the tray box and in the tray menu.
-- Clak updates itself. When a newer version is out it says so (a notification, and Settings ›
-  About), and Install and restart downloads it, checks its signature and installs it. Install
-  updates automatically (off by default) does it alone, when no agent is connected. Check for
-  updates turns the checks off, and so does the `CLAK_NO_UPDATE_CHECK` variable.
+- Clak updates itself. When a newer version is out it says so (a notification, the tray box
+  and Settings › About), and Install and restart downloads it, checks its signature and
+  installs it. Install updates automatically (off by default) does it alone, when no agent is
+  connected. Clak looks every hour, and Check now looks at once; Check for updates turns the
+  hourly checks off, and so does the `CLAK_NO_UPDATE_CHECK` variable.
 - A brief clack animation when an agent connects, with an optional connection sound in Settings
   (off by default). The animation respects reduced motion and groups rapid connections.
 - On the Mac, the app follows the accent color chosen in System Settings, and changes with it.
@@ -60,6 +61,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- A newer Clak could go unnoticed for hours: Clak looked every six hours, a failed look left
+  no trace, and turning off the notifications about programs turned this one off too.
+  Settings now shows when Clak last looked, and why it could not.
 - On Windows, Claude Code that had updated itself while running was no longer recognized
   (the update renames the running file to `claude.exe.old.…`): from Windows Terminal every
   command failed with "Cannot tell which agent launched this command". The name now comes
