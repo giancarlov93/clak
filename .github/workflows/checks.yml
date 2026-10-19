@@ -1,4 +1,6 @@
-# On every pull request, and on main: formatting, clippy and the tests, before review.
+# On every pull request, and on main: formatting, clippy and the tests, before review. On main
+# they also keep the cache the pull requests start from, and a green run starts the release
+# (release.yml).
 # No secrets and no environment here: it runs the same for a fork.
 name: Checks
 
