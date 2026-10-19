@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- What Tauri adds to its Info.plist: the app lives in the menu bar, with no icon in the
-     Dock, and opens clak:// links (they arrive as RunEvent::Opened). -->
+     Dock, and opens clak:// links (they arrive as RunEvent::Opened). Bringing an agent to
+     the front selects its tab in Terminal or iTerm: macOS asks first, with this text. -->
 <plist version="1.0">
 <dict>
   <key>LSUIElement</key>
   <true/>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>To bring an agent to the front, Clak selects the tab of the terminal it runs in.</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

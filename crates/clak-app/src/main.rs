@@ -19,6 +19,7 @@ mod bridge;
 mod closing;
 mod commands;
 mod editors;
+mod front;
 mod icon;
 mod look;
 #[cfg(target_os = "macos")]
@@ -145,6 +146,7 @@ fn main() {
             commands::consent_resize,
             commands::open_panel,
             commands::app_launch,
+            commands::bring_to_front,
             commands::quit,
             commands::prefs_get,
             commands::prefs_set,

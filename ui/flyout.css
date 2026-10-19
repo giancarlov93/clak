@@ -57,11 +57,24 @@ html.mac .agent { border: none; box-shadow: 0 0 0 0.5px var(--stroke), 0 1px 2px
 .programs::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 10px; width: 1.5px; border-radius: 1px; background: var(--stroke); }
 .program { display: flex; align-items: center; gap: 4px; }
 .program .hit { flex: 1; gap: 9px; padding: 5px 6px; }
-/* The whole row lights up, Revoke included, not only the part that opens. */
-.program { border-radius: 6px; }
-html .program:hover { background: var(--control-hover); }
-html.mac .program:hover { background: var(--subtle); }
-html .program > button.hit:hover:not(:disabled) { background: none; }
+/* The whole row lights up, Revoke and the eye included, not only the part that opens. */
+.program, .agent-row { border-radius: 6px; }
+html .program:hover, html .agent-row:hover { background: var(--control-hover); }
+html.mac .program:hover, html.mac .agent-row:hover { background: var(--subtle); }
+html .program > button.hit:hover:not(:disabled), html .agent-row > button.hit:hover:not(:disabled) { background: none; }
+
+/* The eye: brings the agent or the program to the front. */
+.agent-row { display: flex; align-items: center; gap: 4px; }
+.agent-row > .hit { flex: 1; min-width: 0; }
+html button.show {
+  flex: none; display: inline-grid; place-items: center; width: 24px; height: 22px; min-height: 0; padding: 0;
+  background: none; border: none; box-shadow: none; border-radius: 6px; color: var(--quiet);
+}
+.agent-row > button.show { margin-right: 4px; }
+html button.show:hover:not(:disabled) { color: var(--text); background: var(--control-hover); }
+html button.show .glyph { font-size: 13px; }
+html button.show .glyph svg { width: 14px; height: 14px; }
+html button.show.failed { color: var(--danger); }
 .program .lines .title { font-weight: 400; }
 button.revoke { flex: none; font-size: 12px; min-height: 22px; padding: 1px 10px 2px; margin-right: 4px; }
 html.mac button.revoke { min-height: 20px; border-radius: 10px; }

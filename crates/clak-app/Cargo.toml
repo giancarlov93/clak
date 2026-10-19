@@ -45,8 +45,8 @@ resvg = { version = "0.48.1", default-features = false }
 block2 = "0.6"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["block2", "NSData", "NSGeometry", "NSNotification", "NSOperation", "NSString"] }
-objc2-app-kit = { version = "0.3", features = ["block2", "NSAppearance", "NSButton", "NSColor", "NSColorSpace", "NSControl", "NSGraphics", "NSImage", "NSResponder", "NSSound", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWorkspace", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", features = ["block2", "NSAppearance", "NSButton", "NSColor", "NSColorSpace", "NSControl", "NSGraphics", "NSImage", "NSResponder", "NSRunningApplication", "NSSound", "NSStatusBarButton", "NSStatusItem", "NSView", "NSWorkspace", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
 png = "0.17"
-windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
+windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_Console"] }

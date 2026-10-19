@@ -93,8 +93,10 @@
       el("span", { class: "lines" }, el("strong", { class: "ellipsis" }, title),
         el("span", { class: "quiet ellipsis", title: "" }, `${D.grantDetail(g, now)} · ${D.plural((g.tools || []).length, "command allowed", "commands allowed")}`)),
       g.errors > 0 ? Kit.badge(D.plural(g.errors, "error", "errors"), "err") : null);
+    const show = D.showable(r) ? Kit.iconButton("show", `Brings ${title} to the front`, (e) => Kit.bringToFront(e.currentTarget, "resource", r.id)) : null;
     return el("div", { class: "grant", "data-id": g.id },
       Kit.clickRow(content, () => go({ page: "history", id: g.id }), "Calls and statistics", title),
+      show,
       el("button", { class: "small", title: "Ends this permission", onclick: () => Panel.send({ type: "revoke", grant_id: g.id }) }, "Revoke"));
   };
 
@@ -107,7 +109,9 @@
           el("div", { class: "name" }, el("strong", { class: "big" }, D.sessionTitle(s)), Kit.tag(mcp ? "MCP" : "CLI", { accent: true })),
           el("div", { class: "quiet" }, D.sessionDetail(s, now)),
           s.cwd ? el("div", { class: "folder quiet", title: s.cwd }, Kit.icon("folder"), el("span", { class: "mono ellipsis" }, s.cwd)) : null),
-        el("button", { title: "Ends all its permissions", onclick: () => Panel.send({ type: "forget_session", session_id: s.id }) }, "Disconnect")),
+        el("div", { class: "actions" },
+          el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "session", s.id) }, "Show"),
+          el("button", { title: "Ends all its permissions", onclick: () => Panel.send({ type: "forget_session", session_id: s.id }) }, "Disconnect"))),
       grants.length === 0
         ? el("div", { class: "quiet indent" }, "No programs in use")
         : el("div", { class: "inset indent" }, grants.map((g) => grantRow(g, now))));
@@ -171,7 +175,8 @@
         el("div", null, el("div", { class: "selectable" }, D.origin(r.origin, r.resource?.publisher)),
           el("div", { class: "tags" }, Kit.tag(`clak ${r.name}`, { accent: Clak.mac, mono: true }), Kit.tag(D.plural((r.tools || []).length, "command", "commands")),
             Kit.tag(`connected ${D.ago(r.since, now)}`)),
-          el("div", { class: "users" }, Kit.icon("people"), el("span", null, users(r.id))))),
+          el("div", { class: "users" }, Kit.icon("people"), el("span", null, users(r.id)))),
+        D.showable(r) ? el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "resource", r.id) }, "Show") : null),
       r.status ? Kit.bar("warn", r.status) : null,
       Kit.section("Commands", { count: Clak.mac && list ? list.length : undefined }),
       list === null ? el("div", { class: "quiet" }, "Loading…") : list.length === 0 ? el("div", { class: "quiet" }, "No commands") : null,

@@ -14,6 +14,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- Show brings a connected agent to the front (in Status and in the tray box), and the eye a
+  program it uses, when the program has a window: the app it runs in comes forward. On the
+  Mac, Terminal and iTerm also select the agent's tab (macOS asks first whether Clak may
+  control them); on Windows a console or Windows Terminal window comes forward.
 - MCP servers and REST APIs can show their own icon in the MCP and APIs tabs, in Status, in
   the tray box and in the tray menu: the one an MCP server declares, otherwise the one of its
   website (SVG too). Server icons in Settings › Hub turns it on (off by default: it tells

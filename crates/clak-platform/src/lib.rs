@@ -37,6 +37,8 @@
 //!   path, time and size.
 //! - [`process_start_time`], [`process_exe`], [`process_command_line`]: the single
 //!   pieces, for whoever needs them.
+//! - [`process_lineage`]`(pid) -> Vec<Ancestor>` and [`process_tty`]`(pid) -> Option<String>`:
+//!   where a process is shown, to bring it to the front.
 //! - The [`provenance`] module has the pure rules (the agent choice
 //!   [`provenance::choose`], the walks [`provenance::lineage_windows`] and
 //!   [`provenance::lineage_macos`], the names, the signers), which read the processes
@@ -120,6 +122,43 @@ pub fn agent_of(pid: Option<u32>, authorized: &HashSet<String>) -> Option<AgentI
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (pid, authorized);
+        None
+    }
+}
+
+/// A process and the ones above it, nearest first, up to the user's session (the walk's
+/// roots excluded): where to look for the window that shows it. Only the process itself
+/// if its parents can't be read.
+///
+/// Blocking: it reads the process table.
+pub fn process_lineage(pid: u32) -> Vec<Ancestor> {
+    #[cfg(windows)]
+    let line = provenance::lineage_windows(&win::Processes::snapshot(), pid).0;
+    #[cfg(target_os = "macos")]
+    let line = provenance::lineage_macos(&mac::Processes, pid).0;
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let line = Vec::new();
+    if line.is_empty() {
+        return vec![Ancestor {
+            pid,
+            started: 0,
+            file: String::new(),
+            name: String::new(),
+        }];
+    }
+    line
+}
+
+/// The terminal a process writes to, `/dev/ttys003`: the Mac's terminals find their tab
+/// by it. None for a process without one, and outside the Mac.
+pub fn process_tty(pid: u32) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        mac::tty_of(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
         None
     }
 }
@@ -340,6 +379,37 @@ mod tests {
     }
 
     #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn the_lineage_starts_from_the_process_itself() {
+        let line = process_lineage(std::process::id());
+        assert_eq!(line.first().map(|a| a.pid), Some(std::process::id()));
+    }
+
+    /// The terminal of a process, as `ps` says it: for one of ours that has one, if any.
+    /// Ours by effective user: `login` runs as root and can't be read, and `ps -u` lists
+    /// it all the same.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_tty_is_the_one_ps_says() {
+        let me = unsafe { libc::geteuid() }.to_string();
+        let out = std::process::Command::new("ps")
+            .args(["-axo", "pid=,uid=,tty="])
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        let Some((pid, tty)) = text.lines().find_map(|line| {
+            let mut parts = line.split_whitespace();
+            let pid: u32 = parts.next()?.parse().ok()?;
+            let uid = parts.next()?;
+            let tty = parts.next()?;
+            (uid == me && tty.starts_with("ttys")).then(|| (pid, tty.to_owned()))
+        }) else {
+            return;
+        };
+        assert_eq!(process_tty(pid), Some(format!("/dev/{tty}")));
+        assert_eq!(process_tty(1), None);
+    }
+
     #[test]
     fn the_agent_of_this_process() {
         let me = std::process::id();
