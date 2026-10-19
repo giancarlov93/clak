@@ -35,7 +35,8 @@ pub async fn handle(
             "unknown_agent",
             "Cannot tell which agent launched this command, so I cannot ask for permission on its behalf. \
              This happens when between the agent and clak there is a process whose parent has already exited, for example \
-             `timeout` or `xargs` in Git Bash: run clak directly (for time limits use --wait).",
+             `timeout` or `xargs` in Git Bash: run clak directly (for time limits use --wait). It also happens with an agent \
+             Clak does not recognize yet, started by a launcher that exits right away.",
         ));
     };
     let cwd = request

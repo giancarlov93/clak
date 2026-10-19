@@ -184,6 +184,7 @@ pub static WINDOWS: Rules = Rules {
         "Claude Desktop",
         "Codex",
         "Gemini CLI",
+        "OpenCode",
         "Visual Studio Code",
         "Cursor",
         "Windsurf",
@@ -445,9 +446,12 @@ pub fn friendly_name_windows(exe: &str, command_line: Option<&str>) -> String {
         "claude.exe" => "Claude Code",
         "codex.exe" => "Codex",
         "gemini.exe" => "Gemini CLI",
+        // npm's `opencode` starts this and exits: it is left without its parent.
+        "opencode.exe" => "OpenCode",
         f if interpreter(f) && (runs("claude-code") || runs(r"\claude")) => "Claude Code",
         f if interpreter(f) && runs("gemini") => "Gemini CLI",
         f if interpreter(f) && runs("codex") => "Codex",
+        f if interpreter(f) && runs("opencode") => "OpenCode",
         "code.exe" => "Visual Studio Code",
         "cursor.exe" => "Cursor",
         "windsurf.exe" => "Windsurf",
@@ -638,6 +642,11 @@ mod tests {
                 "node",
             ),
             (r"C:\Tools\codex.exe", None, "Codex"),
+            (
+                r"C:\Users\u\AppData\Roaming\npm\node_modules\@opencode\cli\bin\opencode.exe",
+                None,
+                "OpenCode",
+            ),
             (r"C:\Tools\something.exe", None, "something"),
         ];
         for (exe, command, expected) in cases {
@@ -731,6 +740,16 @@ mod tests {
                 &WINDOWS
             ),
             Some(1)
+        );
+        // OpenCode from npm: its launcher has exited, the agent is the last one before the gap.
+        assert_eq!(
+            choose(
+                &line_windows("clak.exe powershell.exe opencode.exe"),
+                &none,
+                true,
+                &WINDOWS
+            ),
+            Some(2)
         );
 
         let orphan = line_macos("clak timeout timeout");
