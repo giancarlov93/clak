@@ -159,6 +159,7 @@ fn main() {
             app_icon::app_icon,
             server_icon::server_icon,
             updates::update_status,
+            updates::update_check_now,
             updates::update_open,
             updates::update_install,
             // The Agents and Settings tabs (agents.rs).

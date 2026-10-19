@@ -1,5 +1,5 @@
 // The icon's box: each agent with the programs it may use under it, the waiting questions,
-// and two buttons. A click on an agent opens the panel on it, one on a program its history.
+// a newer Clak if there is one, and two buttons. A click on an agent opens the panel on it, one on a program its history.
 "use strict";
 
 (async () => {
@@ -8,6 +8,7 @@
   const $ = (x) => document.getElementById(x);
   let mode = "offline";
   let state = {};
+  let update = null;
 
   const bySince = (a, b) => (a.since || 0) - (b.since || 0);
   const open = (tab) => invoke("open_panel", { tab });
@@ -83,6 +84,19 @@
       : [el("div", { class: "empty" }, offline ? "Not running" : "No agent is connected")]));
   };
 
+  /// A newer Clak: the row opens Settings, where it installs.
+  const renderUpdate = () => {
+    const version = update?.newer?.version;
+    $("update").replaceChildren(...(version
+      ? [clickable("update-row", () => open("settings"), `Clak ${version}: install from Settings`,
+          Kit.tile("refresh", 24, "#34c759"),
+          el("span", { class: "lines" },
+            el("span", { class: "title ellipsis" }, `Clak ${version} is available`),
+            el("span", { class: "quiet ellipsis" }, "Install from Settings")))]
+      : []));
+    $("update").classList.toggle("hidden", !version);
+  };
+
   $("panel").addEventListener("click", () => open(null));
   $("quit").addEventListener("click", () => invoke("quit"));
 
@@ -90,6 +104,9 @@
   mode = hello.mode;
   state = hello.state || {};
   render();
+  update = await invoke("update_status");
+  renderUpdate();
+  listen("update", (u) => { update = u; renderUpdate(); });
   listen("hub-mode", (m) => { mode = m; render(); });
   listen("hub", (message) => { if (message.type === "state") { state = message; render(); } });
   // "2 minutes ago" moves on even when the hub is silent.

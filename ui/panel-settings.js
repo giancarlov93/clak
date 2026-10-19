@@ -120,7 +120,7 @@
   let progress = null;
 
   const install = () => {
-    progress = { version: data.update?.version, downloaded: 0 };
+    progress = { version: data.update?.newer?.version, downloaded: 0 };
     draw();
     // It returns only if the user said no, or on an error: otherwise Clak starts again.
     Clak.invoke("update_install").then(() => {
@@ -140,18 +140,47 @@
       el("div", { class: "meter" }, el("span", { style: `width: ${percent ?? 0}%` }))));
   };
 
+  /// When GitHub last answered: the time today, the date before.
+  const when = (seconds) => {
+    const d = new Date(seconds * 1000);
+    return d.toDateString() === new Date().toDateString()
+      ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  };
+
+  /// Why Check now could not look at all (Clak inside another app's package).
+  let checkError = null;
+
+  const checkNow = () => {
+    checkError = null;
+    data.update = { ...data.update, checking: true };
+    draw();
+    Clak.invoke("update_check_now").then((u) => { data.update = u; }, (e) => {
+      checkError = String(e);
+      data.update = { ...data.update, checking: false };
+    }).finally(draw);
+  };
+
   const updates = () => {
-    const rows = [setting("refresh", "#5856d6", "Check for updates", null, Kit.toggle(data.update_check, "Check for updates", setPreference("update_check")))];
+    const u = data.update || {};
+    const error = u.checking ? null : checkError || u.error;
+    const line = u.checking ? "Checking…"
+      : !u.checked ? null
+      : u.newer || error ? `Checked ${when(u.checked)}`
+      : `Up to date · checked ${when(u.checked)}`;
+    const rows = [setting("refresh", "#5856d6", "Check for updates", line, [
+      el("button", { onclick: checkNow, disabled: u.checking }, "Check now"),
+      Kit.toggle(data.update_check, "Check for updates", setPreference("update_check"))])];
     if (data.update_check) {
       rows.push(setting("refresh", "#34c759", "Install updates automatically", "When no agent is connected",
         Kit.toggle(data.auto_update, "Install updates automatically", setPreference("auto_update"))));
     }
     if (progress) rows.push(installing());
-    else if (data.update) {
-      rows.push(Kit.bar("info", `Clak ${data.update.version} is available`, el("div", { class: "actions" },
+    else if (u.newer) {
+      rows.push(Kit.bar("info", `Clak ${u.newer.version} is available`, el("div", { class: "actions" },
         el("button", { onclick: download }, "Download"),
         el("button", { class: "accent", onclick: install }, "Install and restart"))));
-    }
+    } else if (error) rows.push(Kit.bar("warn", `Couldn't check for updates: ${error}`));
     return el("div", { class: "card group settings" }, rows);
   };
 

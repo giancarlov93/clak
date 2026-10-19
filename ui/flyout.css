@@ -24,6 +24,10 @@ html.mac header { padding: 12px 14px 8px; }
 section { padding: 0 10px; overflow-y: auto; }
 #agents { flex: 1; padding-bottom: 8px; }
 
+/* The Segoe Fluent Icons glyphs, as in the panel (on the Mac, drawings). */
+.glyph { display: inline-grid; place-items: center; font: normal 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; flex: none; }
+.glyph svg { width: 16px; height: 16px; display: block; }
+
 /* The tiles, as in the panel: the program's own icon when it has one. */
 .tile { --size: 32px; width: var(--size); height: var(--size); border-radius: 6px; display: inline-grid; place-items: center; flex: none; background: var(--subtle); color: var(--accent); }
 .tile .glyph { font-size: calc(var(--size) * 0.5); }
@@ -81,6 +85,7 @@ html.mac button.revoke { min-height: 20px; border-radius: 10px; }
 button.revoke:hover:not(:disabled) { color: var(--danger); }
 
 #pending { padding-bottom: 6px; }
+#update { padding-bottom: 8px; }
 html button.question { background: var(--caution-bg); margin-bottom: 6px; }
 html button.question .quiet { color: var(--caution); }
 

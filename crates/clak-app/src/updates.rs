@@ -1,12 +1,13 @@
-//! Whether a newer Clak is out: the latest GitHub release, read now and then. The user is
-//! told (a notification, the Settings tab), and the update installs through Tauri's updater:
-//! on request, or by itself when the user opted in and no agent is connected. The updater
-//! only accepts files signed with Clak's key (the public half is in tauri.conf.json).
+//! Whether a newer Clak is out: the latest GitHub release, read every hour and when the user
+//! asks from Settings. The user is told (a notification, the Settings tab, the tray box), and
+//! the update installs through Tauri's updater: on request, or by itself when the user opted
+//! in and no agent is connected. The updater only accepts files signed with Clak's key (the
+//! public half is in tauri.conf.json).
 
 use crate::{bridge, notices};
 use serde_json::{Value, json};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
@@ -15,9 +16,12 @@ const RELEASES: &str = "https://github.com/giancarlov93/clak/releases/";
 /// Turns the checks off, whatever the preference says.
 const OPT_OUT: &str = "CLAK_NO_UPDATE_CHECK";
 const FIRST: Duration = Duration::from_secs(30);
-const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
-/// An automatic install waits for a moment without agents: it looks again this often.
-const IDLE_RETRY: Duration = Duration::from_secs(10 * 60);
+/// Between two looks at GitHub. Measured on the clock: a computer that slept looks again as
+/// soon as it wakes up.
+const EVERY: Duration = Duration::from_secs(60 * 60);
+/// How often the loop wakes up: to see whether a look is due, and whether an automatic install
+/// waiting for the agents to go can start.
+const TICK: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
@@ -32,7 +36,16 @@ struct Seen {
     /// The version already notified: once per version.
     notified: Option<String>,
     etag: Option<String>,
+    /// When GitHub last answered.
+    checked: Option<SystemTime>,
+    /// When the last look started, answered or not.
+    tried: Option<SystemTime>,
+    /// Why the last look failed.
+    error: Option<String>,
+    checking: bool,
     installing: bool,
+    /// The version whose automatic install failed: it is not tried again by itself.
+    failed: Option<String>,
 }
 
 static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
@@ -56,48 +69,76 @@ pub fn install_now(auto: bool, newer: bool, busy: usize) -> bool {
     auto && newer && busy == 0
 }
 
-/// Checks a little after the start, then every few hours; more often while an automatic
-/// install waits for the agents to go.
+/// Whether a look at GitHub is due: never tried, tried an hour ago or more, or the clock
+/// went back.
+pub fn due(tried: Option<SystemTime>, now: SystemTime) -> bool {
+    tried.is_none_or(|t| now.duration_since(t).map_or(true, |age| age >= EVERY))
+}
+
+/// Looks a little after the start, then every hour; an automatic install starts as soon as
+/// no agent is connected.
 pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FIRST).await;
         loop {
-            let mut waiting = false;
             if enabled(&app) {
-                check(&app).await;
+                if with(|seen| due(seen.tried, SystemTime::now())) {
+                    check(&app, false).await;
+                }
                 let bridge = bridge::of(&app);
                 let auto = bridge.prefs.auto_update();
-                let newer = with(|seen| seen.newer.is_some());
-                if install_now(auto, newer, notices::connected(&bridge.state())) {
-                    let _ = install(&app).await;
+                let newer = with(|seen| {
+                    !seen.installing
+                        && seen
+                            .newer
+                            .as_ref()
+                            .is_some_and(|r| seen.failed.as_deref() != Some(r.version.as_str()))
+                });
+                if install_now(auto, newer, notices::connected(&bridge.state()))
+                    && install(&app).await.is_err()
+                {
+                    with(|seen| seen.failed = seen.newer.as_ref().map(|r| r.version.clone()));
                 }
-                waiting = auto && newer;
             }
-            tokio::time::sleep(if waiting { IDLE_RETRY } else { EVERY }).await;
+            tokio::time::sleep(TICK).await;
         }
     });
 }
 
-async fn check(app: &AppHandle) {
-    let current = app.package_info().version.to_string();
-    let Ok(Some(latest)) = fetch(&current).await else {
+/// Looks at GitHub now. A newer version is notified once, unless the user asked from
+/// Settings: they are looking already.
+async fn check(app: &AppHandle, asked: bool) {
+    if with(|seen| std::mem::replace(&mut seen.checking, true)) {
         return;
-    };
-    let newer = is_newer(&latest.version, &current).then_some(latest);
+    }
+    with(|seen| seen.tried = Some(SystemTime::now()));
+    emit(app);
+    let current = app.package_info().version.to_string();
+    let result = fetch(&current).await;
     let notify = with(|seen| {
-        seen.newer = newer.clone();
-        match &newer {
-            Some(r) if seen.notified.as_deref() != Some(r.version.as_str()) => {
-                seen.notified = Some(r.version.clone());
-                true
+        seen.checking = false;
+        match result {
+            Err(e) => {
+                seen.error = Some(e.to_string());
+                return None;
             }
-            _ => false,
+            // Nothing new since the last time: what was seen then still holds.
+            Ok(None) => {}
+            Ok(Some(latest)) => {
+                seen.newer = is_newer(&latest.version, &current).then_some(latest);
+            }
         }
+        seen.error = None;
+        seen.checked = Some(SystemTime::now());
+        let release = seen.newer.clone()?;
+        if seen.notified.as_deref() == Some(release.version.as_str()) {
+            return None;
+        }
+        seen.notified = Some(release.version.clone());
+        Some(release)
     });
-    let _ = app.emit("update", status_of(newer.as_ref()));
-    if let Some(release) = newer.filter(|_| notify)
-        && bridge::of(app).prefs.notifications()
-    {
+    emit(app);
+    if let Some(release) = notify.filter(|_| !asked) {
         let _ = app
             .notification()
             .builder()
@@ -175,17 +216,39 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
-fn status_of(newer: Option<&Release>) -> Value {
-    match newer {
-        Some(r) => json!({ "version": r.version, "url": r.url }),
-        None => Value::Null,
-    }
+/// What the Settings tab and the tray box show: the newer release, if any, when GitHub last
+/// answered (seconds since 1970), why the last look failed, whether one is under way.
+fn status() -> Value {
+    let seconds = |t: SystemTime| t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    with(|seen| {
+        json!({
+            "newer": seen.newer.as_ref().map(|r| json!({ "version": r.version, "url": r.url })),
+            "checked": seen.checked.map(seconds),
+            "error": seen.error,
+            "checking": seen.checking,
+        })
+    })
 }
 
-/// The newer release, if one was found: for the Settings tab.
+fn emit(app: &AppHandle) {
+    let _ = app.emit("update", status());
+}
+
 #[tauri::command]
 pub fn update_status() -> Value {
-    with(|seen| status_of(seen.newer.as_ref()))
+    status()
+}
+
+/// Looks at GitHub now, from Settings: also with the automatic checks turned off.
+#[tauri::command]
+pub async fn update_check_now(app: AppHandle) -> Result<Value, String> {
+    if let Some(package) = crate::setup::foreign_package() {
+        return Err(format!(
+            "Clak is running inside the app package {package}. Quit Clak and open it again from the Start menu."
+        ));
+    }
+    check(&app, true).await;
+    Ok(status())
 }
 
 /// Opens the newer release's page in the browser.
@@ -304,6 +367,16 @@ mod tests {
         assert!(!install_now(false, true, 0));
         assert!(!install_now(true, false, 0));
         assert!(!install_now(true, true, 2));
+    }
+
+    #[test]
+    fn a_look_is_due_every_hour_and_when_the_clock_went_back() {
+        let now = SystemTime::now();
+        assert!(due(None, now));
+        assert!(!due(Some(now - Duration::from_secs(59 * 60)), now));
+        assert!(due(Some(now - EVERY), now));
+        assert!(due(Some(now - Duration::from_secs(9 * 60 * 60)), now));
+        assert!(due(Some(now + Duration::from_secs(60)), now));
     }
 
     #[test]
