@@ -49,3 +49,51 @@ jobs:
       - name: cargo test
         shell: bash
         run: cargo test --workspace --locked
+
+  # The share of lines the tests run through, on the Mac: below the floor the check fails.
+  # The figures go in the run's summary, the report (HTML and lcov) among its artifacts.
+  # To raise the floor as the tests grow, change COVERAGE_FLOOR.
+  coverage:
+    runs-on: macos-latest
+    env:
+      COVERAGE_FLOOR: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup component add llvm-tools
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Tests with coverage
+        shell: bash
+        run: cargo llvm-cov --workspace --locked --no-report
+      - name: Report
+        shell: bash
+        run: |
+          cargo llvm-cov report --lcov --output-path lcov.info
+          cargo llvm-cov report --html --output-dir coverage
+          {
+            echo "## Coverage"
+            echo
+            echo '```'
+            cargo llvm-cov report --summary-only | sed -n '1p;$p'
+            echo '```'
+            echo
+            echo "The floor for lines is $COVERAGE_FLOOR%."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage
+          path: |
+            lcov.info
+            coverage/html
+      - name: Floor
+        shell: bash
+        run: cargo llvm-cov report --summary-only --fail-under-lines "$COVERAGE_FLOOR" > /dev/null
