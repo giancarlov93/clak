@@ -74,6 +74,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows, OpenCode wasn't recognized as an agent: its launcher exits as soon as it starts
+  it, and every command failed with "Cannot tell which agent launched this command". It is
+  now recognized by its executable, and authorized when launched from Clak.
 - A program that runs in a runtime (Java, Python, Node.js, .NET…) looked signed by whoever
   signed the runtime, as if it were their own. Applications and the consent window now name
   the runtime next to the signature.
