@@ -1,6 +1,8 @@
-// The Settings tab: when the app starts, how it notifies, where the hub lives. No setting
-// touches the permissions, which are given only in the consent windows. It is re-read on every
-// opening: startup also changes from Task Manager (on the Mac from Login Items).
+// The Settings tab, in three parts: General (when the app starts, how it notifies, where the
+// hub lives), Integration (how the agents reach Clak: panel-setup.js) and About (the version
+// and the updates). No setting touches the permissions, which are given only in the consent
+// windows. It is re-read on every opening: startup also changes from Task Manager (on the Mac
+// from Login Items).
 "use strict";
 
 (() => {
@@ -9,7 +11,10 @@
   const LOGO = '<svg viewBox="0 0 32 32" aria-hidden="true"><line x1="16" y1="2.5" x2="16" y2="7" stroke="#2F5BEA" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="2.6" r="2.2" fill="#2F5BEA"/><rect x="2" y="6" width="28" height="25" rx="7" fill="#2F5BEA"/><polyline points="8.5,13 13.5,18 8.5,23" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="16.5" y1="23.5" x2="23.5" y2="23.5" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/></svg>';
 
   let page = null;
-  let body = null;
+  let pivot = null;
+  /// The parts: General and About drawn here, Integration by Setup.
+  const parts = {};
+  let part = "general";
   let data = null;
   let state = Panel.state();
   let message = "";
@@ -103,13 +108,6 @@
     return el("div", { class: "card group settings" }, rows);
   };
 
-  const about = () => {
-    const logo = el("span", { class: "logo" });
-    logo.innerHTML = LOGO;
-    return Clak.mac
-      ? el("div", { class: "about" }, logo, el("div", null, el("strong", null, "Clak"), el("div", { class: "quiet" }, `Version ${data.version}`)))
-      : el("div", { class: "card about" }, logo, el("div", null, `Clak ${data.version}`));
-  };
 
   const download = () => Clak.invoke("update_open").catch((e) => {
     message = String(e);
@@ -161,36 +159,61 @@
     }).finally(draw);
   };
 
-  const updates = () => {
+  /// Clak, its version and where its updates stand, with Check now: as in Windows Update.
+  const about = () => {
     const u = data.update || {};
     const error = u.checking ? null : checkError || u.error;
-    const line = u.checking ? "Checking…"
-      : !u.checked ? null
-      : u.newer || error ? `Checked ${when(u.checked)}`
-      : `Up to date · checked ${when(u.checked)}`;
-    const rows = [setting("refresh", "#5856d6", "Check for updates", line, [
-      el("button", { onclick: checkNow, disabled: u.checking }, "Check now"),
-      Kit.toggle(data.update_check, "Check for updates", setPreference("update_check"))])];
-    if (data.update_check) {
-      rows.push(setting("refresh", "#34c759", "Install updates automatically", "When no agent is connected",
-        Kit.toggle(data.auto_update, "Install updates automatically", setPreference("auto_update"))));
-    }
-    if (progress) rows.push(installing());
+    const logo = el("span", { class: "logo" });
+    logo.innerHTML = LOGO;
+    const line = u.checking ? "Checking for updates…"
+      : u.newer && u.checked ? `Checked ${when(u.checked)}`
+      : error ? "Couldn't check for updates"
+      : u.checked ? `Up to date · checked ${when(u.checked)}`
+      : null;
+    const head = el("div", { class: "about" }, logo,
+      el("div", { class: "lines" }, el("strong", null, `Clak ${data.version}`),
+        line ? el("div", { class: "quiet" + (error ? " danger" : "") }, line) : null),
+      el("div", { class: "actions" },
+        u.checking ? el("span", { class: "spinner", "aria-label": "Checking" }) : null,
+        el("button", { onclick: checkNow, disabled: u.checking }, "Check now")));
+    let status = null;
+    if (progress) status = installing();
     else if (u.newer) {
-      rows.push(Kit.bar("info", `Clak ${u.newer.version} is available`, el("div", { class: "actions" },
+      status = Kit.bar("info", `Clak ${u.newer.version} is available`, el("div", { class: "actions" },
         el("button", { onclick: download }, "Download"),
-        el("button", { class: "accent", onclick: install }, "Install and restart"))));
-    } else if (error) rows.push(Kit.bar("warn", `Couldn't check for updates: ${error}`));
-    return el("div", { class: "card group settings" }, rows);
+        el("button", { class: "accent", onclick: install }, "Install and restart")));
+    } else if (error) status = Kit.bar("warn", error);
+    return el("div", { class: "card about-card" }, head, status);
+  };
+
+  const updates = () =>
+    el("div", { class: "card group settings" },
+      setting("refresh", "#5856d6", "Check for updates automatically", "Every hour",
+        Kit.toggle(data.update_check, "Check for updates automatically", setPreference("update_check"))),
+      data.update_check
+        ? setting("refresh", "#34c759", "Install updates automatically", "When no agent is connected",
+          Kit.toggle(data.auto_update, "Install updates automatically", setPreference("auto_update")))
+        : null);
+
+  const PARTS = [["general", "General"], ["integration", "Integration"], ["about", "About"]];
+
+  const choose = (id) => {
+    part = PARTS.some(([p]) => p === id) ? id : "general";
+    for (const [id, button] of Object.entries(pivot)) {
+      button.classList.toggle("selected", id === part);
+      button.setAttribute("aria-selected", String(id === part));
+    }
+    for (const [id, node] of Object.entries(parts)) node.classList.toggle("hidden", id !== part);
+    if (part === "integration") Setup.refresh();
   };
 
   const draw = () => {
     if (!page || !data) return;
-    Kit.replace(body,
+    Kit.replace(parts.general,
       Kit.section("Startup"), startup(),
       Kit.section("Alerts"), alerts(),
-      Kit.section("Hub"), hub(),
-      Clak.mac ? null : Kit.section("About"), about(), updates());
+      Kit.section("Hub"), hub());
+    Kit.replace(parts.about, about(), updates());
   };
 
   Panel.tab({
@@ -200,9 +223,19 @@
     order: 70,
     mount(section) {
       page = section;
-      body = el("div");
-      page.append(Kit.title("Settings"), body);
-      window.addEventListener("focus", () => !page.classList.contains("hidden") && refresh());
+      pivot = Object.fromEntries(PARTS.map(([id, title]) =>
+        [id, el("button", { role: "tab", onclick: () => choose(id) }, title)]));
+      parts.general = el("div", { role: "tabpanel" });
+      parts.integration = el("div", { role: "tabpanel" }, Setup.mount());
+      parts.about = el("div", { role: "tabpanel" });
+      page.append(Kit.title("Settings"), el("div", { class: "pivot", role: "tablist" }, Object.values(pivot)),
+        parts.general, parts.integration, parts.about);
+      choose(part);
+      window.addEventListener("focus", () => {
+        if (page.classList.contains("hidden")) return;
+        refresh();
+        if (part === "integration") Setup.refresh();
+      });
       Clak.listen("update", (update) => {
         if (!data) return;
         data.update = update;
@@ -216,6 +249,11 @@
     },
     shown() {
       refresh();
+      if (part === "integration") Setup.refresh();
+    },
+    /// "settings:about", "settings:integration": a part of the tab.
+    route(where) {
+      choose(where);
     },
     render(s) {
       state = s;

@@ -88,7 +88,7 @@
   const renderUpdate = () => {
     const version = update?.newer?.version;
     $("update").replaceChildren(...(version
-      ? [clickable("update-row", () => open("settings"), `Clak ${version}: install from Settings`,
+      ? [clickable("update-row", () => open("settings:about"), `Clak ${version}: install from Settings`,
           Kit.tile("refresh", 24, "#34c759"),
           el("span", { class: "lines" },
             el("span", { class: "title ellipsis" }, `Clak ${version} is available`),

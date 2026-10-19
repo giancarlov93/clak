@@ -89,7 +89,7 @@ pub fn is_gone_shim(command: &str) -> bool {
 
 /// MCP entries pointing to a shim of ours that is gone switch to `shim`: broken as they
 /// were they would be of no use to anyone. Those pointing to another copy that still exists
-/// are left to update in the Agents tab: the user decides.
+/// are left to update in Settings › Integration: the user decides.
 fn repair_clients(places: &crate::Places, shim: &Path, done: &mut Vec<(String, String)>) {
     for client in clients::all(places, &[shim.to_string_lossy().into_owned()]) {
         let status = client.status();
@@ -264,7 +264,7 @@ mod unix {
     /// What pointed to an installation that is gone (an app removed or moved, a deleted
     /// build) moves to this one: broken as it is it would be of no use to anyone, and the
     /// agent would only notice by failing. The rest (an entry or a skill pointing to another
-    /// copy that still exists) is left to update in the Agents tab: the user decides.
+    /// copy that still exists) is left to update in Settings › Integration: the user decides.
     ///
     /// Returns, for each row of the tab (`path`, `skill:<agent>`, `client:<name>`), what to
     /// say under it: done, or the error.

@@ -110,8 +110,128 @@ impl Installed {
             "app": self.app,
             "path": self.path.to_string_lossy(),
             "folder": self.folder,
+            "system": system_modes(&self.id),
         })
     }
+}
+
+/// How a preset changes an agent's system prompt, written in a file next to the preset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// After the agent's own.
+    Append,
+    /// In place of the agent's own.
+    Replace,
+}
+
+impl Mode {
+    pub fn parse(text: &str) -> Option<Mode> {
+        match text {
+            "append" => Some(Mode::Append),
+            "replace" => Some(Mode::Replace),
+            _ => None,
+        }
+    }
+}
+
+/// The ways an agent takes a system prompt at launch: Codex and Gemini CLI only replace it,
+/// OpenCode only adds to it (through the `instructions` of a config file).
+pub fn system_modes(agent: &str) -> &'static [&'static str] {
+    match agent {
+        "claude-code" => &["append", "replace"],
+        "codex" | "gemini" => &["replace"],
+        "opencode" => &["append"],
+        _ => &[],
+    }
+}
+
+/// What a preset adds to the launch of a command-line agent.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Options {
+    /// The system prompt, in a file.
+    pub system: Option<(Mode, PathBuf)>,
+    /// For OpenCode, the config file that points to the system prompt: written by the caller,
+    /// with [`opencode_config`].
+    pub opencode_config: Option<PathBuf>,
+    pub model: Option<String>,
+}
+
+/// What the agent gets on its command line and in its environment.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Extra {
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+/// A model name: a word, with the dots, colons, slashes and brackets of the providers' names.
+pub fn valid_model(model: &str) -> bool {
+    (1..=100).contains(&model.len())
+        && model
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._:/@-[]".contains(c))
+}
+
+/// The arguments and the variables that carry the options to an agent, as each one takes
+/// them; what it can't take is an error, not left out.
+pub fn extra(agent: &str, options: &Options) -> Result<Extra> {
+    let mut extra = Extra::default();
+    if let Some(model) = &options.model {
+        if !valid_model(model) {
+            return Err(SetupError(format!("\"{model}\" isn't a model name.")));
+        }
+        extra.args.extend([
+            if agent == "claude-code" {
+                "--model"
+            } else {
+                "-m"
+            }
+            .to_owned(),
+            model.clone(),
+        ]);
+    }
+    if let Some((mode, file)) = &options.system {
+        let path = file.to_string_lossy().into_owned();
+        match (agent, mode) {
+            ("claude-code", Mode::Append) => {
+                extra
+                    .args
+                    .extend(["--append-system-prompt-file".into(), path]);
+            }
+            ("claude-code", Mode::Replace) => {
+                extra.args.extend(["--system-prompt-file".into(), path]);
+            }
+            // A TOML literal string: no escapes, so the path can't hold a quote.
+            ("codex", Mode::Replace) if !path.contains('\'') => {
+                extra
+                    .args
+                    .extend(["-c".into(), format!("model_instructions_file='{path}'")]);
+            }
+            ("gemini", Mode::Replace) => extra.env.push(("GEMINI_SYSTEM_MD".into(), path)),
+            ("opencode", Mode::Append) => {
+                let config = options
+                    .opencode_config
+                    .as_ref()
+                    .ok_or_else(|| SetupError::new("OpenCode needs its config file."))?;
+                extra.env.push((
+                    "OPENCODE_CONFIG".into(),
+                    config.to_string_lossy().into_owned(),
+                ));
+            }
+            _ => {
+                return Err(SetupError::new(
+                    "This agent can't take this system prompt at launch.",
+                ));
+            }
+        }
+    }
+    Ok(extra)
+}
+
+/// The config file that hands OpenCode the system prompt: its `instructions`, merged with the
+/// user's own config.
+pub fn opencode_config(prompt: &Path) -> String {
+    serde_json::to_string_pretty(&json!({ "instructions": [prompt.to_string_lossy()] }))
+        .unwrap_or_default()
 }
 
 /// The known agents installed here, in the catalog's order.
@@ -202,13 +322,14 @@ fn executable(path: &Path) -> bool {
 }
 
 /// Launches `agent`. A command-line agent opens in a terminal in `folder` (the home if
-/// none), with `token` in `CLAK_LAUNCH`; the script goes in `scripts`. An app opens through
-/// the system, on `folder` if it takes one.
+/// none), with `token` in `CLAK_LAUNCH` and what a preset adds (`extra`); the script goes in
+/// `scripts`. An app opens through the system, on `folder` if it takes one.
 pub fn launch(
     places: &Places,
     agent: &Installed,
     folder: Option<&Path>,
     token: Option<&str>,
+    extra: &Extra,
     scripts: &Path,
 ) -> Result<()> {
     let folder = folder.filter(|f| f.is_dir());
@@ -217,7 +338,7 @@ pub fn launch(
     }
     let folder = folder.unwrap_or(&places.home);
     clean(scripts);
-    let script = write_script(scripts, &agent.path, folder, token)?;
+    let script = write_script(scripts, &agent.path, folder, token, extra)?;
     let opened = open_terminal(places, &script, folder);
     if opened.is_err() {
         let _ = std::fs::remove_file(&script);
@@ -248,6 +369,7 @@ pub fn write_script(
     agent: &Path,
     folder: &Path,
     token: Option<&str>,
+    extra: &Extra,
 ) -> Result<PathBuf> {
     std::fs::create_dir_all(scripts)?;
     private(scripts)?;
@@ -255,12 +377,12 @@ pub fn write_script(
     let (path, text) = if cfg!(windows) {
         (
             scripts.join(format!("{name}.cmd")),
-            cmd_script(agent, folder, token),
+            cmd_script(agent, folder, token, extra)?,
         )
     } else {
         (
             scripts.join(format!("{name}.command")),
-            sh_script(agent, folder, token),
+            sh_script(agent, folder, token, extra),
         )
     };
     std::fs::write(&path, text)?;
@@ -268,28 +390,64 @@ pub fn write_script(
     Ok(path)
 }
 
-/// `#!/bin/sh`: the agent with its secret, then the user's shell, in the folder.
-pub fn sh_script(agent: &Path, folder: &Path, token: Option<&str>) -> String {
-    let secret = token.map_or(String::new(), |t| format!("CLAK_LAUNCH={} ", sh_quote(t)));
+/// `#!/bin/sh`: the agent with its secret and its variables, then the user's shell, in the
+/// folder. The variables are the agent's alone: not the shell's that follows.
+pub fn sh_script(agent: &Path, folder: &Path, token: Option<&str>, extra: &Extra) -> String {
+    let mut line: String = token
+        .map(|t| ("CLAK_LAUNCH", t))
+        .into_iter()
+        .chain(extra.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .map(|(k, v)| format!("{k}={} ", sh_quote(v)))
+        .collect();
+    line.push_str(&sh_quote(&agent.to_string_lossy()));
+    for arg in &extra.args {
+        line.push(' ');
+        line.push_str(&sh_quote(arg));
+    }
     format!(
         "#!/bin/sh\n\
          rm -f -- \"$0\"\n\
          cd -- {} || exit 1\n\
-         {secret}{}\n\
+         {line}\n\
          exec \"${{SHELL:-/bin/zsh}}\" -l\n",
         sh_quote(&folder.to_string_lossy()),
-        sh_quote(&agent.to_string_lossy()),
     )
 }
 
-/// A single block: `cmd` reads a batch file line by line, and this one deletes itself.
-pub fn cmd_script(agent: &Path, folder: &Path, token: Option<&str>) -> String {
-    let secret = token.map_or(String::new(), |t| format!(" & set \"CLAK_LAUNCH={t}\""));
-    format!(
-        "@echo off\r\n(del \"%~f0\" & cd /d \"{}\"{secret} & call \"{}\" & set \"CLAK_LAUNCH=\")\r\n",
-        cmd_escape(&folder.to_string_lossy()),
-        cmd_escape(&agent.to_string_lossy()),
-    )
+/// A single block: `cmd` reads a batch file line by line, and this one deletes itself. The
+/// variables are cleared after the agent: the console stays open, and a `gemini` typed
+/// there later starts as usual. Every value goes between double quotes, where only `%`
+/// still means something; a double quote can't be written there, and is refused.
+pub fn cmd_script(
+    agent: &Path,
+    folder: &Path,
+    token: Option<&str>,
+    extra: &Extra,
+) -> Result<String> {
+    let quoted = |text: &str| -> Result<String> {
+        if text.contains('"') {
+            return Err(SetupError(format!("Can't pass {text} to the agent.")));
+        }
+        Ok(format!("\"{}\"", cmd_escape(text)))
+    };
+    let env = token
+        .map(|t| ("CLAK_LAUNCH", t))
+        .into_iter()
+        .chain(extra.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+    let (mut set, mut unset) = (String::new(), String::new());
+    for (k, v) in env {
+        set.push_str(&format!(" & set {}", quoted(&format!("{k}={v}"))?));
+        unset.push_str(&format!(" & set \"{k}=\""));
+    }
+    let mut call = format!("call {}", quoted(&agent.to_string_lossy())?);
+    for arg in &extra.args {
+        call.push(' ');
+        call.push_str(&quoted(arg)?);
+    }
+    Ok(format!(
+        "@echo off\r\n(del \"%~f0\" & cd /d {}{set} & {call}{unset})\r\n",
+        quoted(&folder.to_string_lossy())?,
+    ))
 }
 
 fn sh_quote(text: &str) -> String {
@@ -447,14 +605,40 @@ mod tests {
             Path::new("/Users/me/.local/bin/claude"),
             Path::new("/Users/me/it's here"),
             Some("abc123"),
+            &Extra::default(),
         );
         assert_eq!(
             script,
             "#!/bin/sh\nrm -f -- \"$0\"\ncd -- '/Users/me/it'\\''s here' || exit 1\n\
              CLAK_LAUNCH='abc123' '/Users/me/.local/bin/claude'\nexec \"${SHELL:-/bin/zsh}\" -l\n"
         );
-        let plain = sh_script(Path::new("/bin/claude"), Path::new("/tmp"), None);
+        let plain = sh_script(
+            Path::new("/bin/claude"),
+            Path::new("/tmp"),
+            None,
+            &Extra::default(),
+        );
         assert!(!plain.contains("CLAK_LAUNCH"));
+    }
+
+    #[test]
+    fn the_variables_and_arguments_of_a_preset_are_the_agents_own() {
+        let extra = Extra {
+            args: vec!["-m".into(), "gemini-2.5-pro".into()],
+            env: vec![(
+                "GEMINI_SYSTEM_MD".into(),
+                "/Users/me/.clak/presets/p/it's.md".into(),
+            )],
+        };
+        let script = sh_script(
+            Path::new("/bin/gemini"),
+            Path::new("/tmp"),
+            Some("s"),
+            &extra,
+        );
+        assert!(script.contains(
+            "CLAK_LAUNCH='s' GEMINI_SYSTEM_MD='/Users/me/.clak/presets/p/it'\\''s.md' '/bin/gemini' '-m' 'gemini-2.5-pro'\n"
+        ));
     }
 
     #[test]
@@ -463,12 +647,95 @@ mod tests {
             Path::new(r"C:\Users\me\AppData\Roaming\npm\claude.cmd"),
             Path::new(r"C:\Work\100% done"),
             Some("abc123"),
-        );
+            &Extra::default(),
+        )
+        .unwrap();
         assert_eq!(
             script,
             "@echo off\r\n(del \"%~f0\" & cd /d \"C:\\Work\\100%% done\" & set \"CLAK_LAUNCH=abc123\" \
              & call \"C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd\" & set \"CLAK_LAUNCH=\")\r\n"
         );
+        let extra = Extra {
+            args: vec!["--model".into(), "opus".into()],
+            env: vec![("GEMINI_SYSTEM_MD".into(), r"C:\Users\me (work)\s.md".into())],
+        };
+        let script = cmd_script(Path::new(r"C:\g.cmd"), Path::new(r"C:\w"), None, &extra).unwrap();
+        assert_eq!(
+            script,
+            "@echo off\r\n(del \"%~f0\" & cd /d \"C:\\w\" & set \"GEMINI_SYSTEM_MD=C:\\Users\\me (work)\\s.md\" \
+             & call \"C:\\g.cmd\" \"--model\" \"opus\" & set \"GEMINI_SYSTEM_MD=\")\r\n"
+        );
+        let quote = Extra {
+            args: vec!["a\"b".into()],
+            env: vec![],
+        };
+        assert!(cmd_script(Path::new(r"C:\g.cmd"), Path::new(r"C:\w"), None, &quote).is_err());
+    }
+
+    #[test]
+    fn each_agent_takes_the_system_prompt_its_own_way() {
+        let file = PathBuf::from("/h/.clak/presets/p/system.md");
+        let options = |mode| Options {
+            system: Some((mode, file.clone())),
+            opencode_config: Some(PathBuf::from("/h/.clak/presets/p/opencode.json")),
+            model: None,
+        };
+        let args = |agent, mode| extra(agent, &options(mode)).map(|e| (e.args, e.env));
+        let path = file.to_string_lossy().into_owned();
+        assert_eq!(
+            args("claude-code", Mode::Append).unwrap().0,
+            vec!["--append-system-prompt-file".to_owned(), path.clone()]
+        );
+        assert_eq!(
+            args("claude-code", Mode::Replace).unwrap().0,
+            vec!["--system-prompt-file".to_owned(), path.clone()]
+        );
+        assert_eq!(
+            args("codex", Mode::Replace).unwrap().0,
+            vec!["-c".to_owned(), format!("model_instructions_file='{path}'")]
+        );
+        assert_eq!(
+            args("gemini", Mode::Replace).unwrap().1,
+            vec![("GEMINI_SYSTEM_MD".to_owned(), path.clone())]
+        );
+        assert_eq!(
+            args("opencode", Mode::Append).unwrap().1,
+            vec![(
+                "OPENCODE_CONFIG".to_owned(),
+                "/h/.clak/presets/p/opencode.json".to_owned()
+            )]
+        );
+        // What an agent can't take is refused, not left out.
+        assert!(args("codex", Mode::Append).is_err());
+        assert!(args("gemini", Mode::Append).is_err());
+        assert!(args("opencode", Mode::Replace).is_err());
+        for agent in ["claude-code", "codex", "gemini", "opencode"] {
+            for mode in system_modes(agent) {
+                assert!(
+                    args(agent, Mode::parse(mode).unwrap()).is_ok(),
+                    "{agent} {mode}"
+                );
+            }
+        }
+        let model = |agent, model: &str| {
+            extra(
+                agent,
+                &Options {
+                    model: Some(model.into()),
+                    ..Options::default()
+                },
+            )
+            .map(|e| e.args)
+        };
+        assert_eq!(
+            model("claude-code", "opus").unwrap(),
+            vec!["--model", "opus"]
+        );
+        assert_eq!(
+            model("opencode", "anthropic/claude-sonnet-4").unwrap(),
+            vec!["-m", "anthropic/claude-sonnet-4"]
+        );
+        assert!(model("codex", "gpt-5 & calc").is_err());
     }
 
     #[cfg(unix)]
@@ -476,8 +743,14 @@ mod tests {
     fn the_script_is_the_users_own() {
         use std::os::unix::fs::PermissionsExt;
         let dir = temp().join("launch");
-        let path =
-            write_script(&dir, Path::new("/bin/claude"), Path::new("/tmp"), Some("s")).unwrap();
+        let path = write_script(
+            &dir,
+            Path::new("/bin/claude"),
+            Path::new("/tmp"),
+            Some("s"),
+            &Extra::default(),
+        )
+        .unwrap();
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&dir), 0o700);
         assert_eq!(mode(&path), 0o700);

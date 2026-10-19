@@ -22,6 +22,13 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - Presets: an agent, a folder and the programs it may use without asking, all their commands
   or only some. A known application covers all its documents; the preset opens the ones that
   aren't running. Other programs and commands still ask.
+- A preset can also start a command-line agent with a model and a system prompt of its own,
+  added to the agent's or in its place, as far as each agent allows: Claude Code both, Codex
+  and Gemini CLI in its place, OpenCode added. With a folder, it edits the instructions file
+  the agent reads there (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`).
+- Each agent's global instructions (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
+  `~/.gemini/GEMINI.md`, OpenCode's `AGENTS.md`) open from its row in the Agents tab, to read
+  and change; the text replaced is kept as `.clak-bak`.
 - Show brings a connected agent to the front (in Status and in the tray box), and the eye a
   program it uses, when the program has a window: the app it runs in comes forward. On the
   Mac, Terminal and iTerm also select the agent's tab (macOS asks first whether Clak may
@@ -57,10 +64,19 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - A consent window plays Clak's own sound, of the same family as the connection sound, not
   the system one. Sound for consent windows in Settings still turns it off.
 - Applications show who signed the program without "signed by".
+- The Agents tab holds only the agents to launch and the presets. The command line, the
+  skills and the MCP clients moved to Settings › Integration; Settings has three parts:
+  General, Integration and About.
+- Settings › About shows the version, where the updates stand and Check now together, as
+  Windows Update does; the two switches stay in their own rows.
+- On Windows too, Status lays the connected programs out in a grid, as on the Mac.
 - The protocol's session diagram is a Mermaid diagram.
 
 ### Fixed
 
+- A program that runs in a runtime (Java, Python, Node.js, .NET…) looked signed by whoever
+  signed the runtime, as if it were their own. Applications and the consent window now name
+  the runtime next to the signature.
 - A newer Clak could go unnoticed for hours: Clak looked every six hours, a failed look left
   no trace, and turning off the notifications about programs turned this one off too.
   Settings now shows when Clak last looked, and why it could not.

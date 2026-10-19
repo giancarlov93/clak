@@ -61,6 +61,7 @@ html.win .caption { text-transform: none; letter-spacing: 0; font-size: 12px; }
 .sig.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
 .sig.ok::before { content: "✓ "; }
 .sig.warn { color: var(--caution); background: color-mix(in srgb, var(--caution) 16%, transparent); }
+.sig.runtime { color: var(--quiet); background: color-mix(in srgb, var(--quiet) 14%, transparent); }
 .lines.change { padding: 8px 0; grid-template-columns: 100px 1fr; }
 
 /* --- the commands ------------------------------------------------------------------ */

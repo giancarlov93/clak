@@ -1,4 +1,4 @@
-//! The Launch section of the Agents tab: the agents installed here, launched from the app,
+//! The Agents tab: the agents installed here, launched from the app, their instructions
 //! and the presets. Finding and launching live in `clak_setup::launcher`, the presets in
 //! `clak_setup::presets`, the authorization in `clak_hub::launch`: here only the commands.
 //!
@@ -7,23 +7,31 @@
 
 use crate::bridge;
 use clak_hub::launch::{Preset, PresetProgram};
-use clak_setup::{Places, launcher, presets};
+use clak_setup::{Places, instructions, launcher, presets};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
-/// The agents installed, the presets, and whether a launch is authorized (hub in here).
+/// The agents installed (with their global instructions file, for those that have one), the
+/// presets, and whether a launch is authorized (hub in here).
 #[tauri::command]
 pub async fn launch_status(app: AppHandle) -> Value {
     let bridge = bridge::of(&app);
     let home = bridge.home().clone();
     let authorizes = bridge.mode() == bridge::Mode::Local;
     tauri::async_runtime::spawn_blocking(move || {
+        let places = Places::real();
         json!({
-            "installed": launcher::installed(&Places::real())
+            "installed": launcher::installed(&places)
                 .iter()
-                .map(launcher::Installed::to_json)
+                .map(|agent| {
+                    let mut json = agent.to_json();
+                    json["instructions"] = json!(instructions::global(&places, &agent.id));
+                    json["project_file"] = json!(instructions::project(&agent.id, std::path::Path::new(""))
+                        .map(|p| p.to_string_lossy().into_owned()));
+                    json
+                })
                 .collect::<Vec<_>>(),
             "presets": presets::all(&home),
             "authorizes": authorizes,
@@ -34,7 +42,7 @@ pub async fn launch_status(app: AppHandle) -> Value {
 }
 
 /// Launches an agent (by its catalog id) or a preset (by its id): the preset brings its
-/// agent, its folder and its programs. `folder`, if given, wins over the preset's.
+/// agent, its folder, its programs, its system prompt and its model. `folder`, if given, wins over the preset's.
 #[tauri::command]
 pub async fn launch_agent(
     app: AppHandle,
@@ -73,6 +81,17 @@ pub async fn launch_agent(
                 .and_then(|p| p.get("folder").and_then(Value::as_str).map(str::to_owned))
         })
         .map(PathBuf::from);
+    // What the preset adds to a command-line agent, ready before anything waits for it.
+    let extra = match chosen.clone().filter(|_| !agent.app) {
+        Some(chosen) => {
+            let (home, id) = (home.clone(), agent.id.clone());
+            tauri::async_runtime::spawn_blocking(move || presets::extra(&home, &chosen, &id))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?
+        }
+        None => launcher::Extra::default(),
+    };
     let preset = chosen.as_ref().map(hub_preset);
     // Prepared before the agent starts: its first request finds the launch waiting.
     let token = bridge
@@ -84,6 +103,7 @@ pub async fn launch_agent(
             &agent,
             folder.as_deref(),
             token.as_deref(),
+            &extra,
             &home.join("launch"),
         )
     })
@@ -127,6 +147,42 @@ pub async fn preset_remove(app: AppHandle, id: String) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// The instructions file of an agent: its global one, or the one in `folder`.
+fn instructions_file(agent: &str, folder: Option<&str>) -> Result<PathBuf, String> {
+    match folder.filter(|f| !f.is_empty()) {
+        Some(folder) => instructions::project(agent, std::path::Path::new(folder))
+            .ok_or_else(|| "this agent has no instructions file in a folder".into()),
+        None => instructions::global(&Places::real(), agent)
+            .ok_or_else(|| "this agent has no instructions file of its own".into()),
+    }
+}
+
+/// An instructions file: where it is and its text, empty if there is none yet.
+#[tauri::command]
+pub async fn instructions_read(agent: String, folder: Option<String>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = instructions_file(&agent, folder.as_deref())?;
+        let text = instructions::read(&path).map_err(|e| e.to_string())?;
+        Ok(json!({ "path": path, "text": text, "exists": path.is_file() }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn instructions_write(
+    agent: String,
+    folder: Option<String>,
+    text: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = instructions_file(&agent, folder.as_deref())?;
+        instructions::write(&path, &text).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The folder an agent works in, chosen by the user.
