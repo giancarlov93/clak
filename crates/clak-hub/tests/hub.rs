@@ -382,6 +382,16 @@ async fn a_changed_or_new_command_after_consent_asks_its_own() {
         |_| async { clak_kit::text("secret") },
     );
     app.resource.publish();
+    // Until the hub has the new list, the call would go to the command already approved.
+    wait_until(|| async {
+        hub.ask("claude", "tools", Some(json!({"resource": "test-notepad"})))
+            .await["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "get_text" && t["approved"] == false)
+    })
+    .await;
     let (call, _) = tokio::join!(
         hub.call("claude", "test-notepad", "get_text", None, None),
         async {
