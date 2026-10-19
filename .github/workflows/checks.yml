@@ -1,6 +1,6 @@
 # On every pull request, and on main: formatting, clippy and the tests, before review. On main
-# they also keep the cache the pull requests start from, and a green run starts the release
-# (release.yml).
+# a green run starts the release (release.yml); the same files already checked on their pull
+# request are not checked again.
 # No secrets and no environment here: it runs the same for a fork.
 name: Checks
 
@@ -20,7 +20,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # On main: whether the files of this commit are those of a pull request whose checks passed.
+  # With a rebase the commits change but, if main hadn't moved, the files (the tree) don't.
+  # A direct push, a pull request not found or a doubt: everything runs.
+  needed:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      run: ${{ steps.look.outputs.run }}
+    steps:
+      - id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          run=true
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tree() { gh api "repos/$REPO/git/commits/$1" --jq .tree.sha || true; }
+            pulls="repos/$REPO/commits/$SHA/pulls"
+            head=$(gh api "$pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
+            mine=$(tree "$SHA")
+            if [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
+              runs="repos/$REPO/actions/workflows/checks.yml/runs?head_sha=$head&event=pull_request&status=success"
+              passed=$(gh api "$runs" --jq .total_count || echo 0)
+              if [ "${passed:-0}" -gt 0 ]; then
+                run=false
+                echo "The same files passed on their pull request ($head): nothing to check again." >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   fmt:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -32,6 +69,8 @@ jobs:
   # clippy and the tests on both systems: much of the code is #[cfg(windows)] or macOS only.
   # The whole workspace, the Tauri app included.
   clippy-test:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -56,6 +95,8 @@ jobs:
   # The figures go in the run's summary, the report (HTML and lcov) among its artifacts.
   # To raise the floor as the tests grow, change COVERAGE_FLOOR.
   coverage:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
     runs-on: macos-latest
     env:
       COVERAGE_FLOOR: 75
