@@ -141,9 +141,9 @@ copying calls `ClakApp --setup` and before removal `ClakApp --uninstall`; on the
 
 ## Release
 
-On every push to `main` GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds the
-installers for Windows x64, Mac ARM and Mac Intel, and a release with notes generated from the
-commits. The version is `X.Y` from `[workspace.package]` in `Cargo.toml` plus the run
+Once the checks pass on `main` (`.github/workflows/checks.yml`: formatting, clippy, the tests),
+GitHub Actions (`.github/workflows/release.yml`) builds the installers for Windows x64, Mac ARM
+and Mac Intel of that same commit, and a release with notes generated from the commits. The version is `X.Y` from `[workspace.package]` in `Cargo.toml` plus the run
 number (`0.3.17`): to move to `0.4` change it there, by hand or with
 
 ```bash

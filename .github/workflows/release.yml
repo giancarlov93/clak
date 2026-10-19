@@ -1,11 +1,14 @@
-# On every push to main: tests, installers for Windows and Mac, a GitHub release.
+# Once the checks pass on main (checks.yml, which runs the tests): installers for Windows and
+# Mac, and a GitHub release, of the very commit the checks ran on. Red checks, no release.
 #
 # The version is X.Y from the root Cargo.toml plus the run number: 0.3.0 in Cargo.toml
 # gives 0.3.17 on the seventeenth run. To move to 0.4, just change it there.
 name: Release
 
 on:
-  push:
+  workflow_run:
+    workflows: [Checks]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -19,14 +22,23 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
+  # The commit the checks passed on; by hand, the head of main.
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   version:
+    # Only the checks of a push to main that passed: not a pull request's, not a red or
+    # cancelled run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.SHA }}
       - id: v
         run: |
           base=$(node scripts/version.mjs | cut -d. -f1,2)
@@ -43,18 +55,17 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            test: true
           - os: macos-latest
             target: aarch64-apple-darwin
-            test: true
             arch: aarch64
           - os: macos-latest
             target: x86_64-apple-darwin
-            test: false
             arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.SHA }}
 
       # The Rust of rust-toolchain.toml (rustup is already on the runners), with this target.
       - name: Rust
@@ -86,11 +97,6 @@ jobs:
       - name: Version
         shell: bash
         run: node scripts/version.mjs "${{ needs.version.outputs.version }}"
-
-      - name: Test
-        if: matrix.test
-        shell: bash
-        run: cargo test
 
       # The Mac: signed with the Developer ID if the repository has the secrets (without them,
       # signed ad hoc as before). With the updater key, the files for the updater too.
@@ -162,6 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ env.SHA }}
           sparse-checkout: |
             CHANGELOG.md
             scripts/updater-manifest.mjs
@@ -184,7 +191,7 @@ jobs:
           node scripts/updater-manifest.mjs dist "$VERSION" "${{ github.repository }}" notes.md
           gh release create "v$VERSION" dist/* \
             --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
+            --target "$SHA" \
             --title "Clak $VERSION" \
             --notes-file notes.md \
             --generate-notes
