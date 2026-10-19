@@ -6,6 +6,11 @@
 //! - On Windows many agents kill their children all together (a job object):
 //!   `std::process::Command` cannot break out of it, so here `CreateProcessW` is called
 //!   directly, with `CREATE_BREAKAWAY_FROM_JOB`.
+//! - On Windows an agent may itself run inside a packaged app (Claude Desktop is an MSIX
+//!   package), and its children with it: there Windows redirects the writes to
+//!   `%LOCALAPPDATA%` into the package's own folder. The hub started there would update
+//!   itself, and set itself up, in that folder, which nobody outside sees. So from inside a
+//!   package the hub is opened through Explorer, which starts it outside.
 //! - On the Mac it is started through LaunchServices (`open`), as if the user had
 //!   opened it from the Finder: its parent is launchd.
 
@@ -52,10 +57,50 @@ pub fn command() -> Option<String> {
         .map(|path| format!("\"{}\"", path.display()))
 }
 
-/// Starts the hub, if it is known where it is.
+/// Starts the hub, if it is known where it is. From inside a package, the tray app goes
+/// through Explorer, so that it runs outside it; `CLAK_BROKER` is launched as it is.
 #[cfg(windows)]
 pub fn start() -> bool {
-    command().is_some_and(|line| start_command(&line))
+    let Some(line) = command() else { return false };
+    if custom().is_none() && package().is_some() {
+        return start_outside(&line);
+    }
+    start_command(&line)
+}
+
+/// The family name of the package this process runs in (`Claude_pzs8sxrjxfjjc`), if it
+/// runs in one.
+#[cfg(windows)]
+pub fn package() -> Option<String> {
+    use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
+    use windows_sys::Win32::Storage::Packaging::Appx::GetCurrentPackageFamilyName;
+    let mut length = 0u32;
+    // SAFETY: with a null buffer the call only writes the length it needs.
+    let first = unsafe { GetCurrentPackageFamilyName(&mut length, std::ptr::null_mut()) };
+    if first != ERROR_INSUFFICIENT_BUFFER {
+        return None;
+    }
+    let mut name = vec![0u16; length as usize];
+    // SAFETY: the buffer holds `length` characters, as the first call asked.
+    let second = unsafe { GetCurrentPackageFamilyName(&mut length, name.as_mut_ptr()) };
+    if second != ERROR_SUCCESS {
+        return Some(String::new());
+    }
+    let end = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+    Some(String::from_utf16_lossy(&name[..end]))
+}
+
+/// Opens an executable (a quoted path, without arguments) through Explorer: the Explorer
+/// started here hands the file to the one already running, which starts it outside the
+/// package of whoever asked.
+#[cfg(windows)]
+pub fn start_outside(executable: &str) -> bool {
+    let windows = std::env::var("SystemRoot")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "C:\\Windows".to_owned());
+    let explorer = std::path::Path::new(&windows).join("explorer.exe");
+    start_command(&format!("\"{}\" {executable}", explorer.display()))
 }
 
 /// Launches a detached command line: in its own group, without a console, outside the job.

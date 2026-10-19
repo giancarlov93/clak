@@ -42,10 +42,12 @@ fn with<T>(f: impl FnOnce(&mut Seen) -> T) -> T {
     f(guard.get_or_insert_with(Seen::default))
 }
 
-/// The checks run only in a release build, with the preference on and no opt-out variable.
+/// The checks run only in a release build, with the preference on and no opt-out variable,
+/// and not inside another app's package (see `setup::foreign_package`).
 fn enabled(app: &AppHandle) -> bool {
     !cfg!(debug_assertions)
         && std::env::var_os(OPT_OUT).is_none()
+        && crate::setup::foreign_package().is_none()
         && bridge::of(app).prefs.update_check()
 }
 
@@ -224,6 +226,11 @@ pub async fn update_install(app: AppHandle) -> Result<(), String> {
 }
 
 async fn install(app: &AppHandle) -> Result<(), String> {
+    if let Some(package) = crate::setup::foreign_package() {
+        return Err(format!(
+            "Clak is running inside the app package {package}: the update would be installed there. Quit Clak and open it again from the Start menu."
+        ));
+    }
     if with(|seen| std::mem::replace(&mut seen.installing, true)) {
         return Err("An update is already being installed.".into());
     }
