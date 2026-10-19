@@ -287,7 +287,7 @@ pub fn lineage_windows(processes: &dyn ProcessLookup, pid: u32) -> (Vec<Ancestor
         }
         let exe = processes.exe(current);
         let name = friendly_name_windows(
-            exe.as_deref().unwrap_or(&entry.name),
+            &started_as(exe.as_deref(), &entry.name),
             processes.command_line(current).as_deref(),
         );
         line.push(Ancestor {
@@ -305,6 +305,21 @@ pub fn lineage_windows(processes: &dyn ProcessLookup, pid: u32) -> (Vec<Ancestor
         }
     }
     (line, true)
+}
+
+/// The path a Windows process started from: its directory now, with the file name it
+/// had then. A running executable can't be overwritten, so self-updaters rename it
+/// (Claude Code leaves `claude.exe.old.<n>`) and the path Windows reports follows the
+/// rename; the process table keeps the original name.
+fn started_as(exe: Option<&str>, file: &str) -> String {
+    let Some(exe) = exe else {
+        return file.to_string();
+    };
+    let current = file_name_windows(exe);
+    if current.eq_ignore_ascii_case(file) {
+        return exe.to_string();
+    }
+    format!("{}{file}", &exe[..exe.len() - current.len()])
 }
 
 /// The ancestors under the Mac rules, up to the user's session.
@@ -989,6 +1004,53 @@ mod tests {
         // A parent whose start time can't be read is a gap too.
         let table = table.with(30, 10, "bash.exe", None, None);
         assert!(lineage_windows(&table, 60).1);
+    }
+
+    #[test]
+    fn an_agent_renamed_by_its_update_is_still_recognized() {
+        // Claude Code in Windows Terminal, updated while running: its file is now
+        // claude.exe.old.<n>, and the terminal's parent is gone (a broken chain).
+        let old = r"C:\Users\u\.local\bin\claude.exe.old.1792429801593.49524";
+        let table = FakeTable::default()
+            .with(
+                18680,
+                12284,
+                "WindowsTerminal.exe",
+                Some(10),
+                Some(r"C:\Program Files\WindowsApps\Microsoft.WindowsTerminal_1.24_x64\WindowsTerminal.exe"),
+            )
+            .with(44544, 18680, "powershell.exe", Some(20), None)
+            .with(49524, 44544, "claude.exe", Some(30), Some(old))
+            .with(47468, 49524, "cmd.exe", Some(40), None)
+            .with(15488, 47468, "powershell.exe", Some(50), None)
+            .with(60, 15488, "clak.exe", Some(60), None)
+            .with(55, 49524, "bash.exe", Some(55), None)
+            .with(61, 55, "clak.exe", Some(61), None);
+        let (line, broken) = lineage_windows(&table, 60);
+        assert!(broken);
+        assert_eq!(line.len(), 6);
+        for (pid, chain) in [
+            (
+                60,
+                &["clak.exe", "powershell.exe", "cmd.exe", "claude.exe"][..],
+            ),
+            (61, &["clak.exe", "bash.exe", "claude.exe"][..]),
+        ] {
+            let (agent, found) =
+                select(&table, pid, &HashSet::new(), &WINDOWS, lineage_windows).unwrap();
+            assert_eq!((agent.pid, agent.name.as_str()), (49524, "Claude Code"));
+            assert_eq!(found, chain);
+        }
+
+        assert_eq!(
+            started_as(Some(old), "claude.exe"),
+            r"C:\Users\u\.local\bin\claude.exe"
+        );
+        assert_eq!(
+            started_as(Some(r"C:\x\Code.exe"), "code.exe"),
+            r"C:\x\Code.exe"
+        );
+        assert_eq!(started_as(None, "claude.exe"), "claude.exe");
     }
 
     #[test]
