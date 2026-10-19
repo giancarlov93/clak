@@ -212,13 +212,14 @@ async fn handle(
             tokio::task::spawn_blocking(move || platform.attest_loopback(peer_port, local_port))
                 .await
                 .unwrap_or_else(|_| json!({}));
-        if !admit(broker, outbox, &resource, &origin, &tools).await {
+        let Some(key) = admit(broker, outbox, &resource, &origin, &tools).await else {
             return Ok(Flow::Drop);
-        }
+        };
         let instructions = instructions(message);
         let conn_id = broker.run(|c| {
             let id = c.register(outbox.clone(), resource, tools, origin, None);
             c.set_instructions(&id, instructions);
+            c.set_key(&id, key);
             id
         });
         *app = Some(conn_id);
@@ -294,14 +295,15 @@ pub fn instructions(message: &Map<String, Value>) -> Option<String> {
 
 /// A program gets in only if the user allows it: once per executable, and the hub remembers
 /// it. While the question is open the program knows it (`waiting`); if the user says no it
-/// receives `denied` and the connection closes.
+/// receives `denied` and the connection closes. Admitted: the key of its application, if it
+/// can be remembered (a preset names the application by it).
 async fn admit(
     broker: &Broker,
     outbox: &Outbox,
     resource: &ResourceDef,
     origin: &Value,
     tools: &[ToolDef],
-) -> bool {
+) -> Option<Option<String>> {
     let platform = broker.options().platform.clone();
     let (o, name) = (origin.clone(), resource.app.clone());
     let key =
@@ -310,7 +312,7 @@ async fn admit(
             .ok()
             .flatten();
     if broker.run(|c| c.permissions().allows(key.as_deref())) {
-        return true;
+        return Some(key);
     }
 
     outbox.send(json!({ "type": "waiting", "reason": "consent" }));
@@ -320,7 +322,7 @@ async fn admit(
         key.clone()
             .unwrap_or_else(|| clak_wire::json::new_id("unknown"))
     );
-    let (allow_key, allow_origin, allow_name) = (key, origin.clone(), resource.app.clone());
+    let (allow_key, allow_origin, allow_name) = (key.clone(), origin.clone(), resource.app.clone());
     let stop = broker.stopping();
     let verdict = broker
         .consent(
@@ -336,7 +338,7 @@ async fn admit(
         .await
         .unwrap_or(Verdict::NoAnswer);
     if verdict == Verdict::Allowed {
-        return true;
+        return Some(key);
     }
     outbox.send(json!({
         "type": "denied",
@@ -346,5 +348,5 @@ async fn admit(
             _ => "no_answer",
         },
     }));
-    false
+    None
 }

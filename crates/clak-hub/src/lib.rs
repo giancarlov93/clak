@@ -17,6 +17,7 @@ pub mod control_channel;
 pub mod core;
 pub mod flags;
 pub mod hub;
+pub mod launch;
 pub mod permissions;
 pub mod requests;
 pub mod texts;

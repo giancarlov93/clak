@@ -174,6 +174,14 @@ pub trait Platform: Send + Sync + 'static {
 
     /// The sha256 of an executable, to remember an unsigned program.
     fn executable_hash(&self, path: &str) -> Option<String>;
+
+    /// The names of the processes above `pid`, nearest first, as the walk names them
+    /// ("Visual Studio Code"): an agent launched inside an app runs below it. Slow: never
+    /// under the lock. Nothing where they can't be read.
+    fn above(&self, pid: u32) -> Vec<String> {
+        let _ = pid;
+        Vec::new()
+    }
 }
 
 /// How long a connector waits: between attempts when the server does not answer (from

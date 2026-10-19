@@ -117,11 +117,35 @@ pub struct FakePlatform {
     agents: Mutex<HashMap<String, AgentIdentity>>,
     dead: Mutex<HashSet<String>>,
     pids: AtomicU32,
+    /// By agent name: the processes above it.
+    above: Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl FakePlatform {
     pub fn agent(&self, name: &str) -> AgentIdentity {
         self.agents.lock().unwrap()[name].clone()
+    }
+
+    /// The agent's process starts now (the others started long ago), below `above`.
+    pub fn start_now(&self, name: &str, above: &[&str]) {
+        let now = clak_wire::json::now();
+        self.agents.lock().unwrap().insert(
+            name.to_owned(),
+            AgentIdentity {
+                pid: 30_000 + self.pids.fetch_add(1, Ordering::SeqCst),
+                started: now as i64,
+                started_at: Some(now),
+                exe: Some(format!(r"C:\agents\{name}.exe")),
+                name: name.to_owned(),
+                chain: vec![format!("{name}.exe")],
+                signed: "unsigned".into(),
+                signer: None,
+            },
+        );
+        self.above.lock().unwrap().insert(
+            name.to_owned(),
+            above.iter().map(|a| (*a).to_owned()).collect(),
+        );
     }
 
     /// The agent's process ends.
@@ -167,6 +191,23 @@ impl Platform for FakePlatform {
 
     fn executable_hash(&self, _path: &str) -> Option<String> {
         Some("0123456789abcdef".into())
+    }
+
+    fn above(&self, pid: u32) -> Vec<String> {
+        let agents = self.agents.lock().unwrap();
+        let Some(name) = agents
+            .values()
+            .find(|a| a.pid == pid)
+            .map(|a| a.name.clone())
+        else {
+            return Vec::new();
+        };
+        self.above
+            .lock()
+            .unwrap()
+            .get(&name)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
