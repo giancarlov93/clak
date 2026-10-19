@@ -57,6 +57,11 @@ html.mac .agent { border: none; box-shadow: 0 0 0 0.5px var(--stroke), 0 1px 2px
 .programs::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 10px; width: 1.5px; border-radius: 1px; background: var(--stroke); }
 .program { display: flex; align-items: center; gap: 4px; }
 .program .hit { flex: 1; gap: 9px; padding: 5px 6px; }
+/* The whole row lights up, Revoke included, not only the part that opens. */
+.program { border-radius: 6px; }
+html .program:hover { background: var(--control-hover); }
+html.mac .program:hover { background: var(--subtle); }
+html .program > button.hit:hover:not(:disabled) { background: none; }
 .program .lines .title { font-weight: 400; }
 button.revoke { flex: none; font-size: 12px; min-height: 22px; padding: 1px 10px 2px; margin-right: 4px; }
 html.mac button.revoke { min-height: 20px; border-radius: 10px; }

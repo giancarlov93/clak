@@ -54,6 +54,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - "Sign in…" on an MCP server added from the command line closed its window at once.
 - Mac windows could not be dragged by their top edge.
 - Windows: updating while the app was open could leave it blank after the restart.
+- Under the pointer, the programs in Status, the agents' rows with Revoke, the commands and
+  the rows of the tray box light up whole, not only a part of them.
 
 ## [0.3] - 2026-10-17
 
