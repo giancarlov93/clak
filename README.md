@@ -84,6 +84,14 @@ A git hook runs them before every commit that touches Rust; turn it on once per 
 git config core.hooksPath scripts/hooks
 ```
 
+CI also measures how many lines the tests run through, on the Mac, and fails below a floor
+(`COVERAGE_FLOOR` in the workflow). To see it before pushing, with
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov):
+
+```bash
+cargo llvm-cov --workspace --summary-only
+```
+
 `.gitignore` already leaves out the files of macOS, Windows and the common editors (`.DS_Store`,
 `.vscode/`…). Anything else of your own setup goes in your global ignore file
 (`git config --global core.excludesFile`).
