@@ -27,6 +27,18 @@ const Clak = (() => {
 
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+  /// The runtime a program runs in, when its executable is one (`javaw.exe`,
+  /// `python.exe`…): the signature is the runtime's, not the program's.
+  const RUNTIMES = [
+    [/^javaw?$/, "Java"], [/^pythonw?[\d.]*$|^pyw?$/, "Python"], [/^node$/, "Node.js"], [/^bun$/, "Bun"],
+    [/^deno$/, "Deno"], [/^dotnet$/, ".NET"], [/^rubyw?$/, "Ruby"], [/^perl$/, "Perl"], [/^pwsh$|^powershell$/, "PowerShell"],
+    [/^[wc]script$/, "Windows Script Host"], [/^osascript$/, "AppleScript"], [/^electron$/, "Electron"],
+  ];
+  const runtime = (exe) => {
+    const name = String(exe || "").split(/[\\/]/).pop().toLowerCase().replace(/\.exe$/, "");
+    return RUNTIMES.find(([pattern]) => pattern.test(name))?.[1] || null;
+  };
+
   /// The real icon of a program or an agent, read from its executable by the app, or of an
   /// MCP server or a REST API (`mcp:<id>`, `api:<id>`, server_icon.rs), or Clak's own (`clak`): a `data:` URL, or null for
   /// one without an icon of its own. Asked once per path and size.
@@ -77,5 +89,5 @@ const Clak = (() => {
     }
   });
 
-  return { mac, invoke, listen, el, plural, appIcon, withIcon };
+  return { mac, invoke, listen, el, plural, runtime, appIcon, withIcon };
 })();

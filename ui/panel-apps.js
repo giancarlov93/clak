@@ -19,11 +19,14 @@
 
   const row = (app, now) => {
     const signed = !!app.signer;
+    // A program that runs in Java or Python: the signature is the runtime's.
+    const runtime = Clak.runtime(app.exe);
     return el("div", { class: Clak.mac ? "row allowed" : "card allowed", "data-id": app.key },
       Kit.tile("apps", 36, "#007aff", app.exe),
       el("div", { class: "lines" },
         el("div", { class: "name" }, el("strong", null, app.name),
-          signed ? el("span", { title: "Signed by" }, Kit.badge(app.signer, "ok")) : Kit.badge("unsigned", "warn")),
+          runtime ? Kit.tag(runtime, { help: `Runs in ${runtime}` }) : null,
+          signed ? el("span", { title: runtime ? `${runtime} signed by` : "Signed by" }, Kit.badge(app.signer, "ok")) : Kit.badge("unsigned", "warn")),
         el("div", { class: "mono quiet ellipsis selectable", title: app.exe }, app.exe),
         el("div", { class: "quiet" }, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`)),
       el("div", { class: "actions" },

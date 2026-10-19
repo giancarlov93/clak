@@ -1,7 +1,7 @@
-//! The Agents and Settings tabs: skill, PATH, MCP clients, start with the system.
+//! Settings: skill, PATH, MCP clients (the Integration part), start with the system.
 //! The rules live in `clak-setup`; here only the commands for the pages.
 //!
-//! Each row of the Agents tab has an id (`path`, `skill:<agent>`, `client:<name>`), a
+//! Each row of Settings › Integration has an id (`path`, `skill:<agent>`, `client:<name>`), a
 //! state in words, a color (`ok`, `warn`, `err`, `off`), the file that would be touched and
 //! the buttons it needs. Everything that reads or writes the disk or the registry, or runs
 //! `claude mcp`, runs off the main thread.
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-/// A row of the Agents tab.
+/// A row of Settings › Integration.
 #[derive(Serialize)]
 struct Row {
     id: String,
@@ -36,7 +36,7 @@ struct Row {
     copy: bool,
 }
 
-/// What the Agents tab shows and does, rebuilt on every request: the user and other
+/// What Settings › Integration shows and does, rebuilt on every request: the user and other
 /// programs change those files too.
 struct Setup {
     places: Places,

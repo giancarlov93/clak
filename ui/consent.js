@@ -42,15 +42,18 @@
   };
 
   /// One party of the question: its icon, its name, the signature and one line about it.
+  /// A program that runs in Java or Python says so: the signature is the runtime's.
   const party = (caption, name, exe, sig, detail, tint) => {
     // Until the real icon arrives, and for whoever has none: the initial on a colored tile.
     const icon = el("span", { class: "party-icon", style: `--tint:${tint}` }, String(name || "?").trim().charAt(0).toUpperCase());
     if (isPath(exe)) Clak.withIcon(icon, exe, 32);
+    const runtime = isPath(exe) ? Clak.runtime(exe) : null;
     return el("div", { class: "party" },
       icon,
       el("div", { class: "party-lines" },
         el("div", { class: "caption" }, caption),
-        el("div", { class: "party-name" }, el("strong", { class: "ellipsis" }, name), signature(sig)),
+        el("div", { class: "party-name" }, el("strong", { class: "ellipsis" }, name),
+          runtime ? el("span", { class: "sig runtime", title: `Runs in ${runtime}` }, runtime) : null, signature(sig)),
         detail ? el("div", { class: "quiet ellipsis", title: detail }, detail) : null));
   };
 

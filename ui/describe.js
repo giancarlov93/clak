@@ -106,7 +106,8 @@ const Describe = (() => {
       text = `${o.protocol === "rest" ? "REST API" : "MCP server"}, ${o.url}${o.secure === false && o.loopback === false ? ", unencrypted" : ""}`;
     else if (!o?.exe) text = "unidentified process";
     else {
-      const exe = file(o.exe);
+      const runtime = Clak.runtime(o.exe);
+      const exe = runtime ? `${file(o.exe)} (${runtime})` : file(o.exe);
       if (o.signed === "valid" && o.signer) text = `${exe}, signed by ${o.signer}`;
       else if (o.signed === "invalid") text = `${exe}, INVALID SIGNATURE (${o.exe})`;
       else text = `${exe}, unsigned (${o.exe})`;
@@ -131,7 +132,7 @@ const Describe = (() => {
     ].join(" · ");
 
   const allowedAppDetail = (app, now) =>
-    `${app.exe} · ${app.signer ? `signed by ${app.signer}` : "unsigned: valid for this version of the file"} · allowed ${ago(app.since, now)}`;
+    `${app.exe} · ${app.signer ? `${Clak.runtime(app.exe) ? `${Clak.runtime(app.exe)} ` : ""}signed by ${app.signer}` : "unsigned: valid for this version of the file"} · allowed ${ago(app.since, now)}`;
 
   /// Who is using a program: "Claude Code · repo, Codex", or "No agent is using it".
   const users = (state, resourceId, none = "No agent is using it") => {

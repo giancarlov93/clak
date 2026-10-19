@@ -176,6 +176,8 @@ fn main() {
             launch::launch_agent,
             launch::preset_save,
             launch::preset_remove,
+            launch::instructions_read,
+            launch::instructions_write,
             launch::launch_choose_folder,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,

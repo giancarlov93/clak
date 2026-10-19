@@ -1,8 +1,9 @@
-// The Launch section, at the top of the Agents tab: the agents installed on this computer,
-// launched from here and authorized without a question, and the presets — an agent, a folder
-// and the programs it may use. Finding, launching and the presets live in launch.rs
-// (clak-setup), the authorization in the hub (clak-hub/src/launch.rs): here only the rows,
-// the buttons and the preset editor.
+// The Agents tab: the agents installed on this computer, launched from here and authorized
+// without a question, with their global instructions; and the presets — an agent, a folder,
+// the programs it may use and how it starts. Finding, launching and the presets live in
+// launcher.rs and presets.rs (clak-setup), the instructions files in instructions.rs, the
+// authorization in the hub (clak-hub/src/launch.rs): here only the rows, the buttons and the
+// editors.
 "use strict";
 
 const Launch = (() => {
@@ -11,8 +12,10 @@ const Launch = (() => {
   let list = null;
   let host = null;
   let data = null;
-  /// The preset being edited, as a draft: { id?, name, agent, folder, programs: Map }.
+  /// The preset being edited, as a draft: { id?, name, agent, folder, programs: Map, … }.
   let draft = null;
+  /// The global instructions being edited: { agent, name, path, text, error }.
+  let editing = null;
   /// Per agent: the folder chosen for its next launch.
   const folders = {};
   /// Per row: what happened, "Launched…" or the error as it is.
@@ -75,8 +78,49 @@ const Launch = (() => {
           : null,
         note(row)),
       el("div", { class: "actions" }, spinner(row),
+        a.instructions ? Kit.iconButton("file", `Instructions · ${home(a.instructions)}`, () => editInstructions(a)) : null,
         el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Starts ${a.name}${a.app ? "" : " in a terminal"}`,
           onclick: () => launch(row, { agent: a.id, folder: folder || null }) }, "Launch")));
+  };
+
+  // --- an agent's global instructions ----------------------------------------------
+
+  const editInstructions = async (a) => {
+    draft = null;
+    try {
+      const file = await Clak.invoke("instructions_read", { agent: a.id });
+      editing = { agent: a.id, name: a.name, path: file.path, text: file.text, error: null };
+    } catch (e) {
+      editing = { agent: a.id, name: a.name, path: a.instructions, text: "", error: String(e), unreadable: true };
+    }
+    drawInstructions();
+    host.scrollIntoView({ block: "nearest" });
+    host.querySelector("textarea")?.focus();
+  };
+
+  const saveInstructions = async () => {
+    try {
+      await Clak.invoke("instructions_write", { agent: editing.agent, text: editing.text });
+      closeEditor();
+    } catch (e) {
+      editing.error = String(e);
+      drawInstructions();
+    }
+  };
+
+  const drawInstructions = () => {
+    if (!editing) return;
+    const text = el("textarea", { class: "mono", spellcheck: "false", "aria-label": "Instructions", disabled: !!editing.unreadable });
+    text.value = editing.text;
+    text.addEventListener("input", () => { editing.text = text.value; });
+    host.replaceChildren(el("div", { class: "card ed-dialog preset-editor instructions-editor" },
+      el("div", { class: "editor-title" }, el("strong", null, editing.name),
+        el("div", { class: "mono quiet ellipsis selectable", title: editing.path }, editing.path)),
+      text,
+      editing.error ? Kit.bar("err", editing.error) : null,
+      el("div", { class: "buttons" },
+        el("button", { onclick: closeEditor }, "Cancel"),
+        el("button", { class: "accent", disabled: !!editing.unreadable, onclick: saveInstructions }, "Save"))));
   };
 
   // --- the presets -----------------------------------------------------------------
@@ -112,7 +156,9 @@ const Launch = (() => {
     return el("div", { class: Clak.mac ? "row setup launch" : "card setup launch", "data-id": row },
       Kit.tile("agents", 32, "#ff9500", agent?.path),
       el("div", { class: "lines" },
-        el("div", { class: "name" }, el("strong", null, p.name)),
+        el("div", { class: "name" }, el("strong", null, p.name),
+          p.model ? Kit.tag(p.model, { mono: true, help: "Model" }) : null,
+          p.system ? Kit.tag(p.system.mode === "replace" ? "Own system prompt" : "System prompt +", { help: p.system.text.slice(0, 300) }) : null),
         el("div", { class: "quiet ellipsis" }, [agent ? agent.name : `${p.agent} (not installed)`, p.folder ? home(p.folder) : null].filter(Boolean).join(" · ")),
         p.programs.length
           ? el("div", { class: "chips" }, p.programs.map((x) => programChip(x, state)))
@@ -155,12 +201,18 @@ const Launch = (() => {
 
   const edit = (preset) => {
     const installed = data?.installed || [];
+    editing = null;
     draft = {
       id: preset?.id,
       name: preset?.name || "",
       agent: preset?.agent || installed[0]?.id || "",
       folder: preset?.folder || "",
       programs: new Map((preset?.programs || []).map((p) => [idOf(p), { ...p }])),
+      mode: preset?.system?.mode || "",
+      prompt: preset?.system?.text || "",
+      model: preset?.model || "",
+      /// The folder's instructions file, once opened: { agent, folder, path, text, before }.
+      project: null,
       error: null,
     };
     drawEditor();
@@ -170,19 +222,28 @@ const Launch = (() => {
 
   const closeEditor = () => {
     draft = null;
+    editing = null;
     host.replaceChildren();
   };
 
   const save = async () => {
+    const cli = !agentOf(draft.agent)?.app;
     const preset = {
       id: draft.id,
       name: draft.name,
       agent: draft.agent,
       folder: draft.folder || null,
       programs: [...draft.programs.values()],
+      system: cli && draft.mode ? { mode: draft.mode, text: draft.prompt } : null,
+      model: cli ? draft.model.trim() || null : null,
     };
+    const project = draft.project;
     try {
       await Clak.invoke("preset_save", { preset });
+      // The folder's instructions belong to the folder, not to the preset: written apart.
+      if (project && project.text !== project.before) {
+        await Clak.invoke("instructions_write", { agent: project.agent, folder: project.folder, text: project.text });
+      }
       closeEditor();
       refresh();
     } catch (e) {
@@ -227,6 +288,53 @@ const Launch = (() => {
       tools);
   };
 
+  /// The ways the agent takes a system prompt: "append", "replace".
+  const MODES = { append: "Add to it", replace: "Replace it" };
+
+  /// How the agent starts: its model and its system prompt. Command-line agents only.
+  const startFields = (a) => {
+    if (!a || a.app) return [];
+    const model = el("input", { type: "text", maxlength: "100", placeholder: "Default", spellcheck: "false", class: "mono", "aria-label": "Model" });
+    model.value = draft.model;
+    model.addEventListener("input", () => { draft.model = model.value; });
+    const modes = a.system || [];
+    const mode = el("select", { "aria-label": "System prompt", disabled: !modes.length },
+      el("option", { value: "" }, "Default"), modes.map((m) => el("option", { value: m }, MODES[m] || m)));
+    mode.value = modes.includes(draft.mode) ? draft.mode : "";
+    mode.addEventListener("change", () => { draft.mode = mode.value; drawEditor(); });
+    const prompt = el("textarea", { class: "mono", spellcheck: "false", "aria-label": "System prompt text" });
+    prompt.value = draft.prompt;
+    prompt.addEventListener("input", () => { draft.prompt = prompt.value; });
+    return [
+      el("label", { class: "field" }, el("span", null, "Model"), model),
+      el("div", { class: "field top" }, el("span", null, "System prompt"),
+        el("div", { class: "stack" }, mode, mode.value ? prompt : null)),
+    ];
+  };
+
+  /// The instructions file the agent reads in the preset's folder (CLAUDE.md, AGENTS.md…).
+  const projectField = (a) => {
+    if (!a?.project_file || !draft.folder) return null;
+    const open = draft.project && draft.project.agent === a.id && draft.project.folder === draft.folder ? draft.project : null;
+    if (!open) {
+      return el("div", { class: "field" }, el("span", null, "Instructions"),
+        el("div", { class: "folder-line" }, Kit.link(`Edit ${a.project_file}`, "file", async () => {
+          try {
+            const file = await Clak.invoke("instructions_read", { agent: a.id, folder: draft.folder });
+            draft.project = { agent: a.id, folder: draft.folder, path: file.path, text: file.text, before: file.text };
+          } catch (e) {
+            draft.error = String(e);
+          }
+          drawEditor();
+        })));
+    }
+    const text = el("textarea", { class: "mono", spellcheck: "false", "aria-label": a.project_file });
+    text.value = open.text;
+    text.addEventListener("input", () => { open.text = text.value; });
+    return el("div", { class: "field top" }, el("span", null, "Instructions"),
+      el("div", { class: "stack" }, el("div", { class: "mono quiet ellipsis selectable", title: open.path }, home(open.path)), text));
+  };
+
   const drawEditor = () => {
     if (!draft) return;
     const installed = data?.installed || [];
@@ -235,7 +343,8 @@ const Launch = (() => {
     name.addEventListener("input", () => { draft.name = name.value; });
     const agent = el("select", { "aria-label": "Agent" }, installed.map((a) => el("option", { value: a.id }, a.name)));
     agent.value = draft.agent;
-    agent.addEventListener("change", () => { draft.agent = agent.value; });
+    agent.addEventListener("change", () => { draft.agent = agent.value; drawEditor(); });
+    const chosen = agentOf(draft.agent);
     const folder = el("div", { class: "folder-line" },
       el("span", { class: "mono ellipsis", title: draft.folder }, draft.folder ? home(draft.folder) : "Home folder"),
       Kit.link("Choose…", null, async () => {
@@ -253,6 +362,8 @@ const Launch = (() => {
       el("label", { class: "field" }, el("span", null, "Name"), name),
       el("label", { class: "field" }, el("span", null, "Agent"), agent),
       el("div", { class: "field" }, el("span", null, "Folder"), folder),
+      projectField(chosen),
+      startFields(chosen),
       el("div", { class: "field top" }, el("span", null, "Programs"),
         all.length
           ? el("div", { class: "picks" }, all.map(programPick))
