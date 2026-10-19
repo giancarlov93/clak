@@ -60,6 +60,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows, Claude Code that had updated itself while running was no longer recognized
+  (the update renames the running file to `claude.exe.old.…`): from Windows Terminal every
+  command failed with "Cannot tell which agent launched this command". The name now comes
+  from the file the program started from.
 - On Windows, Clak started by an agent inside Claude Desktop ran inside its package: its
   updates went into Claude's own folder, and the PATH, the shortcuts and the notifications
   pointed to a Clak that nothing else could see. Now Clak opens outside it, and an installer
