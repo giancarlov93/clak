@@ -86,7 +86,7 @@ pub fn all(places: &Places, command: &[String]) -> Vec<Box<dyn McpClient>> {
             "Gemini CLI",
             vec![home(&[".gemini", "settings.json"])],
             command,
-            "Applies to new Gemini CLI sessions",
+            "",
         )),
         Box::new(CodexClient::new(places, command)),
         Box::new(JsonFileClient::new(

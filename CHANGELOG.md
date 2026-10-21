@@ -58,6 +58,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- Settings › Integration no longer confirms under a row what the row already says
+  ("Installed · applies to new sessions", "Applies to new sessions"…): only what is left to
+  do, such as restarting Claude Desktop, and the errors.
 - The consent window is shorter and easier to read: who asks with its real icon and who
   signed it, the commands as names to tap, the rest under Details. On the Mac it is no longer
   see-through.

@@ -132,7 +132,7 @@ impl McpClient for ClaudeCodeClient {
     }
 
     fn note(&self) -> &str {
-        "Applies to new sessions"
+        ""
     }
 
     fn command(&self) -> &[String] {

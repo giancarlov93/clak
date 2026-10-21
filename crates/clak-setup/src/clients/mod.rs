@@ -85,7 +85,7 @@ pub const SERVER: &str = "clak";
 pub trait McpClient: Send + Sync {
     fn name(&self) -> &str;
 
-    /// What the user must do for the change to show.
+    /// What the user must do for the change to show; empty when there is nothing to do.
     fn note(&self) -> &str;
 
     /// The shim command: executable and arguments.
