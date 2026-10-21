@@ -185,7 +185,7 @@ button.small { min-height: 28px; padding: 3px 10px 4px; }
 html.mac button.small { min-height: 22px; padding: 1px 10px 2px; font-size: 12px; }
 button.small .glyph { font-size: 12px; margin-right: 6px; vertical-align: -1px; }
 button.small .glyph svg { width: 12px; height: 12px; }
-html.mac button.accent.caution { background: #ff9500; color: #fff; }
+html.mac button.accent.caution { --fill: #ff9500; color: #fff; }
 .icon-button { background: none; border: none; box-shadow: none; min-height: 32px; min-width: 32px; padding: 0; display: inline-grid; place-items: center; color: var(--text); }
 html.mac .icon-button { min-height: 24px; min-width: 24px; }
 .icon-button .glyph { font-size: 14px; }

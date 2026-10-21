@@ -74,6 +74,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- Under the pointer, the main button (Open the panel, Allow, Save…) turned the grey of the
+  others, as if it were no longer the main one. Now it stays its color, a little lighter.
 - On Windows, OpenCode wasn't recognized as an agent: its launcher exits as soon as it starts
   it, and every command failed with "Cannot tell which agent launched this command". It is
   now recognized by its executable, and authorized when launched from Clak.
