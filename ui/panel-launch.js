@@ -1,6 +1,6 @@
 // The Agents tab: the agents installed on this computer, launched from here and authorized
-// without a question, with their global instructions; and the presets — an agent, a folder,
-// the programs it may use and how it starts. Finding, launching and the presets live in
+// without a question, with their global instructions and their past conversations, resumed
+// or renamed; and the presets — an agent, a folder, the programs it may use and how it starts. Finding, launching and the presets live in
 // launcher.rs and presets.rs (clak-setup), the instructions files in instructions.rs, the
 // authorization in the hub (clak-hub/src/launch.rs): here only the rows, the buttons and the
 // editors.
@@ -21,6 +21,11 @@ const Launch = (() => {
   /// Per row: what happened, "Launched…" or the error as it is.
   const notes = {};
   const busy = new Set();
+  /// An agent's past conversations, when that page is open: { agent, all, error, renaming }.
+  /// `renaming` keeps its field from one drawing to the next: what is typed stays.
+  let talks = null;
+  const filter = el("input", { type: "search", placeholder: "Filter", "aria-label": "Filter conversations", spellcheck: "false" });
+  filter.addEventListener("input", () => draw());
 
   const refresh = async () => {
     try {
@@ -30,6 +35,8 @@ const Launch = (() => {
       notes.section = String(e);
     }
     draw();
+    // An agent's conversations go on while the page is open: re-read with the rest.
+    if (talks && !talks.renaming) loadTalks();
   };
 
   const agentOf = (id) => (data?.installed || []).find((a) => a.id === id);
@@ -79,8 +86,119 @@ const Launch = (() => {
         note(row)),
       el("div", { class: "actions" }, spinner(row),
         a.instructions ? Kit.iconButton("file", `Instructions · ${home(a.instructions)}`, () => editInstructions(a)) : null,
+        a.conversations ? el("button", { title: `The past ${a.name} conversations: resume or rename them`, onclick: () => openTalks(a) }, "Conversations") : null,
         el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Starts ${a.name}${a.app ? "" : " in a terminal"}`,
           onclick: () => launch(row, { agent: a.id, folder: folder || null }) }, "Launch")));
+  };
+
+  // --- an agent's past conversations ----------------------------------------------
+
+  const openTalks = async (a) => {
+    closeEditor();
+    filter.value = "";
+    talks = { agent: a, all: null, error: null, renaming: null };
+    draw();
+    list.scrollIntoView({ block: "start" });
+    await loadTalks();
+  };
+
+  const loadTalks = async () => {
+    const shown = talks;
+    if (!shown) return;
+    try {
+      shown.all = await Clak.invoke("conversations_list", { agent: shown.agent.id });
+      shown.error = null;
+    } catch (e) {
+      shown.all = shown.all || [];
+      shown.error = String(e);
+    }
+    draw();
+  };
+
+  const closeTalks = () => {
+    talks = null;
+    draw();
+  };
+
+  const startRename = (c) => {
+    const field = el("input", { type: "text", value: c.title, "aria-label": "Name", maxlength: "120", spellcheck: "false" });
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveRename(c);
+      if (e.key === "Escape") { talks.renaming = null; draw(); }
+    });
+    talks.renaming = { id: c.id, field };
+    draw();
+    field.focus();
+    field.select();
+  };
+
+  const saveRename = async (c) => {
+    const row = `talk:${c.id}`;
+    const title = talks.renaming?.field.value || "";
+    delete notes[row];
+    try {
+      await Clak.invoke("conversations_rename", { agent: talks.agent.id, id: c.id, title });
+      talks.renaming = null;
+      await loadTalks();
+    } catch (e) {
+      notes[row] = String(e);
+      draw();
+    }
+  };
+
+  const talkRow = (c, now) => {
+    const row = `talk:${c.id}`;
+    const renaming = talks.renaming?.id === c.id;
+    const where = c.folder ? home(c.folder) : "No folder";
+    return el("div", { class: Clak.mac ? "row setup talk" : "card setup talk", "data-id": row },
+      el("div", { class: "lines" },
+        renaming
+          ? el("div", { class: "ed-dialog talk-name" }, talks.renaming.field)
+          : el("div", { class: "name" }, el("strong", { class: "ellipsis", title: c.title }, c.title)),
+        el("div", { class: "quiet ellipsis", title: c.folder || "" }, el("span", { class: "mono" }, where), ` · ${D.ago(c.updated / 1000, now)}`),
+        note(row)),
+      el("div", { class: "actions" }, spinner(row),
+        renaming
+          ? [el("button", { onclick: () => { talks.renaming = null; draw(); } }, "Cancel"),
+            el("button", { class: "accent", onclick: () => saveRename(c) }, "Save")]
+          : [el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename"),
+            el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Resumes it in a terminal, in ${where}`,
+              onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume")]));
+  };
+
+  /// The way back to the agents: on the Mac a back button over the title, on Windows the
+  /// breadcrumbs.
+  const talksHeader = (title) => {
+    const search = el("label", { class: "search" }, Kit.icon("search"), filter);
+    if (Clak.mac) {
+      return [el("button", { class: "back", onclick: closeTalks }, Kit.icon("back"), el("span", null, "Agents")), Kit.title(title, search)];
+    }
+    return [el("header", { class: "title crumbs" },
+      el("button", { class: "crumb", onclick: closeTalks, title: "Agents" }, "Agents"), Kit.icon("chevron", "sep"),
+      el("h1", null, title), el("div", { class: "actions" }, search))];
+  };
+
+  /// At most this many rows: the filter finds the others.
+  const SHOWN = 200;
+
+  const drawTalks = () => {
+    const a = talks.agent;
+    const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = (talks.all || []).filter((c) => {
+      const text = `${c.title} ${c.folder || ""}`.toLowerCase();
+      return words.every((w) => text.includes(w));
+    });
+    const now = Date.now();
+    Kit.replace(list,
+      ...talksHeader(`${a.name} conversations`),
+      talks.error ? Kit.bar("err", talks.error) : null,
+      talks.all === null
+        ? el("div", { class: "quiet" }, "Reading the conversations…")
+        : matches.length
+          ? group(matches.slice(0, SHOWN).map((c) => talkRow(c, now)))
+          : Kit.empty("chat", words.length ? "No match" : "No conversations", words.length ? "Nothing with these words in the title or the folder" : `The conversations with ${a.name} show up here`),
+      matches.length > SHOWN ? el("div", { class: "quiet hint" }, `The latest ${SHOWN} of ${matches.length}: the filter finds the others.`) : null,
+      el("div", { class: "quiet hint" }, `A conversation resumes in a terminal, in the folder where it took place, authorized like a launch from here.`));
   };
 
   // --- an agent's global instructions ----------------------------------------------
@@ -379,10 +497,12 @@ const Launch = (() => {
 
   const draw = () => {
     if (!list || !data) return;
+    if (talks) return drawTalks();
     const state = Panel.state();
     const installed = data.installed || [];
     const presets = data.presets || [];
     Kit.replace(list,
+      Kit.title("Agents"),
       Kit.section("Launch", { help: "The agents installed on this computer. Launched from here, they are authorized without a question" }),
       data.authorizes ? null : Kit.bar("warn", "The hub runs in another process: a launched agent asks as usual."),
       notes.section ? Kit.bar("err", notes.section) : null,

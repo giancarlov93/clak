@@ -14,7 +14,8 @@
     order: 20,
     mount(section) {
       page = section;
-      page.append(Kit.title("Agents"), ...Launch.mount());
+      // The title is drawn by Launch: on an agent's conversations it becomes the way back.
+      page.append(...Launch.mount());
       window.addEventListener("focus", () => !page.classList.contains("hidden") && Launch.refresh());
       Launch.refresh();
     },

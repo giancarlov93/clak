@@ -11,6 +11,7 @@
 
 pub mod autostart;
 pub mod clients;
+pub mod conversations;
 pub mod installation;
 pub mod instructions;
 pub mod launcher;
