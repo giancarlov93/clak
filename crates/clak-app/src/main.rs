@@ -150,6 +150,7 @@ fn main() {
             commands::consent_request,
             commands::consent_answer,
             commands::consent_resize,
+            commands::flyout_resize,
             commands::open_panel,
             commands::app_launch,
             commands::bring_to_front,
@@ -242,7 +243,7 @@ fn main() {
             let label = window.label();
             match event {
                 WindowEvent::Focused(false) if label == "flyout" => {
-                    let _ = window.hide();
+                    windows::flyout_blurred(window);
                 }
                 WindowEvent::Destroyed => {
                     if let Some(app) = window.app_handle().try_state::<Arc<bridge::Bridge>>() {

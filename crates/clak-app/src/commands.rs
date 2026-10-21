@@ -52,6 +52,14 @@ pub fn consent_resize(app: AppHandle, window: WebviewWindow, id: String, height:
     }
 }
 
+/// The box's page says how tall it is. Only from the box.
+#[tauri::command]
+pub fn flyout_resize(app: AppHandle, window: WebviewWindow, height: f64) {
+    if window.label() == "flyout" {
+        crate::windows::fit_flyout(&app, height);
+    }
+}
+
 /// Async: on Windows a window built inside a synchronous command waits forever for its
 /// WebView2, and the whole app stops (a blank panel that no longer quits).
 #[tauri::command]
