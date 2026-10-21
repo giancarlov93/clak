@@ -7,7 +7,7 @@
 
 use crate::bridge;
 use clak_hub::launch::{Preset, PresetProgram};
-use clak_setup::{Places, instructions, launcher, presets};
+use clak_setup::{Places, conversations, instructions, launcher, presets};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use tauri::{AppHandle, WebviewWindow};
@@ -28,6 +28,7 @@ pub async fn launch_status(app: AppHandle) -> Value {
                 .map(|agent| {
                     let mut json = agent.to_json();
                     json["instructions"] = json!(instructions::global(&places, &agent.id));
+                    json["conversations"] = json!(!agent.app && conversations::supported(&agent.id));
                     json["project_file"] = json!(instructions::project(&agent.id, std::path::Path::new(""))
                         .map(|p| p.to_string_lossy().into_owned()));
                     json
@@ -43,12 +44,14 @@ pub async fn launch_status(app: AppHandle) -> Value {
 
 /// Launches an agent (by its catalog id) or a preset (by its id): the preset brings its
 /// agent, its folder, its programs, its system prompt and its model. `folder`, if given, wins over the preset's.
+/// `resume` takes up one of the agent's past conversations, in the folder where it took place.
 #[tauri::command]
 pub async fn launch_agent(
     app: AppHandle,
     agent: Option<String>,
     preset: Option<String>,
     folder: Option<String>,
+    resume: Option<String>,
 ) -> Result<(), String> {
     let bridge = bridge::of(&app);
     let home = bridge.home().clone();
@@ -81,6 +84,20 @@ pub async fn launch_agent(
                 .and_then(|p| p.get("folder").and_then(Value::as_str).map(str::to_owned))
         })
         .map(PathBuf::from);
+    if let Some(id) = resume.filter(|_| !agent.app) {
+        let (found, agent_id) = (places.clone(), agent.id.clone());
+        let (args, folder) = tauri::async_runtime::spawn_blocking(move || {
+            conversations::resume(&found, &agent_id, &id)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+        let extra = launcher::Extra {
+            args,
+            ..Default::default()
+        };
+        return start(&bridge, places, agent, folder, None, extra).await;
+    }
     // What the preset adds to a command-line agent, ready before anything waits for it.
     let extra = match chosen.clone().filter(|_| !agent.app) {
         Some(chosen) => {
@@ -93,7 +110,20 @@ pub async fn launch_agent(
         None => launcher::Extra::default(),
     };
     let preset = chosen.as_ref().map(hub_preset);
-    // Prepared before the agent starts: its first request finds the launch waiting.
+    start(&bridge, places, agent, folder, preset, extra).await
+}
+
+/// Prepares the launch on the hub, then starts the agent: its first request finds the launch
+/// waiting.
+async fn start(
+    bridge: &bridge::Bridge,
+    places: Places,
+    agent: launcher::Installed,
+    folder: Option<PathBuf>,
+    preset: Option<Preset>,
+    extra: launcher::Extra,
+) -> Result<(), String> {
+    let home = bridge.home().clone();
     let token = bridge
         .with_hub(|c| c.prepare_launch(&agent.name, !agent.app, preset))
         .flatten();
@@ -180,6 +210,31 @@ pub async fn instructions_write(
     tauri::async_runtime::spawn_blocking(move || {
         let path = instructions_file(&agent, folder.as_deref())?;
         instructions::write(&path, &text).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The past conversations of a command-line agent, the latest first.
+#[tauri::command]
+pub async fn conversations_list(agent: String) -> Result<Vec<Value>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        conversations::list(&Places::real(), &agent)
+            .map(|all| {
+                all.iter()
+                    .map(conversations::Conversation::to_json)
+                    .collect()
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn conversations_rename(agent: String, id: String, title: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        conversations::rename(&Places::real(), &agent, &id, &title).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
