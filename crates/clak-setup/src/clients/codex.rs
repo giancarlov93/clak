@@ -172,7 +172,7 @@ impl McpClient for CodexClient {
     }
 
     fn note(&self) -> &str {
-        "Applies to new Codex sessions"
+        ""
     }
 
     fn command(&self) -> &[String] {

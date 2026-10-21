@@ -278,42 +278,43 @@ impl Setup {
             .map(|c| c.as_ref())
     }
 
-    /// Adds (or updates) what the row says, and returns what to tell the user.
-    fn add(&self, id: &str) -> Result<String, String> {
+    /// Adds (or updates) what the row says, and returns what the user must do for it to
+    /// show, if anything: the row's state already says it is done.
+    fn add(&self, id: &str) -> Result<Option<String>, String> {
         if id == "path" {
             return self.add_path();
         }
         if let Some(skill) = self.skill(id) {
             skill.install().map_err(|e| e.0)?;
-            return Ok("Installed · applies to new sessions".into());
+            return Ok(None);
         }
         if let Some(client) = self.client(id) {
             if self.shim.is_none() {
                 return Err(format!("Can't find {} next to this app.", shim::FILE_NAME));
             }
             client.add().map_err(|e| e.0)?;
-            return Ok(client.note().to_owned());
+            return Ok(note(client));
         }
         Err(format!("Don't know what “{id}” is."))
     }
 
-    fn remove(&self, id: &str) -> Result<String, String> {
+    fn remove(&self, id: &str) -> Result<Option<String>, String> {
         if id == "path" {
             return self.remove_path();
         }
         if let Some(skill) = self.skill(id) {
             skill.remove().map_err(|e| e.0)?;
-            return Ok("Removed".into());
+            return Ok(None);
         }
         if let Some(client) = self.client(id) {
             client.remove().map_err(|e| e.0)?;
-            return Ok(client.note().to_owned());
+            return Ok(note(client));
         }
         Err(format!("Don't know what “{id}” is."))
     }
 
     #[cfg(windows)]
-    fn add_path(&self) -> Result<String, String> {
+    fn add_path(&self) -> Result<Option<String>, String> {
         let cli = self
             .cli
             .as_ref()
@@ -321,11 +322,11 @@ impl Setup {
         clak_setup::user_path::UserPath::new(parent_of(cli))
             .add()
             .map_err(|e| e.0)?;
-        Ok("Added to PATH: it applies to programs started from now on.".into())
+        Ok(None)
     }
 
     #[cfg(windows)]
-    fn remove_path(&self) -> Result<String, String> {
+    fn remove_path(&self) -> Result<Option<String>, String> {
         let cli = self
             .cli
             .as_ref()
@@ -333,25 +334,25 @@ impl Setup {
         clak_setup::user_path::UserPath::new(parent_of(cli))
             .remove()
             .map_err(|e| e.0)?;
-        Ok("Removed from PATH.".into())
+        Ok(None)
     }
 
     #[cfg(unix)]
-    fn add_path(&self) -> Result<String, String> {
+    fn add_path(&self) -> Result<Option<String>, String> {
         let link = self
             .link()
             .ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
         link.add().map_err(|e| e.0)?;
-        Ok("Added · applies to new shells".into())
+        Ok(None)
     }
 
     #[cfg(unix)]
-    fn remove_path(&self) -> Result<String, String> {
+    fn remove_path(&self) -> Result<Option<String>, String> {
         let link = self
             .link()
             .ok_or_else(|| format!("Can't find {} next to this app.", installation::CLI))?;
         link.remove().map_err(|e| e.0)?;
-        Ok("Removed from PATH".into())
+        Ok(None)
     }
 
     /// What the user would paste by hand: the path of `clak`, the text of the skill, a
@@ -366,6 +367,13 @@ impl Setup {
         self.shim.as_ref()?;
         self.client(id).map(|c| c.snippet())
     }
+}
+
+/// What the client asks of the user for the change to show (restarting it), if anything.
+fn note(client: &dyn McpClient) -> Option<String> {
+    Some(client.note())
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
 }
 
 #[cfg(windows)]
@@ -396,16 +404,17 @@ pub async fn agents_status(app: AppHandle) -> Result<Value, String> {
     blocking(move || Setup::new(&home).view()).await
 }
 
-/// Adds or updates a row (`path`, `skill:…`, `client:…`): returns what to say below it.
+/// Adds or updates a row (`path`, `skill:…`, `client:…`): returns what to say below it, if
+/// anything.
 #[tauri::command]
-pub async fn agents_add(app: AppHandle, id: String) -> Result<String, String> {
+pub async fn agents_add(app: AppHandle, id: String) -> Result<Option<String>, String> {
     let home = home(&app);
     blocking(move || Setup::new(&home).add(&id)).await?
 }
 
 /// Removes whatever of ours is in a row.
 #[tauri::command]
-pub async fn agents_remove(app: AppHandle, id: String) -> Result<String, String> {
+pub async fn agents_remove(app: AppHandle, id: String) -> Result<Option<String>, String> {
     let home = home(&app);
     blocking(move || Setup::new(&home).remove(&id)).await?
 }

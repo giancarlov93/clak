@@ -275,6 +275,7 @@ mod unix {
             done.insert(
                 id,
                 match result {
+                    Ok(note) if note.is_empty() => NOTE.to_owned(),
                     Ok(note) => format!("{NOTE} · {note}"),
                     Err(e) => e.0,
                 },
@@ -291,11 +292,7 @@ mod unix {
                 format!("{}/{target}", link.folder())
             };
             if !Path::new(&absolute).exists() {
-                record(
-                    "path".into(),
-                    link.add()
-                        .map(|()| "Added · applies to new shells".to_owned()),
-                );
+                record("path".into(), link.add().map(|()| String::new()));
             }
         }
 
@@ -306,9 +303,7 @@ mod unix {
             {
                 record(
                     format!("skill:{}", skill.name()),
-                    skill
-                        .install()
-                        .map(|()| "Installed · applies to new sessions".to_owned()),
+                    skill.install().map(|()| String::new()),
                 );
             }
         }
