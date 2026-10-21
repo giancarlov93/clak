@@ -58,7 +58,9 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             arch: aarch64
-          - os: macos-latest
+          # The Intel Mac on an Intel runner: the ARM ones are often short, and a second job
+          # waiting for one can be dropped after hours, taking the whole release with it.
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             arch: x64
     runs-on: ${{ matrix.os }}
