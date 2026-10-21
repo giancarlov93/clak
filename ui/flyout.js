@@ -65,6 +65,13 @@
       own.length ? el("div", { class: "programs" }, own.map((g) => program(g, now))) : null);
   };
 
+  /// The window takes the height of the content: the body, plus what the sections hide
+  /// when it is taller than the window.
+  const fit = () => {
+    const hidden = [...document.querySelectorAll("section")].reduce((n, s) => n + s.scrollHeight - s.clientHeight, 0);
+    invoke("flyout_resize", { height: Math.ceil(document.body.offsetHeight + hidden) });
+  };
+
   const render = () => {
     const sessions = [...(state.sessions || [])].sort(bySince);
     const pending = state.pending || [];
@@ -82,6 +89,7 @@
     $("agents").replaceChildren(...(sessions.length && !offline
       ? sessions.map((s) => agent(s, now))
       : [el("div", { class: "empty" }, offline ? "Not running" : "No agent is connected")]));
+    fit();
   };
 
   /// A newer Clak: the row opens Settings, where it installs.
@@ -95,6 +103,7 @@
             el("span", { class: "quiet ellipsis" }, "Install from Settings")))]
       : []));
     $("update").classList.toggle("hidden", !version);
+    fit();
   };
 
   $("panel").addEventListener("click", () => open(null));
@@ -111,4 +120,5 @@
   listen("hub", (message) => { if (message.type === "state") { state = message; render(); } });
   // "2 minutes ago" moves on even when the hub is silent.
   listen("flyout-shown", render);
+  new ResizeObserver(fit).observe(document.body);
 })();

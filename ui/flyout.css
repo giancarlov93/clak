@@ -3,8 +3,11 @@
 
 :root { --subtle: rgba(127, 127, 127, 0.10); }
 
-html, body { height: 100%; overflow: hidden; }
-body { display: flex; flex-direction: column; }
+/* As tall as the content, up to the window: the window takes the height the page says
+   (flyout.js), and past its limit the sections scroll. */
+html, body { overflow: hidden; }
+body { display: flex; flex-direction: column; max-height: 100vh; }
+header, footer { flex: none; }
 html.win body { border: 1px solid var(--stroke); border-radius: 8px; }
 html.solid body { background: var(--solid); }
 
@@ -21,8 +24,8 @@ html.mac header { padding: 12px 14px 8px; }
 .dot.linked { background: #35C76B; }
 .dot.pending { background: #F2A900; }
 
-section { padding: 0 10px; overflow-y: auto; }
-#agents { flex: 1; padding-bottom: 8px; }
+section { padding: 0 10px; overflow-y: auto; flex: 0 1 auto; min-height: 0; }
+#agents { padding-bottom: 8px; }
 
 /* The Segoe Fluent Icons glyphs, as in the panel (on the Mac, drawings). */
 .glyph { display: inline-grid; place-items: center; font: normal 16px/1 "Segoe Fluent Icons", "Segoe MDL2 Assets"; flex: none; }

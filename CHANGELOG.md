@@ -74,6 +74,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows, the first click on the icon opened the box and closed it at once: it took a
+  second click. The box now opens when its page is ready.
+- The icon's box was always as tall as with several agents connected: now it takes the height
+  of what it shows, and scrolls past 440 points.
 - On Windows, OpenCode wasn't recognized as an agent: its launcher exits as soon as it starts
   it, and every command failed with "Cannot tell which agent launched this command". It is
   now recognized by its executable, and authorized when launched from Clak.
