@@ -128,8 +128,10 @@ button {
 html.mac button { min-height: 24px; padding: 2px 12px 3px; box-shadow: 0 0.5px 1px rgba(0,0,0,.15); border-bottom-color: var(--stroke); }
 button:hover:not(:disabled) { background: var(--control-hover); }
 button:disabled { opacity: .45; }
-button.accent { background: var(--accent); color: var(--accent-text); border-color: transparent; }
-button.accent:hover:not(:disabled) { filter: brightness(1.08); }
+/* The fill is a variable so that a variant (the caution one in panel.css) keeps its hover. */
+button.accent { --fill: var(--accent); background: var(--fill); color: var(--accent-text); border-color: transparent; }
+/* Lighter under the pointer: the plain button's hover above would otherwise grey it out. */
+button.accent:hover:not(:disabled) { background: color-mix(in srgb, var(--fill) 78%, #fff); }
 button.link { background: none; border: none; color: var(--accent); padding: 0; min-height: 0; box-shadow: none; }
 button.danger { color: var(--danger); }
 
