@@ -14,13 +14,14 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
-    const ALLOWED: [&str; 6] = [
+    const ALLOWED: [&str; 7] = [
         "revoke",
         "forget_session",
         "forget_app",
         "describe",
         "history",
         "call",
+        "usage",
     ];
     if message
         .get("type")

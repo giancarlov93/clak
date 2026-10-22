@@ -100,7 +100,7 @@ const Panel = (() => {
     state: () => state,
     ctx: () => ctx,
     log: () => log,
-    /// What the panel asks the hub: revoke, forget_session, forget_app, describe, history.
+    /// What the panel asks the hub: revoke, forget_session, forget_app, describe, history, usage.
     send: (message) => Clak.invoke("hub_send", { message }),
   };
 })();

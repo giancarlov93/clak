@@ -1,5 +1,5 @@
-// The Agents tab: the agents installed on this computer, launched from here and authorized
-// without a question, with their global instructions and their past conversations, found by
+// The Agents tab: the agents installed on this computer, with their version and whether a
+// newer one is out, launched from here and authorized without a question, with their global instructions and their past conversations, found by
 // what was said, resumed, renamed, deleted or saved as Markdown; and the presets — an agent, a folder, the programs it may use and how it starts. Finding, launching and the presets live in
 // launcher.rs and presets.rs (clak-setup), the instructions files in instructions.rs, the
 // authorization in the hub (clak-hub/src/launch.rs): here only the rows, the buttons and the
@@ -40,7 +40,22 @@ const Launch = (() => {
   let byFolder = (() => { try { return localStorage.getItem(BY_FOLDER) === "1"; } catch { return false; } })();
   const pinned = new Set((() => { try { return JSON.parse(localStorage.getItem(PINNED) || "[]"); } catch { return []; } })());
 
+  /// Per agent: { version, latest, newer, update: { itself, command } }, read after the rest.
+  let versions = {};
+  /// The hub's usage rows ({ at, agent, program, calls }), and how many days are shown.
+  let usage = null;
+  let usageDays = 1;
+
+  const loadVersions = async () => {
+    try {
+      versions = Object.fromEntries((await Clak.invoke("agents_versions")).map((v) => [v.id, v]));
+      draw();
+    } catch { /* without versions, the rows as they were */ }
+  };
+
   const refresh = async () => {
+    Panel.send({ type: "usage" });
+    loadVersions();
     try {
       data = await Clak.invoke("launch_status");
     } catch (e) {
@@ -86,8 +101,10 @@ const Launch = (() => {
     return el("div", { class: Clak.mac ? "row setup launch" : "card setup launch", "data-id": row },
       Kit.tile(a.app ? "chat" : "terminal", 32, "#ff9500", a.path),
       el("div", { class: "lines" },
-        el("div", { class: "name" }, el("strong", null, a.name), Kit.tag(a.app ? "App" : "Command line")),
+        el("div", { class: "name" }, el("strong", null, a.name), Kit.tag(a.app ? "App" : "Command line"),
+          versions[a.id]?.version ? Kit.tag(versions[a.id].version, { mono: true, help: "The version installed" }) : null),
         el("div", { class: "mono quiet ellipsis selectable", title: a.path }, a.path),
+        updateLine(a),
         a.folder
           ? el("div", { class: "folder-line quiet" }, Kit.icon("folder"),
             el("span", { class: "mono ellipsis", title: folder || "" }, folder ? home(folder) : a.app ? "No folder" : "Home folder"),
@@ -102,6 +119,77 @@ const Launch = (() => {
         a.conversations ? el("button", { title: a.conversations.in_app ? `The ${a.name} Code sessions: open them again` : `The past ${a.name} conversations: find and resume them`, onclick: () => openTalks(a) }, "Conversations") : null,
         el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Starts ${a.name}${a.app ? "" : " in a terminal"}`,
           onclick: () => launch(row, { agent: a.id, folder: folder || null }) }, "Launch")));
+  };
+
+  /// A newer version, and how to get it: the agent's own update in a terminal, or the
+  /// command to type.
+  const updateLine = (a) => {
+    const v = versions[a.id];
+    if (!v?.newer || !v.update) return null;
+    const row = `agent:${a.id}`;
+    const action = v.update.itself
+      ? Kit.link("Update", "refresh", () => updateAgent(a), `Runs ${v.update.command} in a terminal`)
+      : Kit.link("Copy the command", "copy", async () => {
+        notes[row] = (await Kit.copy(v.update.command)) ? `Copied: ${v.update.command}` : v.update.command;
+        draw();
+      }, v.update.command);
+    return el("div", { class: "update-line" }, Kit.badge(`${v.latest} available`, "accent"), action);
+  };
+
+  const updateAgent = async (a) => {
+    const row = `agent:${a.id}`;
+    delete notes[row];
+    try {
+      await Clak.invoke("agent_update", { agent: a.id });
+      notes[row] = "Updating in a terminal. The new version shows here once it's done.";
+    } catch (e) {
+      notes[row] = String(e);
+    }
+    draw();
+  };
+
+  // --- how much the agents used the programs ----------------------------------------
+
+  /// Since local midnight, `days` days back (1: today).
+  const since = (days) => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - (days - 1));
+    return start.getTime() / 1000;
+  };
+
+  /// Per agent, its commands and the programs they went to, the busiest first.
+  const usageRows = () => {
+    const from = since(usageDays);
+    const agents = new Map();
+    for (const r of usage || []) {
+      if (r.at < from) continue;
+      const a = agents.get(r.agent) || { total: 0, programs: new Map() };
+      a.total += r.calls;
+      a.programs.set(r.program, (a.programs.get(r.program) || 0) + r.calls);
+      agents.set(r.agent, a);
+    }
+    return [...agents].sort((x, y) => y[1].total - x[1].total).map(([agent, a]) =>
+      el("div", { class: Clak.mac ? "row setup usage" : "card setup usage", "data-id": `usage:${agent}` },
+        el("div", { class: "lines" },
+          el("div", { class: "name" }, el("strong", null, agent || "Agent"), Kit.tag(Clak.plural(a.total, "command", "commands"))),
+          el("div", { class: "chips" }, [...a.programs].sort((x, y) => y[1] - x[1]).map(([program, calls]) =>
+            el("span", { class: "chip" }, `${program} · ${calls}`))))));
+  };
+
+  const usageSection = () => {
+    const pick = (days, label) => el("button", { class: "small" + (usageDays === days ? " selected" : ""), "aria-pressed": String(usageDays === days),
+      onclick: () => { usageDays = days; draw(); } }, label);
+    const rows = usage ? usageRows() : [];
+    return [
+      Kit.section("Usage", {
+        help: "The commands the agents ran, per program: only how many, never what they sent",
+        right: el("div", { class: "usage-span" }, pick(1, "Today"), pick(7, "7 days")),
+      }),
+      usage === null
+        ? el("div", { class: "quiet" }, "Reading…")
+        : rows.length ? group(rows) : Kit.empty("calls", usageDays === 1 ? "No command today" : "No command in 7 days", "What the agents run through Clak shows up here"),
+    ];
   };
 
   // --- an agent's past conversations ----------------------------------------------
@@ -803,7 +891,8 @@ const Launch = (() => {
         help: "An agent, a folder and the programs it may use without asking",
         right: el("button", { class: "small", disabled: !installed.length, onclick: () => edit(null) }, Kit.icon("plus"), el("span", null, "New preset")),
       }),
-      presets.length ? group(presets.map((p) => presetRow(p, state))) : Kit.empty("agents", "None", "A preset launches an agent already allowed to use some programs"));
+      presets.length ? group(presets.map((p) => presetRow(p, state))) : Kit.empty("agents", "None", "A preset launches an agent already allowed to use some programs"),
+      usageSection());
   };
 
   return {
@@ -815,5 +904,10 @@ const Launch = (() => {
     },
     refresh,
     draw,
+    /// The hub's answer to "usage".
+    usage(rows) {
+      usage = rows || [];
+      draw();
+    },
   };
 })();

@@ -7,9 +7,13 @@
 
 use crate::bridge;
 use clak_hub::launch::{Preset, PresetProgram};
+use clak_setup::versions::{self, Update};
 use clak_setup::{Places, conversations, instructions, launcher, presets};
 use serde_json::{Map, Value, json};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 
@@ -372,6 +376,127 @@ pub async fn conversations_open_folder(
     app.opener()
         .open_path(folder.to_string_lossy(), None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+/// The installed versions, by executable and when it last changed: asked again only after an
+/// update.
+static INSTALLED: LazyLock<Mutex<HashMap<Executable, Option<String>>>> =
+    LazyLock::new(Default::default);
+
+/// An executable as it is now: its path and when it was last written.
+type Executable = (PathBuf, Option<SystemTime>);
+
+/// When a version was read, and what it said.
+type Read = (Instant, Option<String>);
+
+/// The latest versions on npm, by package, and when they were read.
+static LATEST: LazyLock<Mutex<HashMap<&'static str, Read>>> = LazyLock::new(Default::default);
+
+/// How often npm is asked again.
+const LATEST_AGE: Duration = Duration::from_secs(6 * 3600);
+
+/// Each agent's version and, for the command-line ones, whether a newer one is out and how
+/// it comes.
+#[tauri::command]
+pub async fn agents_versions() -> Vec<Value> {
+    let places = Places::real();
+    let installed = tauri::async_runtime::spawn_blocking(move || launcher::installed(&places))
+        .await
+        .unwrap_or_default();
+    let mut all = Vec::new();
+    for agent in installed {
+        let version = installed_version(agent.clone()).await;
+        let latest = match versions::npm_package(&agent.id) {
+            Some(package) => latest_version(package).await,
+            None => None,
+        };
+        let newer = matches!((&version, &latest), (Some(v), Some(l)) if versions::newer(v, l));
+        let update = versions::update(&agent).map(|u| match u {
+            Update::Itself(args) => json!({ "itself": true, "command": format!("{} {}", command_name(&agent), args.join(" ")) }),
+            Update::Type(command) => json!({ "itself": false, "command": command }),
+        });
+        all.push(json!({
+            "id": agent.id,
+            "version": version,
+            "latest": latest,
+            "newer": newer,
+            "update": update,
+        }));
+    }
+    all
+}
+
+/// The command as typed: `claude`, not the full path.
+fn command_name(agent: &launcher::Installed) -> String {
+    agent
+        .path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| agent.id.clone())
+}
+
+async fn installed_version(agent: launcher::Installed) -> Option<String> {
+    let changed = std::fs::metadata(&agent.path)
+        .and_then(|m| m.modified())
+        .ok();
+    let key = (agent.path.clone(), changed);
+    if let Some(known) = INSTALLED.lock().ok()?.get(&key) {
+        return known.clone();
+    }
+    let version = tauri::async_runtime::spawn_blocking(move || versions::installed(&agent))
+        .await
+        .ok()
+        .flatten();
+    if let Ok(mut known) = INSTALLED.lock() {
+        known.insert(key, version.clone());
+    }
+    version
+}
+
+/// From `registry.npmjs.org/<package>/latest`, at most every few hours: nothing if npm
+/// can't be reached.
+async fn latest_version(package: &'static str) -> Option<String> {
+    if let Some((at, version)) = LATEST.lock().ok()?.get(package)
+        && at.elapsed() < LATEST_AGE
+    {
+        return version.clone();
+    }
+    let url = format!("https://registry.npmjs.org/{package}/latest");
+    let version = async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+            .ok()?;
+        let body: Value = client.get(&url).send().await.ok()?.json().await.ok()?;
+        body.get("version")?.as_str().map(str::to_owned)
+    }
+    .await;
+    if let Ok(mut latest) = LATEST.lock() {
+        latest.insert(package, (Instant::now(), version.clone()));
+    }
+    version
+}
+
+/// Updates a command-line agent that updates itself (`claude update`), in a terminal.
+#[tauri::command]
+pub async fn agent_update(app: AppHandle, agent: String) -> Result<(), String> {
+    let places = Places::real();
+    let scripts = bridge::of(&app).home().join("launch");
+    tauri::async_runtime::spawn_blocking(move || {
+        let installed = launcher::installed(&places);
+        let agent = launcher::find(&installed, &agent)
+            .ok_or("this agent is not installed on this computer")?;
+        let Some(Update::Itself(args)) = versions::update(agent) else {
+            return Err("this agent doesn't update itself: type its command".to_owned());
+        };
+        let extra = launcher::Extra {
+            args,
+            ..Default::default()
+        };
+        launcher::launch(&places, agent, None, None, &extra, &scripts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// The folder an agent works in, chosen by the user.

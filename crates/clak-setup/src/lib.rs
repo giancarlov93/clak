@@ -24,5 +24,6 @@ pub mod shim;
 pub mod skill;
 pub mod uri_scheme;
 pub mod user_path;
+pub mod versions;
 
 pub use places::{Places, Result, SetupError};

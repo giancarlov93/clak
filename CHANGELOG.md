@@ -40,6 +40,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   without a question. A command-line agent opens in a terminal in the folder you pick, with a
   one-time secret valid for 12 hours; an app counts if its new session arrives within three
   minutes, signed or running inside it.
+- Each agent in the Agents tab shows its version, and a command-line agent says when a newer
+  one is out on npm: Update runs its own update in a terminal (`claude update`, `opencode
+  upgrade`), or the command to type is copied (npm or Homebrew, as it was installed).
+- Usage, in the Agents tab: how many commands each agent ran, today or in the last 7 days, and
+  to which programs. Only names and counts, kept for a month in `usage.json`.
 - Presets: an agent, a folder and the programs it may use without asking, all their commands
   or only some. A known application covers all its documents; the preset opens the ones that
   aren't running. Other programs and commands still ask.

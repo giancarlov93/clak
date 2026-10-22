@@ -187,6 +187,8 @@ fn main() {
             launch::conversations_search,
             launch::conversations_delete_many,
             launch::conversations_export,
+            launch::agents_versions,
+            launch::agent_update,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,
             editors::editor_stop,
