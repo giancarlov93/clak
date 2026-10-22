@@ -1,6 +1,6 @@
 // The Agents tab: the agents installed on this computer, launched from here and authorized
-// without a question, with their global instructions and their past conversations, resumed,
-// renamed or deleted; and the presets — an agent, a folder, the programs it may use and how it starts. Finding, launching and the presets live in
+// without a question, with their global instructions and their past conversations, found by
+// what was said, resumed, renamed, deleted or saved as Markdown; and the presets — an agent, a folder, the programs it may use and how it starts. Finding, launching and the presets live in
 // launcher.rs and presets.rs (clak-setup), the instructions files in instructions.rs, the
 // authorization in the hub (clak-hub/src/launch.rs): here only the rows, the buttons and the
 // editors.
@@ -22,12 +22,17 @@ const Launch = (() => {
   const notes = {};
   const busy = new Set();
   /// An agent's past conversations, when that page is open: { agent, all, error, renaming,
-  /// deleting, top, body }. `renaming` is { id, value }: what is typed stays from one drawing
-  /// to the next. `top` (the title, the filter, the switch) is drawn once: only `body` is
-  /// redrawn, so the filter keeps the focus while it is typed in.
+  /// deleting, found, cleanup, top, body }. `renaming` is { id, value }: what is typed stays
+  /// from one drawing to the next. `found` is { words, ids } for the words searched in what
+  /// was said, `cleanup` { days, confirming } while it is open. `top` (the title, the filter,
+  /// the switch) is drawn once: only `body` is redrawn, so the filter keeps the focus while it
+  /// is typed in.
   let talks = null;
   const filter = el("input", { type: "search", placeholder: "Filter", "aria-label": "Filter conversations", spellcheck: "false" });
-  filter.addEventListener("input", () => draw());
+  filter.addEventListener("input", () => {
+    draw();
+    searchText();
+  });
   /// Grouped by folder or not, and the conversations pinned at the top: remembered on this
   /// computer, for the next time.
   const BY_FOLDER = "clak.conversations.byFolder";
@@ -94,7 +99,7 @@ const Launch = (() => {
         note(row)),
       el("div", { class: "actions" }, spinner(row),
         a.instructions ? Kit.iconButton("file", `Instructions · ${home(a.instructions)}`, () => editInstructions(a)) : null,
-        a.conversations ? el("button", { title: a.conversations_editable ? `The past ${a.name} conversations: resume or rename them` : `The ${a.name} Code sessions: open them again`, onclick: () => openTalks(a) }, "Conversations") : null,
+        a.conversations ? el("button", { title: a.conversations.in_app ? `The ${a.name} Code sessions: open them again` : `The past ${a.name} conversations: find and resume them`, onclick: () => openTalks(a) }, "Conversations") : null,
         el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Starts ${a.name}${a.app ? "" : " in a terminal"}`,
           onclick: () => launch(row, { agent: a.id, folder: folder || null }) }, "Launch")));
   };
@@ -104,7 +109,8 @@ const Launch = (() => {
   const openTalks = async (a) => {
     closeEditor();
     filter.value = "";
-    talks = { agent: a, all: null, error: null, renaming: null, deleting: null, top: el("div"), body: el("div") };
+    delete notes.cleanup;
+    talks = { agent: a, all: null, error: null, renaming: null, deleting: null, found: null, cleanup: null, top: el("div"), body: el("div") };
     Kit.replace(talks.top, ...talksHeader(`${a.name} conversations`));
     draw();
     list.scrollIntoView({ block: "start" });
@@ -181,6 +187,117 @@ const Launch = (() => {
     await loadTalks();
   };
 
+  /// What this agent's conversations allow: { rename, delete, search, export, in_app }.
+  const can = () => talks?.agent.conversations || {};
+
+  /// The words searched in what was said too, a moment after the last key: the files can be
+  /// many megabytes.
+  let searching = null;
+  const searchText = () => {
+    clearTimeout(searching);
+    if (!talks || !can().search) return;
+    const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      talks.found = null;
+      return;
+    }
+    const shown = talks;
+    searching = setTimeout(async () => {
+      const key = words.join(" ");
+      shown.found = { words: key, ids: null };
+      draw();
+      try {
+        const ids = await Clak.invoke("conversations_search", { agent: shown.agent.id, words });
+        if (shown.found?.words === key) shown.found.ids = new Set(ids);
+      } catch (e) {
+        shown.found = null;
+        shown.error = String(e);
+      }
+      draw();
+    }, 350);
+  };
+
+  /// "2.3 MB".
+  const megabytes = (bytes) => {
+    if (bytes < 1e6) return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+    return `${(bytes / 1e6).toFixed(bytes < 1e7 ? 1 : 0)} MB`;
+  };
+
+  /// The ages the cleanup offers, in days.
+  const AGES = [[7, "a week"], [30, "a month"], [90, "3 months"], [180, "6 months"], [365, "a year"]];
+
+  /// What the cleanup would delete: not used for longer than its age, and not pinned.
+  const stale = () => {
+    const since = Date.now() - talks.cleanup.days * 86400e3;
+    return (talks.all || []).filter((c) => c.updated < since && !pinned.has(c.id));
+  };
+
+  const toggleCleanup = () => {
+    delete notes.cleanup;
+    talks.cleanup = talks.cleanup ? null : { days: 90, confirming: false };
+    draw();
+  };
+
+  const runCleanup = async () => {
+    const ids = stale().map((c) => c.id);
+    talks.cleanup.busy = true;
+    draw();
+    try {
+      const failed = await Clak.invoke("conversations_delete_many", { agent: talks.agent.id, ids });
+      notes.cleanup = failed.length
+        ? `${ids.length - failed.length} deleted; ${failed.length} not: ${failed[0].error}`
+        : `${ids.length} deleted.`;
+      talks.cleanup = null;
+    } catch (e) {
+      notes.cleanup = String(e);
+      talks.cleanup.busy = false;
+    }
+    await loadTalks();
+  };
+
+  const cleanupBar = () => {
+    const c = talks.cleanup;
+    const all = talks.all || [];
+    const gone = stale();
+    const freed = gone.reduce((sum, t) => sum + (t.size || 0), 0);
+    const total = all.reduce((sum, t) => sum + (t.size || 0), 0);
+    const age = el("select", { "aria-label": "Not used for more than", disabled: c.confirming || !!c.busy },
+      AGES.map(([days, label]) => el("option", { value: String(days) }, label)));
+    age.value = String(c.days);
+    age.addEventListener("change", () => { c.days = Number(age.value); draw(); });
+    const what = gone.length
+      ? `${Clak.plural(gone.length, "conversation", "conversations")}, ${megabytes(freed)}`
+      : "none";
+    return el("div", { class: "card cleanup" },
+      el("div", { class: "lines" },
+        el("div", null, c.confirming
+          ? `Delete ${Clak.plural(gone.length, "conversation", "conversations")} for good? ${talks.agent.name} won't find ${gone.length === 1 ? "it" : "them"} either.`
+          : ["Not used for more than ", age, `: ${what}. Pinned ones stay.`]),
+        el("div", { class: "quiet" }, `All together: ${megabytes(total)} in ${Clak.plural(all.length, "conversation", "conversations")}.`)),
+      el("div", { class: "actions" },
+        c.busy ? el("span", { class: "spinner", "aria-label": "Deleting" }) : null,
+        c.confirming
+          ? [el("button", { disabled: !!c.busy, onclick: () => { c.confirming = false; draw(); } }, "Cancel"),
+            el("button", { class: "danger", disabled: !!c.busy, onclick: runCleanup }, "Delete")]
+          : [el("button", { onclick: toggleCleanup }, "Close"),
+            el("button", { class: "danger", disabled: !gone.length, onclick: () => { c.confirming = true; draw(); } }, gone.length ? `Delete ${gone.length}` : "Delete")]));
+  };
+
+  const exportTalk = async (c) => {
+    const row = `talk:${c.id}`;
+    delete notes[row];
+    busy.add(row);
+    draw();
+    try {
+      const path = await Clak.invoke("conversations_export", { agent: talks.agent.id, id: c.id });
+      if (path) notes[row] = `Saved: ${home(path)}`;
+    } catch (e) {
+      notes[row] = String(e);
+    }
+    busy.delete(row);
+    draw();
+  };
+
   const togglePin = (c) => {
     if (!pinned.delete(c.id)) pinned.add(c.id);
     try { localStorage.setItem(PINNED, JSON.stringify([...pinned])); } catch { /* only for the next time */ }
@@ -200,9 +317,16 @@ const Launch = (() => {
 
   /// The command that resumes it by hand, in the folder where it took place: for the shell of
   /// a new terminal (zsh or bash on the Mac, PowerShell on Windows).
+  const COMMANDS = {
+    "claude-code": (c) => c.terminal && `claude --resume ${c.terminal}`,
+    "claude-desktop": (c) => c.terminal && `claude --resume ${c.terminal}`,
+    codex: (c) => `codex resume ${c.id}`,
+    gemini: (c) => `gemini --resume ${c.id}`,
+    opencode: (c) => `opencode --session ${c.id}`,
+  };
   const resumeCommand = (c) => {
-    const resume = `claude --resume ${c.terminal}`;
-    if (!c.folder) return resume;
+    const resume = COMMANDS[talks.agent.id]?.(c);
+    if (!resume || !c.folder) return resume;
     return Clak.mac
       ? `cd '${c.folder.replace(/'/g, "'\\''")}' && ${resume}`
       : `cd '${c.folder.replace(/'/g, "''")}'; ${resume}`;
@@ -228,33 +352,25 @@ const Launch = (() => {
     return field;
   };
 
-  const pinButton = (c) => {
-    const on = pinned.has(c.id);
-    const button = Kit.iconButton("pin", on ? "Unpin" : "Pin to the top", () => togglePin(c));
-    button.classList.toggle("on", on);
-    button.setAttribute("aria-pressed", String(on));
-    return button;
-  };
-
-  /// Off, in its place, when the conversation never said where it took place.
-  const folderButton = (c, where) => {
-    const button = Kit.iconButton("folder", c.folder ? `Opens ${where}` : "No folder", () => openFolder(c));
-    button.disabled = !c.folder;
-    return button;
-  };
-
-  /// Off, in its place, when Claude Code no longer has the conversation behind a session.
-  const copyButton = (c) => {
-    const button = Kit.iconButton("copy", c.terminal ? "Copies the command that resumes it in a terminal" : "Claude Code no longer has this conversation", () => copyCommand(c));
-    button.disabled = !c.terminal;
-    return button;
+  /// The row's other actions, in its "More" menu: only those this conversation allows.
+  const moreItems = (c, where) => {
+    const { rename, delete: deletes, export: exports, in_app: inApp } = can();
+    const items = [
+      { label: pinned.has(c.id) ? "Unpin" : "Pin to the top", run: () => togglePin(c) },
+      rename ? { label: "Rename…", run: () => startRename(c) } : null,
+      c.folder ? { label: `Open ${where}`, run: () => openFolder(c) } : null,
+      resumeCommand(c) ? { label: "Copy the command that resumes it", run: () => copyCommand(c) } : null,
+      exports && (!inApp || c.terminal) ? { label: "Save as Markdown…", run: () => exportTalk(c) } : null,
+    ].filter(Boolean);
+    if (deletes) items.push("-", { label: "Delete…", danger: true, run: () => askDelete(c) });
+    return items;
   };
 
   const talkRow = (c, now, grouped) => {
     const row = `talk:${c.id}`;
     const renaming = talks.renaming?.id === c.id;
     const deleting = talks.deleting === c.id;
-    const editable = !!talks.agent.conversations_editable;
+    const size = c.size ? ` · ${megabytes(c.size)}` : "";
     const where = c.folder ? home(c.folder) : "No folder";
     const when = D.ago(c.updated / 1000, now);
     let field = null;
@@ -271,31 +387,33 @@ const Launch = (() => {
       : deleting
         ? [el("button", { disabled: busy.has(row), onclick: cancel }, "Cancel"),
           el("button", { class: "danger", disabled: busy.has(row), onclick: () => deleteTalk(c) }, "Delete")]
-        : [pinButton(c),
-          folderButton(c, where),
-          copyButton(c),
-          editable ? Kit.iconButton("trash", "Delete", () => askDelete(c)) : null,
-          editable ? el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename") : null,
-          el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: talks.agent.app ? `Opens it in ${talks.agent.name}` : `Resumes it in a terminal, in ${where}`,
-            onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume")];
+        : [el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: can().in_app ? `Opens it in ${talks.agent.name}` : `Resumes it in a terminal, in ${where}`,
+            onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume"),
+          Editors.moreButton(() => moreItems(c, where))];
     return el("div", { class: Clak.mac ? "row setup talk" : "card setup talk", "data-id": row },
       el("div", { class: "lines" },
         renaming
           ? el("div", { class: "ed-dialog talk-name" }, field)
-          : el("div", { class: "name" }, el("strong", { class: "ellipsis", title: c.title }, c.title)),
+          : el("div", { class: "name" },
+            pinned.has(c.id) ? el("span", { class: "talk-pin", title: "Pinned" }, Kit.icon("pin")) : null,
+            el("strong", { class: "ellipsis", title: c.title }, c.title)),
         deleting
-          ? el("div", { class: "quiet" }, "Delete it for good? Claude Code won't find it either.")
+          ? el("div", { class: "quiet" }, `Delete it for good? ${talks.agent.name} won't find it either.`)
           : grouped
-            ? el("div", { class: "quiet" }, when)
-            : el("div", { class: "quiet ellipsis", title: c.folder || "" }, el("span", { class: "mono" }, where), ` · ${when}`),
+            ? el("div", { class: "quiet" }, when + size)
+            : el("div", { class: "quiet ellipsis", title: c.folder || "" }, el("span", { class: "mono" }, where), ` · ${when}${size}`),
         note(row)),
       el("div", { class: "actions" }, spinner(row), buttons));
   };
 
   /// The way back to the agents: on the Mac a back button over the title, on Windows the
-  /// breadcrumbs. On the right the filter and the switch that groups by folder.
+  /// breadcrumbs. On the right the filter; below, the switch that groups by folder and the
+  /// cleanup.
   const talksHeader = (title) => {
     const search = el("label", { class: "search" }, Kit.icon("search"), filter);
+    const cleanup = talks.agent.conversations?.delete
+      ? el("button", { title: "Deletes the conversations not used for a while", onclick: toggleCleanup }, "Clean up…")
+      : null;
     const grouping = el("div", { class: "talk-group", title: "The conversations under the folder where they took place" },
       el("span", null, "By folder"),
       Kit.toggle(byFolder, "Group by folder", (on) => {
@@ -303,12 +421,13 @@ const Launch = (() => {
         try { localStorage.setItem(BY_FOLDER, on ? "1" : "0"); } catch { /* only for the next time */ }
         draw();
       }));
+    const tools = el("div", { class: "talk-tools" }, grouping, cleanup);
     if (Clak.mac) {
-      return [el("button", { class: "back", onclick: closeTalks }, Kit.icon("back"), el("span", null, "Agents")), Kit.title(title, grouping, search)];
+      return [el("button", { class: "back", onclick: closeTalks }, Kit.icon("back"), el("span", null, "Agents")), Kit.title(title, search), tools];
     }
     return [el("header", { class: "title crumbs" },
       el("button", { class: "crumb", onclick: closeTalks, title: "Agents" }, "Agents"), Kit.icon("chevron", "sep"),
-      el("h1", null, title), el("div", { class: "actions" }, grouping, search))];
+      el("h1", null, title), el("div", { class: "actions" }, search)), tools];
   };
 
   /// At most this many rows: the filter finds the others.
@@ -334,17 +453,31 @@ const Launch = (() => {
     const a = talks.agent;
     if (list.firstChild !== talks.top || list.childNodes.length !== 2) list.replaceChildren(talks.top, talks.body);
     const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    // Found by the words in what was said: only for the words still in the filter.
+    const found = talks.found?.words === words.join(" ") ? talks.found : null;
+    let inText = 0;
     const matches = (talks.all || []).filter((c) => {
       const text = `${c.title} ${c.folder || ""}`.toLowerCase();
-      return words.every((w) => text.includes(w));
+      if (words.every((w) => text.includes(w))) return true;
+      if (!found?.ids?.has(c.id)) return false;
+      inText++;
+      return true;
     });
+    const searchNote = !words.length || !can().search
+      ? null
+      : !found || !found.ids
+        ? "Searching in what was said too…"
+        : inText ? `${Clak.plural(inText, "more", "more")} found in what was said.` : null;
     const now = Date.now();
     const shown = matches.slice(0, SHOWN);
     // The pinned ones over the others, whichever the order: in their folder they show it.
     const top = shown.filter((c) => pinned.has(c.id));
     const rest = shown.filter((c) => !pinned.has(c.id));
     Kit.replace(talks.body,
+      talks.cleanup ? cleanupBar() : null,
+      notes.cleanup ? Kit.bar("info", notes.cleanup) : null,
       talks.error ? Kit.bar("err", talks.error) : null,
+      searchNote ? el("div", { class: "quiet hint" }, searchNote) : null,
       talks.all === null
         ? el("div", { class: "quiet" }, "Reading the conversations…")
         : shown.length
@@ -352,9 +485,9 @@ const Launch = (() => {
               group(top.map((c) => talkRow(c, now, false)))] : null,
             top.length > 0 && rest.length > 0 && !byFolder ? el("div", { class: "section" }, el("h2", null, "Others")) : null,
             byFolder ? byFolders(rest, now) : group(rest.map((c) => talkRow(c, now, false)))]
-          : Kit.empty("chat", words.length ? "No match" : "No conversations", words.length ? "Nothing with these words in the title or the folder" : `The conversations with ${a.name} show up here`),
+          : Kit.empty("chat", words.length ? "No match" : "No conversations", words.length ? `Nothing with these words in the title or the folder${can().search ? ", or in what was said" : ""}` : `The conversations with ${a.name} show up here`),
       matches.length > SHOWN ? el("div", { class: "quiet hint" }, `The latest ${SHOWN} of ${matches.length}: the filter finds the others.`) : null,
-      el("div", { class: "quiet hint" }, a.app
+      el("div", { class: "quiet hint" }, can().in_app
         ? `A session opens again in ${a.name}, authorized like a launch from here. ${a.name} renames and deletes its sessions itself.`
         : `A conversation resumes in a terminal, in the folder where it took place, authorized like a launch from here.`));
   };

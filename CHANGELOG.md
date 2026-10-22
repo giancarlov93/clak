@@ -28,6 +28,13 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - Claude Desktop's Code sessions, in the Agents tab: listed with the title and the folder the
   app shows, archived ones left out. Each one opens again in the app, authorized like a launch
   from Clak, or in a terminal with its command; the app keeps renaming and deleting them.
+- Conversations of Codex, Gemini CLI and OpenCode too, each resumed in a terminal in its
+  folder (`codex resume`, `gemini --resume`, `opencode --session`), with the names Codex gives
+  and the titles Gemini makes. The filter also finds words said in a conversation, not only in
+  its title. A conversation is saved as Markdown (what was asked, what was answered, the
+  commands used), and Claude Code's show what they take on disk: Clean up… deletes in one go
+  those not used for more than a week, a month, three, six months or a year, pinned ones
+  excepted. A row's actions are in its More menu.
 - Launch, in the Agents tab: the agents installed on this computer (Claude Code, Codex, Gemini
   CLI, OpenCode, Claude Desktop, VS Code, Cursor, Windsurf), launched from Clak and authorized
   without a question. A command-line agent opens in a terminal in the folder you pick, with a

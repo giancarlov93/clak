@@ -39,10 +39,15 @@ fn without_claude_code_there_is_none() {
 }
 
 #[test]
-fn only_claude_code_for_now() {
+fn an_agent_whose_conversations_clak_doesnt_read() {
     let sandbox = Sandbox::new();
-    assert!(!conversations::supported("codex"));
-    assert!(conversations::list(&sandbox.places, "codex").is_err());
+    assert!(!conversations::supported("vscode"));
+    assert!(conversations::list(&sandbox.places, "vscode").is_err());
+    assert!(
+        conversations::list(&sandbox.places, "codex")
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -287,11 +292,246 @@ fn a_claude_desktop_session_opens_in_the_app_and_is_not_changed_by_clak() {
     assert!(conversations::link(&sandbox.places, "claude-desktop", "local_a1&x=1").is_err());
     assert!(conversations::link(&sandbox.places, "claude-code", "local_a1").is_err());
     assert!(conversations::resume(&sandbox.places, "claude-desktop", "local_a1").is_err());
-    assert!(!conversations::editable("claude-desktop"));
+    assert!(!conversations::can("claude-desktop").unwrap().rename);
     assert!(conversations::rename(&sandbox.places, "claude-desktop", "local_a1", "New").is_err());
     assert!(conversations::delete(&sandbox.places, "claude-desktop", "local_a1").is_err());
     assert_eq!(
         conversations::list(&sandbox.places, "claude-desktop").unwrap()[0].title,
         "Mine"
     );
+}
+
+/// A conversation with an answer and a command used: for the search and the export.
+fn talk(sandbox: &Sandbox, id: &str, prompt: &str, answer: &str) {
+    let text = [
+        line(json!({ "type": "user", "cwd": "/work/app", "sessionId": id,
+            "message": { "role": "user", "content": prompt } })),
+        line(json!({ "type": "assistant", "cwd": "/work/app", "sessionId": id,
+            "message": { "role": "assistant", "content": [
+                { "type": "text", "text": answer },
+                { "type": "tool_use", "name": "Bash", "input": { "command": "ls" } } ] } })),
+        line(json!({ "type": "user", "isMeta": true, "cwd": "/work/app", "sessionId": id,
+            "message": { "role": "user", "content": "<system-reminder>secret plans</system-reminder>" } })),
+    ]
+    .concat();
+    sandbox.write(&format!("{PROJECT}/{id}.jsonl"), &text);
+}
+
+#[test]
+fn the_search_finds_words_said_by_either_side_not_in_reminders() {
+    let sandbox = Sandbox::new();
+    talk(
+        &sandbox,
+        "aaa-1",
+        "Fix the Login page",
+        "The session cookie expired.",
+    );
+    talk(&sandbox, "bbb-2", "Write the tests", "Done, all green.");
+    let search = |words: &[&str]| {
+        let words: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+        conversations::search(&sandbox.places, "claude-code", &words).unwrap()
+    };
+    assert_eq!(search(&["login", "COOKIE"]), ["aaa-1"]);
+    assert_eq!(search(&["green"]), ["bbb-2"]);
+    assert!(search(&["login", "green"]).is_empty());
+    assert!(search(&["plans"]).is_empty());
+    assert!(search(&[" "]).is_empty());
+}
+
+#[test]
+fn the_export_is_markdown_with_the_commands_named() {
+    let sandbox = Sandbox::new();
+    talk(
+        &sandbox,
+        "aaa-1",
+        "Fix the login page",
+        "The session cookie expired.",
+    );
+    let (title, text) = conversations::export(&sandbox.places, "claude-code", "aaa-1").unwrap();
+    assert_eq!(title, "Fix the login page");
+    assert_eq!(
+        text,
+        "# Fix the login page\n\n`/work/app`\n\n## You\n\nFix the login page\n\n## Agent\n\nThe session cookie expired.\n\n*Used Bash*\n"
+    );
+}
+
+#[test]
+fn several_are_deleted_at_once_and_each_says_what_it_takes() {
+    let sandbox = Sandbox::new();
+    talk(&sandbox, "aaa-1", "One", "1");
+    talk(&sandbox, "bbb-2", "Two", "2");
+    talk(&sandbox, "ccc-3", "Three", "3");
+    sandbox.write("home/.claude/file-history/aaa-1/one", "0123456789");
+    let all = conversations::list(&sandbox.places, "claude-code").unwrap();
+    let one = all.iter().find(|c| c.id == "aaa-1").unwrap();
+    let two = all.iter().find(|c| c.id == "bbb-2").unwrap();
+    assert_eq!(one.size, two.size + 10);
+    let failed = conversations::delete_many(
+        &sandbox.places,
+        "claude-code",
+        &["aaa-1".into(), "zzz-9".into(), "bbb-2".into()],
+    );
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0].0, "zzz-9");
+    let left: Vec<String> = conversations::list(&sandbox.places, "claude-code")
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(left, ["ccc-3"]);
+}
+
+#[test]
+fn opencode_sessions_come_from_its_database_without_the_ones_its_agents_started() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.dir(&["work", "app"]);
+    let work_text = work.to_string_lossy().into_owned();
+    let db_path = sandbox
+        .dir(&["home", ".local", "share", "opencode"])
+        .join("opencode.db");
+    let db = rusqlite::Connection::open(&db_path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE session_v2 (id TEXT PRIMARY KEY, parent_id TEXT, directory TEXT NOT NULL,
+            title TEXT, time_updated INTEGER NOT NULL, time_archived INTEGER);",
+    )
+    .unwrap();
+    let add = |id: &str, parent: Option<&str>, title: &str, updated: i64, archived: Option<i64>| {
+        db.execute(
+            "INSERT INTO session_v2 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![id, parent, work_text, title, updated, archived],
+        )
+        .unwrap();
+    };
+    add("ses_one", None, "Fix the parser", 2000, None);
+    add("ses_two", None, "Newer", 3000, None);
+    add("ses_child", Some("ses_one"), "Subtask", 4000, None);
+    add("ses_old", None, "Archived", 5000, Some(5000));
+    drop(db);
+    let all = conversations::list(&sandbox.places, "opencode").unwrap();
+    let ids: Vec<&str> = all.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, ["ses_two", "ses_one"]);
+    assert_eq!(all[1].title, "Fix the parser");
+    let (args, folder) = conversations::resume(&sandbox.places, "opencode", "ses_one").unwrap();
+    assert_eq!(args, ["--session", "ses_one"]);
+    assert_eq!(folder, Some(work));
+    assert!(conversations::resume(&sandbox.places, "opencode", "ses_one; rm -rf x").is_err());
+    assert!(conversations::delete(&sandbox.places, "opencode", "ses_one").is_err());
+}
+
+#[test]
+fn codex_sessions_with_their_names_without_injected_context_or_programs() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.dir(&["work", "app"]);
+    let work_text = work.to_string_lossy().into_owned();
+    let session = |file: &str, id: &str, source: &str, prompt: &str| {
+        let text = [
+            line(json!({ "timestamp": "t", "type": "session_meta",
+                "payload": { "id": id, "cwd": work_text, "source": source } })),
+            line(json!({ "type": "response_item", "payload": { "type": "message", "role": "user",
+                "content": [{ "type": "input_text", "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>" }] } })),
+            line(json!({ "type": "event_msg", "payload": { "type": "user_message", "message": prompt } })),
+            line(json!({ "type": "response_item", "payload": { "type": "message", "role": "assistant",
+                "content": [{ "type": "output_text", "text": "Patched the parser." }] } })),
+            line(json!({ "type": "response_item", "payload": { "type": "function_call", "name": "shell" } })),
+        ]
+        .concat();
+        sandbox.write(&format!("home/.codex/sessions/2026/10/22/{file}"), &text);
+    };
+    session(
+        "rollout-2026-10-22T10-00-00-c1.jsonl",
+        "c1",
+        "cli",
+        "Fix the parser",
+    );
+    session(
+        "rollout-2026-10-22T11-00-00-c2.jsonl",
+        "c2",
+        "cli",
+        "Second",
+    );
+    session(
+        "rollout-2026-10-22T12-00-00-c3.jsonl",
+        "c3",
+        "exec",
+        "From a script",
+    );
+    sandbox.write(
+        "home/.codex/session_index.jsonl",
+        &[
+            line(json!({ "id": "c2", "thread_name": "Old name", "updated_at": "t" })),
+            line(json!({ "id": "c2", "thread_name": "Release", "updated_at": "t" })),
+        ]
+        .concat(),
+    );
+    let all = conversations::list(&sandbox.places, "codex").unwrap();
+    let mut titles: Vec<(&str, &str, bool)> = all
+        .iter()
+        .map(|c| (c.id.as_str(), c.title.as_str(), c.named))
+        .collect();
+    titles.sort();
+    assert_eq!(
+        titles,
+        [("c1", "Fix the parser", false), ("c2", "Release", true)]
+    );
+    let (args, folder) = conversations::resume(&sandbox.places, "codex", "c1").unwrap();
+    assert_eq!(args, ["resume", "c1"]);
+    assert_eq!(folder, Some(work));
+    let words = vec!["parser".to_owned(), "patched".to_owned()];
+    let mut found = conversations::search(&sandbox.places, "codex", &words).unwrap();
+    found.sort();
+    assert_eq!(found, ["c1", "c2"]);
+    let (_, text) = conversations::export(&sandbox.places, "codex", "c1").unwrap();
+    assert!(text.contains("## You\n\nFix the parser"), "{text}");
+    assert!(text.contains("*Used shell*"), "{text}");
+    assert!(!text.contains("AGENTS.md"), "{text}");
+}
+
+#[test]
+fn gemini_sessions_with_their_project_folder_and_summary() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.dir(&["work", "app"]);
+    let work_text = work.to_string_lossy().into_owned();
+    sandbox.write(
+        "home/.gemini/tmp/app/.project_root",
+        &format!("{work_text}\n"),
+    );
+    let text = [
+        line(json!({ "sessionId": "g-1", "projectHash": "h", "startTime": "t", "lastUpdated": "t", "kind": "main" })),
+        line(json!({ "id": "m1", "timestamp": "t", "type": "user", "content": "/stats" })),
+        line(json!({ "id": "m2", "timestamp": "t", "type": "user", "content": [{ "text": "Explain the cache" }] })),
+        line(json!({ "id": "m3", "timestamp": "t", "type": "gemini", "content": "draft",
+            "toolCalls": [{ "name": "read_file" }] })),
+        line(json!({ "id": "m3", "timestamp": "t", "type": "gemini", "content": "It is an LRU." })),
+        line(json!({ "$set": { "summary": "Cache explained" } })),
+    ]
+    .concat();
+    sandbox.write(
+        "home/.gemini/tmp/app/chats/session-2026-10-22T10-00-g-1.jsonl",
+        &text,
+    );
+    sandbox.write(
+        "home/.gemini/tmp/app/chats/session-2026-10-22T11-00-sub.jsonl",
+        &line(json!({ "sessionId": "sub", "kind": "subagent" })),
+    );
+    let all = conversations::list(&sandbox.places, "gemini").unwrap();
+    assert_eq!(all.len(), 1);
+    assert_eq!(all[0].title, "Cache explained");
+    assert_eq!(all[0].folder.as_deref(), Some(work_text.as_str()));
+    let (args, folder) = conversations::resume(&sandbox.places, "gemini", "g-1").unwrap();
+    assert_eq!(args, ["--resume", "g-1"]);
+    assert_eq!(folder, Some(work));
+    let words = vec!["lru".to_owned()];
+    assert_eq!(
+        conversations::search(&sandbox.places, "gemini", &words).unwrap(),
+        ["g-1"]
+    );
+    let draft = vec!["draft".to_owned()];
+    assert!(
+        conversations::search(&sandbox.places, "gemini", &draft)
+            .unwrap()
+            .is_empty()
+    );
+    let (_, text) = conversations::export(&sandbox.places, "gemini", "g-1").unwrap();
+    assert!(text.contains("## You\n\nExplain the cache"), "{text}");
+    assert!(!text.contains("/stats"), "{text}");
 }

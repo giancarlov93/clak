@@ -28,8 +28,7 @@ pub async fn launch_status(app: AppHandle) -> Value {
                 .map(|agent| {
                     let mut json = agent.to_json();
                     json["instructions"] = json!(instructions::global(&places, &agent.id));
-                    json["conversations"] = json!(conversations::supported(&agent.id));
-                    json["conversations_editable"] = json!(conversations::editable(&agent.id));
+                    json["conversations"] = json!(conversations::can(&agent.id).map(|can| can.to_json()));
                     json["project_file"] = json!(instructions::project(&agent.id, std::path::Path::new(""))
                         .map(|p| p.to_string_lossy().into_owned()));
                     json
@@ -266,6 +265,93 @@ pub async fn conversations_delete(agent: String, id: String) -> Result<(), Strin
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// The ids of the conversations in which all these words were said.
+#[tauri::command]
+pub async fn conversations_search(
+    agent: String,
+    words: Vec<String>,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        conversations::search(&Places::real(), &agent, &words).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Deletes several conversations, for good: those that couldn't be, with the reason.
+#[tauri::command]
+pub async fn conversations_delete_many(
+    agent: String,
+    ids: Vec<String>,
+) -> Result<Vec<Value>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        conversations::delete_many(&Places::real(), &agent, &ids)
+            .into_iter()
+            .map(|(id, e)| json!({ "id": id, "error": e.to_string() }))
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Saves a conversation as Markdown, where the user chooses: the path, or `None` if they
+/// changed their mind.
+#[tauri::command]
+pub async fn conversations_export(
+    window: WebviewWindow,
+    agent: String,
+    id: String,
+) -> Result<Option<String>, String> {
+    let (title, text) = tauri::async_runtime::spawn_blocking(move || {
+        conversations::export(&Places::real(), &agent, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .dialog()
+        .file()
+        .set_title("Save the conversation")
+        .set_file_name(format!("{}.md", file_name(&title)))
+        .add_filter("Markdown", &["md"])
+        .set_parent(&window)
+        .save_file(move |path| {
+            let _ = sender.send(path);
+        });
+    let Some(path) = receiver
+        .await
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok())
+    else {
+        return Ok(None);
+    };
+    std::fs::write(&path, text).map_err(|e| format!("Can't write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// A title as a file's name: without the characters Windows and the Mac don't allow.
+fn file_name(title: &str) -> String {
+    let name: String = title
+        .chars()
+        .map(|c| {
+            if "/\\:*?\"<>|".contains(c) || c.is_control() {
+                ' '
+            } else {
+                c
+            }
+        })
+        .take(80)
+        .collect();
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name = name.trim_matches('.').trim();
+    if name.is_empty() {
+        "Conversation".to_owned()
+    } else {
+        name.to_owned()
+    }
 }
 
 /// Opens the folder where a conversation took place, in Finder or File Explorer. The page
