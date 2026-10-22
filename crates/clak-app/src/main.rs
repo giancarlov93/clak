@@ -19,6 +19,7 @@ mod bridge;
 mod closing;
 mod commands;
 mod config_file;
+mod costs;
 mod editors;
 mod front;
 mod icon;
@@ -194,6 +195,8 @@ fn main() {
             launch::conversations_export,
             launch::agents_versions,
             launch::agent_update,
+            // The Usage tab (costs.rs).
+            costs::costs_report,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,
             editors::editor_stop,
