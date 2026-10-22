@@ -81,12 +81,12 @@
     $("dot").className = "dot " + (offline ? "" : pending.length ? "pending" : (state.grants || []).length ? "linked" : "idle");
     $("headline").textContent = offline ? "Not running" : D.headline(state);
 
-    $("pending").replaceChildren(...pending.map((p) =>
+    Kit.replace($("pending"), ...pending.map((p) =>
       clickable("question", () => open("status"), "Waiting for your answer",
         el("span", { class: "lines" }, el("span", { class: "title ellipsis" }, p.title), el("span", { class: "quiet" }, "Waiting for your answer")))));
     $("pending").classList.toggle("hidden", pending.length === 0);
 
-    $("agents").replaceChildren(...(sessions.length && !offline
+    Kit.replace($("agents"), ...(sessions.length && !offline
       ? sessions.map((s) => agent(s, now))
       : [el("div", { class: "empty" }, offline ? "Not running" : "No agent is connected")]));
     fit();
@@ -95,7 +95,7 @@
   /// A newer Clak: the row opens Settings, where it installs.
   const renderUpdate = () => {
     const version = update?.newer?.version;
-    $("update").replaceChildren(...(version
+    Kit.replace($("update"), ...(version
       ? [clickable("update-row", () => open("settings:about"), `Clak ${version}: install from Settings`,
           Kit.tile("refresh", 24, "#34c759"),
           el("span", { class: "lines" },

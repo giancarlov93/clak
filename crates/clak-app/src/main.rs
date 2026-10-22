@@ -183,6 +183,7 @@ fn main() {
             launch::conversations_list,
             launch::conversations_rename,
             launch::conversations_delete,
+            launch::conversations_open_folder,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,
             editors::editor_stop,

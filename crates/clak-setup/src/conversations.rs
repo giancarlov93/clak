@@ -1,5 +1,5 @@
 //! The past conversations of a command-line agent, from the Agents tab: listed, resumed in
-//! the folder where they took place, renamed, deleted.
+//! the folder where they took place, renamed, deleted; their folder opened.
 //!
 //! They are the agent's files, not Clak's. Claude Code keeps one per conversation,
 //! `<config>/projects/<folder>/<id>.jsonl`, one JSON object per line, and only ever adds
@@ -127,6 +127,12 @@ pub fn delete(places: &Places, agent: &str, id: &str) -> Result<()> {
 /// What to add to the agent's command line to resume the conversation, and the folder to
 /// start it in.
 pub fn resume(places: &Places, agent: &str, id: &str) -> Result<(Vec<String>, Option<PathBuf>)> {
+    let folder = folder(places, agent, id)?;
+    Ok((vec!["--resume".into(), id.into()], folder))
+}
+
+/// The folder where the conversation took place, if it still is there. None: it never said.
+pub fn folder(places: &Places, agent: &str, id: &str) -> Result<Option<PathBuf>> {
     if !supported(agent) {
         return Err(unsupported(agent));
     }
@@ -140,7 +146,7 @@ pub fn resume(places: &Places, agent: &str, id: &str) -> Result<(Vec<String>, Op
             folder.display()
         )));
     }
-    Ok((vec!["--resume".into(), id.into()], folder))
+    Ok(folder)
 }
 
 fn unsupported(agent: &str) -> SetupError {

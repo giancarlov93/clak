@@ -13,7 +13,7 @@ const Kit = (() => {
     people: "", folder: "", chevron: "", back: "", copy: "", skill: "",
     client: "", file: "", refresh: "", search: "", trash: "", power: "",
     bell: "", speaker: "", options: "", calls: "", warn: "", stopwatch: "",
-    shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "",
+    shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", pin: "",
   };
 
   // On the Mac: 16 px strokes, like SF symbols at regular weight.
@@ -56,6 +56,7 @@ const Kit = (() => {
     minus: filled('<circle cx="8" cy="8" r="6.5" fill="currentColor" stroke="none"/>', "M5 8h6"),
     off: '<circle cx="8" cy="8" r="6" stroke-dasharray="2.2 2"/>',
     plus: '<path d="M8 2.5v11M2.5 8h11"/>',
+    pin: '<path d="M9.8 1.8l4.4 4.4M11.1 3.1L8.4 5.8 5.2 5.3 4 6.5l5.5 5.5 1.2-1.2-.5-3.2 2.7-2.7M6.8 9.2L2.2 13.8"/>',
   };
 
   const svg = (name) =>
@@ -146,13 +147,54 @@ const Kit = (() => {
   const clickRow = (content, onclick, help, label) =>
     el("button", { class: "click-row", onclick, title: help, "aria-label": label }, content, icon("chevron", "chevron"));
 
+  /// What a control is called: its label, its title, its text, or the text of the label
+  /// it sits in.
+  const nameOf = (node) => node.getAttribute("aria-label") || node.getAttribute("title")
+    || node.textContent.trim() || node.closest("label")?.textContent.trim() || "";
+
+  /// Where the focus is in a container, to find it again in content drawn anew: the row it is
+  /// in (`data-id`), the kind of control and its name; or else its place in that row (or in
+  /// the container, outside the rows).
+  const focusIn = (container) => {
+    const active = document.activeElement;
+    if (!active || active === document.body || !container.contains(active)) return null;
+    const near = active.closest("[data-id]");
+    const row = near && container.contains(near) ? near : null;
+    const path = [];
+    for (let node = active; node !== (row || container); node = node.parentNode) path.unshift([...node.parentNode.children].indexOf(node));
+    const text = typeof active.selectionStart === "number";
+    return { row: row?.dataset.id ?? null, tag: active.tagName, name: nameOf(active), path,
+      start: text ? active.selectionStart : null, end: text ? active.selectionEnd : null };
+  };
+
+  const refocus = (container, was) => {
+    // A row that is gone takes the focus with it.
+    const scope = was.row === null ? container : [...container.querySelectorAll("[data-id]")].find((n) => n.dataset.id === was.row);
+    if (!scope) return;
+    const same = [...scope.querySelectorAll(was.tag)].filter((n) => nameOf(n) === was.name);
+    let node = same.length === 1 ? same[0] : null;
+    if (!node) {
+      node = scope;
+      for (const at of was.path) node = node?.children[at];
+      if (node?.tagName !== was.tag) return;
+    }
+    node.focus({ preventScroll: true });
+    if (was.start !== null && typeof node.setSelectionRange === "function") {
+      try { node.setSelectionRange(was.start, was.end); } catch { /* not a text field */ }
+    }
+  };
+
   /// Replaces the content only if it really changed: a list that is recreated every
-  /// time takes away the mouse hover and the selection.
+  /// time takes away the mouse hover and the selection. The control that had the focus
+  /// gets it back in the new content, the same one if it is still there: from the keyboard
+  /// a redraw (a connection, a minute gone by, a switch turned) doesn't throw you out.
   const replace = (container, ...nodes) => {
     const draft = document.createElement(container.tagName);
     draft.append(...nodes.flat(Infinity).filter((n) => n != null && n !== false));
     if (draft.innerHTML === container.innerHTML) return false;
+    const was = focusIn(container);
     container.replaceChildren(...draft.childNodes);
+    if (was && !container.contains(document.activeElement)) refocus(container, was);
     return true;
   };
 
@@ -162,12 +204,15 @@ const Kit = (() => {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
+      // Through a hidden field, which takes the focus for a moment: then back where it was.
+      const was = document.activeElement;
       const area = el("textarea", { style: "position:fixed;opacity:0" });
       area.value = text;
       document.body.append(area);
       area.select();
       const done = document.execCommand("copy");
       area.remove();
+      was?.focus?.({ preventScroll: true });
       return done;
     }
   };
