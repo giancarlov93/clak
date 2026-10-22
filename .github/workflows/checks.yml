@@ -18,11 +18,17 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # No debug info in these builds: a failing test still says its file and line, coverage
+  # doesn't need it, and the tests link faster (on Windows above all) into smaller caches.
+  CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
   # On main: whether the files of this commit are those of a pull request whose checks passed.
   # With a rebase the commits change but, if main hadn't moved, the files (the tree) don't.
   # A direct push, a pull request not found or a doubt: everything runs.
+  # Only main saves the caches (the pull requests restore them): a push that changes what
+  # goes in them (Cargo.lock, a Cargo.toml, the toolchain, this workflow) runs everything too,
+  # or every pull request after it would start from older caches.
   needed:
     runs-on: ubuntu-latest
     permissions:
@@ -37,14 +43,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
         run: |
           run=true
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             tree() { gh api "repos/$REPO/git/commits/$1" --jq .tree.sha || true; }
+            changed=$(gh api "repos/$REPO/compare/$BEFORE...$SHA" --jq '(.files // [])[].filename' || echo '?')
             pulls="repos/$REPO/commits/$SHA/pulls"
             head=$(gh api "$pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
             mine=$(tree "$SHA")
-            if [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
+            if printf '%s\n' "$changed" | grep -qE '^\?$|(^|/)Cargo\.(toml|lock)$|^rust-toolchain\.toml$|^\.github/workflows/checks\.yml$'; then
+              echo "This push changes what the caches hold: everything runs, and saves them." >> "$GITHUB_STEP_SUMMARY"
+            elif [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
               runs="repos/$REPO/actions/workflows/checks.yml/runs?head_sha=$head&event=pull_request&status=success"
               passed=$(gh api "$runs" --jq .total_count || echo 0)
               if [ "${passed:-0}" -gt 0 ]; then
@@ -67,20 +77,27 @@ jobs:
         run: cargo fmt --all --check
 
   # clippy and the tests on both systems: much of the code is #[cfg(windows)] or macOS only.
-  # The whole workspace, the Tauri app included.
+  # The whole workspace, the Tauri app included. Here Windows; the Mac is the coverage job,
+  # whose tests are the Mac's tests.
   clippy-test:
+    name: clippy-test (windows-latest)
     needs: needed
     if: needs.needed.outputs.run == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Only the Rust of rust-toolchain.toml: rust-cache puts every installed toolchain in its
+      # key, and the runner images come with different ones, so a job kept a cache for each
+      # image and often started from an old one.
       - name: Rust
         shell: bash
-        run: rustup toolchain install
+        run: |
+          rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -91,7 +108,9 @@ jobs:
         shell: bash
         run: cargo test --workspace --locked
 
-  # The share of lines the tests run through, on the Mac: below the floor the check fails.
+  # The Mac: clippy, then the tests with coverage (the share of lines they run through: below
+  # the floor the check fails), so they are built and run once, not once plain and once for
+  # coverage. cargo-llvm-cov leaves out the doc tests, which run apart.
   # The figures go in the run's summary, the report (HTML and lcov) among its artifacts.
   # To raise the floor as the tests grow, change COVERAGE_FLOOR.
   coverage:
@@ -102,21 +121,32 @@ jobs:
       COVERAGE_FLOOR: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Only the Rust of rust-toolchain.toml, as on Windows.
       - name: Rust
         shell: bash
         run: |
           rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
           rustup component add llvm-tools
       - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
         with:
           tool: cargo-llvm-cov
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: coverage
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Tests with coverage
         shell: bash
         run: cargo llvm-cov --workspace --locked --no-report
+      - name: Doc tests
+        shell: bash
+        run: cargo test --workspace --locked --doc
       - name: Report
         shell: bash
         run: |
