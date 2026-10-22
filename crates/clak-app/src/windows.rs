@@ -27,6 +27,10 @@ struct Flyout {
     /// Built, waiting for its page: it opens when the page says its height.
     loading: bool,
     hidden_at: Option<Instant>,
+    /// On screen. On Windows a closed box is only cloaked, so the window still says it is visible.
+    shown: bool,
+    /// Where the box was put last, in pixels: opened again in the same place, it isn't moved.
+    placed: Option<(i32, i32, i32, i32)>,
 }
 
 static STATE: Mutex<Flyout> = Mutex::new(Flyout {
@@ -34,6 +38,8 @@ static STATE: Mutex<Flyout> = Mutex::new(Flyout {
     height: FLYOUT_MAX_HEIGHT,
     loading: false,
     hidden_at: None,
+    shown: false,
+    placed: None,
 });
 
 /// Never held while calling the window: on Windows, showing or focusing it delivers its
@@ -67,25 +73,72 @@ pub fn panel(app: &AppHandle, tab: Option<&str>) {
 
 pub fn hide_flyout(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(FLYOUT) {
-        let _ = window.hide();
+        conceal(&window.as_ref().window());
     }
 }
 
 /// The box lost the focus: it vanishes.
 pub fn flyout_blurred(window: &tauri::Window) {
-    let _ = window.hide();
+    conceal(window);
     state().hidden_at = Some(Instant::now());
+}
+
+/// On Windows the box is cloaked rather than hidden: a hidden window comes back through a
+/// change of style, a redrawn frame and its backdrop applied again, and its WebView2 starts
+/// drawing again from a stop. That is the jolt at every opening. Cloaked, DWM keeps
+/// composing it and only stops showing it; it takes no clicks, and being a tool window it
+/// isn't in Alt+Tab. Still the foreground window, it would take the keys unseen: then hidden.
+fn conceal(window: &tauri::Window) {
+    state().shown = false;
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        let foreground =
+            unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+        if !std::ptr::eq(foreground, hwnd.0) && cloak(hwnd.0, true) {
+            return;
+        }
+    }
+    let _ = window.hide();
+}
+
+/// Shows the box again: uncloaked, and shown if it had been hidden.
+fn unveil(window: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    if let Ok(hwnd) = window.hwnd() {
+        cloak(hwnd.0, false);
+    }
+    if !window.is_visible().unwrap_or(false) {
+        let _ = window.show();
+    }
+    let _ = window.set_focus();
+    state().shown = true;
+}
+
+#[cfg(windows)]
+fn cloak(hwnd: windows_sys::Win32::Foundation::HWND, on: bool) -> bool {
+    use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
+    let value: i32 = on.into();
+    // SAFETY: the handle is the box's own window, and the value a BOOL the size given.
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAK as u32,
+            (&value as *const i32).cast(),
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
+    result == 0
 }
 
 /// The box next to the icon: it opens on click and vanishes when it loses focus.
 pub fn toggle_flyout(app: &AppHandle, icon: Rect) {
-    let (height, closing, loading) = {
+    let (height, closing, loading, shown) = {
         let mut state = state();
         state.icon = Some(icon);
         let closing = state
             .hidden_at
             .is_some_and(|at| at.elapsed() < FLYOUT_CLOSING_CLICK);
-        (state.height, closing, state.loading)
+        (state.height, closing, state.loading, state.shown)
     };
     if let Some(window) = app.get_webview_window(FLYOUT) {
         // On Windows the press on the icon takes the focus from the box, which has already
@@ -93,14 +146,14 @@ pub fn toggle_flyout(app: &AppHandle, icon: Rect) {
         if loading || closing {
             return;
         }
-        if window.is_visible().unwrap_or(false) {
-            let _ = window.hide();
+        if shown {
+            conceal(&window.as_ref().window());
             return;
         }
-        place(&window, icon, height);
-        let _ = window.show();
-        let _ = window.set_focus();
+        // The page brings its times up to date before it shows: cloaked, it still draws.
         let _ = window.emit("flyout-shown", ());
+        place(&window, icon, height);
+        unveil(&window);
         return;
     }
     // Hidden until its page says how tall it is: on Windows, the WebView2 that starts up takes
@@ -124,19 +177,19 @@ pub fn toggle_flyout(app: &AppHandle, icon: Rect) {
 /// The page says how tall it is: the box takes that height, and opens if it was loading.
 pub fn fit_flyout(app: &AppHandle, height: f64) {
     let height = height.clamp(FLYOUT_MIN_HEIGHT, FLYOUT_MAX_HEIGHT);
-    let (icon, loading) = {
+    let (icon, loading, shown) = {
         let mut state = state();
         let changed = (state.height - height).abs() >= 1.0;
         state.height = height;
         if !changed && !state.loading {
             return;
         }
-        (state.icon, state.loading)
+        (state.icon, state.loading, state.shown)
     };
     if loading {
         reveal(app);
     } else if let (Some(window), Some(icon)) = (app.get_webview_window(FLYOUT), icon)
-        && window.is_visible().unwrap_or(false)
+        && shown
     {
         place(&window, icon, height);
     }
@@ -155,8 +208,7 @@ fn reveal(app: &AppHandle) {
         return;
     };
     place(&window, icon, height);
-    let _ = window.show();
-    let _ = window.set_focus();
+    unveil(&window);
 }
 
 /// Above the icon (Windows, bar at the bottom) or below it (bar at the top, Mac), inside the screen.
@@ -170,7 +222,6 @@ fn place(window: &tauri::WebviewWindow, icon: Rect, height: f64) {
         Size::Physical(s) => (s.width as f64, s.height as f64),
         Size::Logical(s) => (s.width * scale, s.height * scale),
     };
-    let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH, height));
     let (w, h) = (FLYOUT_WIDTH * scale, height * scale);
     let gap = 8.0 * scale;
     let monitor = window
@@ -188,5 +239,15 @@ fn place(window: &tauri::WebviewWindow, icon: Rect, height: f64) {
     } else {
         (iy + ih + gap).min(bottom - h - gap)
     };
-    let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+    // Each move or resize of a window with a backdrop costs a frame of its own: only what changed.
+    let bounds = (x as i32, y as i32, w.round() as i32, h.round() as i32);
+    let before = state().placed.replace(bounds);
+    if before.is_some_and(|b| (b.2, b.3) == (bounds.2, bounds.3)) {
+        if before != Some(bounds) {
+            let _ = window.set_position(PhysicalPosition::new(bounds.0, bounds.1));
+        }
+        return;
+    }
+    let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH, height));
+    let _ = window.set_position(PhysicalPosition::new(bounds.0, bounds.1));
 }

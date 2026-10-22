@@ -89,5 +89,32 @@ const Clak = (() => {
     }
   });
 
-  return { mac, invoke, listen, el, plural, runtime, appIcon, withIcon };
+  /// Motion, as WinUI and AppKit move: what arrives decelerates into place. None when the
+  /// system asks for less. Web Animations, not classes: the markup stays the same, and a
+  /// redraw (Kit.replace) neither sees a difference nor plays it again.
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+  const animate = (node, frames, options) =>
+    still.matches || !node?.animate ? null : node.animate(frames, { easing: "cubic-bezier(0, 0, 0, 1)", fill: "backwards", ...options });
+
+  /// What arrives: it rises into place (or drops, with a negative rise) as it appears.
+  const enter = (node, { rise = 8, duration = mac ? 200 : 250, delay = 0 } = {}) =>
+    animate(node, [{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, transform: "none" }], { duration, delay });
+
+  /// Whether the node, or what holds it, is already arriving: then its content needn't.
+  const arriving = (node) => {
+    for (let n = node; n; n = n.parentElement) if (n.getAnimations?.().some((a) => a.playState === "running")) return true;
+    return false;
+  };
+
+  // An expander opened by hand: what it holds drops into place. One opened by a redraw is just there.
+  document.addEventListener("click", (e) => {
+    const summary = e.target.closest?.("summary");
+    const details = summary?.parentElement;
+    if (details?.tagName !== "DETAILS") return;
+    requestAnimationFrame(() => {
+      if (details.open) for (const child of details.children) if (child !== summary) enter(child, { rise: -6, duration: 167 });
+    });
+  });
+
+  return { mac, invoke, listen, el, plural, runtime, appIcon, withIcon, animate, enter, arriving };
 })();

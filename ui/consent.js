@@ -26,6 +26,8 @@
   const file = (path) => String(path || "").split(/[\\/]/).pop();
   const isPath = (text) => /^(\/|[A-Za-z]:\\)/.test(text || "");
 
+  // The question arrives in its window as the window opens.
+  Clak.enter(document.body, { rise: 6 });
   $("heading").textContent = request.title;
   $("question").textContent = request.question;
   if (request.warning) {

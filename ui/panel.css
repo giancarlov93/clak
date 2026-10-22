@@ -30,7 +30,10 @@ nav .item:hover { background: var(--control-hover); }
 nav .item.selected { background: var(--control); }
 html.win nav .item.selected::before {
   content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent);
+  animation: pill var(--normal) var(--ease);
 }
+/* The selection's pill grows from its middle onto the new item, as in the NavigationView. */
+@keyframes pill { from { transform: scaleY(0); } }
 html.mac nav .item.selected { background: var(--accent); color: #fff; }
 nav .icon { width: 16px; height: 16px; display: grid; place-items: center; flex: none; }
 html.mac nav .icon { width: 22px; height: 22px; }
@@ -295,7 +298,7 @@ html.mac .card.click > .click-row { padding: 18px 26px; }
 .expander { margin-top: 16px; border: 1px solid var(--stroke); border-radius: 6px; background: var(--card); }
 .expander summary { padding: 12px 16px; cursor: default; font-weight: 600; list-style: none; display: flex; align-items: center; }
 .expander summary::-webkit-details-marker { display: none; }
-.expander summary::after { content: ""; width: 7px; height: 7px; margin: 0 4px 0 auto; border: solid var(--quiet); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform .1s; }
+.expander summary::after { content: ""; width: 7px; height: 7px; margin: 0 4px 0 auto; border: solid var(--quiet); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); transition: transform var(--normal) var(--ease); }
 .expander[open] summary::after { transform: rotate(-135deg); }
 html.mac .expander summary::after { order: -1; margin: 0 8px 0 2px; transform: rotate(-45deg); }
 html.mac .expander[open] summary::after { transform: rotate(45deg); }
@@ -397,8 +400,8 @@ html.mac .card > .bar { margin: 8px 0 0; }
 .switch { display: inline-flex; align-items: center; gap: 12px; position: relative; }
 .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; }
 .switch .state { min-width: 22px; text-align: right; }
-.switch .track { width: 40px; height: 20px; border-radius: 10px; border: 1px solid var(--quiet); position: relative; transition: background .1s; flex: none; }
-.switch .track::after { content: ""; position: absolute; top: 3px; left: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--quiet); transition: left .1s, width .1s; }
+.switch .track { width: 40px; height: 20px; border-radius: 10px; border: 1px solid var(--quiet); position: relative; transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease); flex: none; }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 4px; width: 12px; height: 12px; border-radius: 50%; background: var(--quiet); transition: left var(--normal) var(--ease), width var(--fast) var(--ease), height var(--fast) var(--ease), top var(--fast) var(--ease), background-color var(--fast) var(--ease); }
 .switch:hover .track::after { width: 14px; height: 14px; top: 2px; left: 3px; }
 .switch input:checked + .track { background: var(--accent); border-color: transparent; }
 .switch input:checked + .track::after { left: 24px; background: var(--accent-text); }
@@ -548,6 +551,9 @@ html.mac .pivot button.selected::after { display: none; }
 .cost-chart .hit { fill: transparent; }
 .cost-chart .hit.over { fill: var(--subtle); }
 .cost-tip { position: absolute; top: 0; min-width: 160px; padding: 8px 10px; border-radius: var(--radius); background: var(--solid); border: 1px solid var(--stroke); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); pointer-events: none; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+/* The tooltip fades in where it shows; from one bar to the next it just moves. */
+.cost-tip { transition: opacity var(--fast) var(--ease); }
+@starting-style { .cost-tip { opacity: 0; } }
 .cost-tip .tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
 
 /* One grid for the whole table, each row on its columns (subgrid): the columns line up. */

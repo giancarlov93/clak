@@ -119,6 +119,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- Motion, as Windows and the Mac move: a tab or a page rises into place, a new agent or
+  program arrives in its list, the bars of Usage rise from the axis, an expander's content
+  drops in, a question arrives in its window; buttons and rows fade under the pointer, the
+  selection's pill grows onto the new item. None when the system asks for less motion.
 - `clak list` shows the programs the agent can use without asking: permission already given,
   covered by the preset it was launched with, or always allowed by the user, each saying
   which. It ends with how many other programs are connected; `clak list --others` lists them
@@ -143,6 +147,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- On Windows the icon's box opens at once, as on the Mac: closed, it is now cloaked rather
+  than hidden, so it doesn't come back through a redrawn frame, its backdrop applied again
+  and its page starting to draw from a stop; and opened in the same place it isn't moved.
 - The icon's box, on the Mac in light mode: the frosted white of the system's popovers, where
   the glass showed the desktop through as a murky grey; the buttons no longer sit on a band
   of their own.

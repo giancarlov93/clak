@@ -49,4 +49,4 @@ objc2-app-kit = { version = "0.3", features = ["block2", "NSAppearance", "NSButt
 
 [target.'cfg(windows)'.dependencies]
 png = "0.17"
-windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_Console"] }
+windows-sys = { version = "0.60", features = ["Wdk_System_SystemServices", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Diagnostics_Debug", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_Console"] }

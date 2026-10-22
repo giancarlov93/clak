@@ -27,6 +27,8 @@ const Panel = (() => {
     const [id, ...rest] = String(where || "").split(":");
     const target = tabs.find((t) => t.id === id) || tabs[0];
     if (rest.length && target.id === id) target.route?.(rest.join(":"));
+    // Another tab: its page rises into place, as WinUI's pages and the Mac's panes come in.
+    if (current !== null && current !== target.id) Clak.enter(target.page, { rise: Clak.mac ? 6 : 12 });
     current = target.id;
     for (const t of tabs) {
       t.page.classList.toggle("hidden", t.id !== current);

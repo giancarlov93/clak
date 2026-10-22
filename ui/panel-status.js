@@ -33,6 +33,7 @@
     if (next.page === "call") askedCall = null;
     if (next.page === "overview" || next.page === "history" || (next.page === "program" && view.id !== next.id)) asked = null;
     view = next;
+    Clak.enter(page, { rise: Clak.mac ? 6 : 12 });
     draw();
     page.scrollTop = 0;
   };
