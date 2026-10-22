@@ -122,6 +122,15 @@ impl Bridge {
 
     /// What the panel asks the hub: revoke, forget, describe, history, a call in full (only
     /// with the hub inside the app).
+    /// The hub itself, when it lives in here: for what waits for a program's answer (a
+    /// command tried from the panel). None if it is in another process, or there is none.
+    pub fn broker(&self) -> Option<clak_hub::Broker> {
+        match &self.inner().link {
+            Link::Local(host) => Some(host.broker().clone()),
+            _ => None,
+        }
+    }
+
     /// A step on the hub, only when it lives in here: a launch is prepared on the hub that
     /// will see the agent arrive. None if the hub is in another process, or there is none.
     pub fn with_hub<T>(&self, step: impl FnOnce(&mut clak_hub::Core) -> T) -> Option<T> {

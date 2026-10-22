@@ -497,3 +497,14 @@ html.mac .pivot button.selected::after { display: none; }
 .instructions-editor textarea { min-height: 280px; }
 .preset-editor .stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .preset-editor .stack select { width: fit-content; }
+
+/* Trying a command from its page: the fields, the run, what came back. */
+.try { display: flex; flex-direction: column; gap: 12px; }
+.try-fields { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
+.try-field { display: contents; }
+.try-field textarea { resize: vertical; min-height: 54px; }
+.try-run { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.try-run .quiet { margin-right: auto; font-size: 12px; }
+.try-result { display: flex; flex-direction: column; gap: 8px; }
+.try-result pre { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; padding: 10px; border-radius: 6px; background: var(--subtle); }
+.ed-state.caution { color: var(--caution); }
