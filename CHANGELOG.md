@@ -20,6 +20,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   name of its own, as `/rename` gives it, or is deleted, after a confirmation. From its row
   it is also pinned at the top, its folder opens in Finder or File Explorer, and the command
   that resumes it by hand is copied.
+- Claude Desktop's Code sessions, in the Agents tab: listed with the title and the folder the
+  app shows, archived ones left out. Each one opens again in the app, authorized like a launch
+  from Clak, or in a terminal with its command; the app keeps renaming and deleting them.
 - Launch, in the Agents tab: the agents installed on this computer (Claude Code, Codex, Gemini
   CLI, OpenCode, Claude Desktop, VS Code, Cursor, Windsurf), launched from Clak and authorized
   without a question. A command-line agent opens in a terminal in the folder you pick, with a
