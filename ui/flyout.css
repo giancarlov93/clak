@@ -9,6 +9,10 @@ html, body { overflow: hidden; }
 body { display: flex; flex-direction: column; max-height: 100vh; }
 header, footer { flex: none; }
 html.win body { border: 1px solid var(--stroke); border-radius: 8px; }
+/* On the Mac the light popover glass lets the desktop through as a murky grey: a white veil
+   makes it the frosted white of the system's own popovers. The dark glass needs none. */
+html.mac body { background: rgba(255, 255, 255, 0.6); }
+@media (prefers-color-scheme: dark) { html.mac body { background: none; } }
 html.solid body { background: var(--solid); }
 
 .lines { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
@@ -100,3 +104,5 @@ footer {
   background: var(--layer);
 }
 footer #panel { flex: 1; }
+/* One surface, as in the system's popovers: the line alone marks the buttons. */
+html.mac footer { background: none; }
