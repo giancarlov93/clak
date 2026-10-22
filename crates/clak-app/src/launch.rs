@@ -28,7 +28,8 @@ pub async fn launch_status(app: AppHandle) -> Value {
                 .map(|agent| {
                     let mut json = agent.to_json();
                     json["instructions"] = json!(instructions::global(&places, &agent.id));
-                    json["conversations"] = json!(!agent.app && conversations::supported(&agent.id));
+                    json["conversations"] = json!(conversations::supported(&agent.id));
+                    json["conversations_editable"] = json!(conversations::editable(&agent.id));
                     json["project_file"] = json!(instructions::project(&agent.id, std::path::Path::new(""))
                         .map(|p| p.to_string_lossy().into_owned()));
                     json
@@ -44,7 +45,8 @@ pub async fn launch_status(app: AppHandle) -> Value {
 
 /// Launches an agent (by its catalog id) or a preset (by its id): the preset brings its
 /// agent, its folder, its programs, its system prompt and its model. `folder`, if given, wins over the preset's.
-/// `resume` takes up one of the agent's past conversations, in the folder where it took place.
+/// `resume` takes up one of the agent's past conversations: a command-line agent in the folder
+/// where it took place, Claude Desktop in the app.
 #[tauri::command]
 pub async fn launch_agent(
     app: AppHandle,
@@ -84,6 +86,22 @@ pub async fn launch_agent(
                 .and_then(|p| p.get("folder").and_then(Value::as_str).map(str::to_owned))
         })
         .map(PathBuf::from);
+    if let Some(id) = resume.clone().filter(|_| agent.app) {
+        let (found, agent_id) = (places.clone(), agent.id.clone());
+        let link = tauri::async_runtime::spawn_blocking(move || {
+            conversations::link(&found, &agent_id, &id)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+        // Prepared as a launch of the app: the session that takes up again is authorized.
+        bridge.with_hub(|c| c.prepare_launch(&agent.name, false, None));
+        use tauri_plugin_opener::OpenerExt;
+        return app
+            .opener()
+            .open_url(link, None::<&str>)
+            .map_err(|e| e.to_string());
+    }
     if let Some(id) = resume.filter(|_| !agent.app) {
         let (found, agent_id) = (places.clone(), agent.id.clone());
         let (args, folder) = tauri::async_runtime::spawn_blocking(move || {

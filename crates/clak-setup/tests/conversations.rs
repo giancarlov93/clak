@@ -1,5 +1,6 @@
 //! Claude Code's past conversations: listed with their title and folder, renamed by adding a
 //! line, resumed in the folder where they took place, deleted with what is kept beside them.
+//! Claude Desktop's Code sessions: listed as the app shows them, opened in it, never changed.
 
 mod common;
 
@@ -206,5 +207,91 @@ fn deleting_an_unknown_or_invalid_id_is_refused() {
             .unwrap()
             .len(),
         1
+    );
+}
+
+/// A Code session of Claude Desktop: its file where the app keeps it, on the Mac and on
+/// Windows (the sandbox has both, each system reads its own).
+fn desktop_session(sandbox: &Sandbox, id: &str, fields: serde_json::Value) {
+    let mut entry = json!({ "sessionId": id, "createdAt": 1000, "isArchived": false });
+    for (key, value) in fields.as_object().unwrap() {
+        entry[key] = value.clone();
+    }
+    for base in ["home/Library/Application Support", "appdata"] {
+        sandbox.write(
+            &format!("{base}/Claude/claude-code-sessions/acc/org/{id}.json"),
+            &entry.to_string(),
+        );
+    }
+}
+
+#[test]
+fn claude_desktop_sessions_are_listed_with_the_title_the_app_shows() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.dir(&["work", "app"]).to_string_lossy().into_owned();
+    desktop_session(
+        &sandbox,
+        "local_a1",
+        json!({ "title": "Mine", "titleSource": "user",
+        "originCwd": work, "cwd": format!("{work}/.worktrees/x"), "cliSessionId": "aaa-1",
+        "lastActivityAt": 3000 }),
+    );
+    desktop_session(
+        &sandbox,
+        "local_b2",
+        json!({ "cwd": "/work/site", "cliSessionId": "gone-2", "lastActivityAt": 5000 }),
+    );
+    desktop_session(
+        &sandbox,
+        "local_c3",
+        json!({ "title": "Old", "isArchived": true }),
+    );
+    sandbox.write(
+        "home/Library/Application Support/Claude/claude-code-sessions/acc/org/scheduled-tasks.json",
+        "{}",
+    );
+    // Claude Code still has the conversation of the first, not of the second.
+    conversation(&sandbox, "aaa-1", &work, "Fix the login page");
+    let all = conversations::list(&sandbox.places, "claude-desktop").unwrap();
+    let ids: Vec<&str> = all.iter().map(|c| c.id.as_str()).collect();
+    assert_eq!(ids, ["local_b2", "local_a1"]);
+    assert_eq!(all[0].title, "site");
+    assert!(!all[0].named);
+    assert_eq!(all[0].terminal, None);
+    assert_eq!(all[1].title, "Mine");
+    assert!(all[1].named);
+    assert_eq!(all[1].folder.as_deref(), Some(work.as_str()));
+    assert_eq!(all[1].terminal.as_deref(), Some("aaa-1"));
+    assert_eq!(all[1].updated, 3000);
+}
+
+#[test]
+fn a_claude_desktop_session_opens_in_the_app_and_is_not_changed_by_clak() {
+    let sandbox = Sandbox::new();
+    let work = sandbox.dir(&["work", "app"]);
+    let work_text = work.to_string_lossy().into_owned();
+    desktop_session(
+        &sandbox,
+        "local_a1",
+        json!({ "title": "Mine", "originCwd": work_text }),
+    );
+    assert_eq!(
+        conversations::link(&sandbox.places, "claude-desktop", "local_a1").unwrap(),
+        "claude://code/continue?session=local_a1"
+    );
+    assert_eq!(
+        conversations::folder(&sandbox.places, "claude-desktop", "local_a1").unwrap(),
+        Some(work)
+    );
+    assert!(conversations::link(&sandbox.places, "claude-desktop", "local_zz").is_err());
+    assert!(conversations::link(&sandbox.places, "claude-desktop", "local_a1&x=1").is_err());
+    assert!(conversations::link(&sandbox.places, "claude-code", "local_a1").is_err());
+    assert!(conversations::resume(&sandbox.places, "claude-desktop", "local_a1").is_err());
+    assert!(!conversations::editable("claude-desktop"));
+    assert!(conversations::rename(&sandbox.places, "claude-desktop", "local_a1", "New").is_err());
+    assert!(conversations::delete(&sandbox.places, "claude-desktop", "local_a1").is_err());
+    assert_eq!(
+        conversations::list(&sandbox.places, "claude-desktop").unwrap()[0].title,
+        "Mine"
     );
 }

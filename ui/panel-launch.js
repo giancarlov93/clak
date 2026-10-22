@@ -94,7 +94,7 @@ const Launch = (() => {
         note(row)),
       el("div", { class: "actions" }, spinner(row),
         a.instructions ? Kit.iconButton("file", `Instructions · ${home(a.instructions)}`, () => editInstructions(a)) : null,
-        a.conversations ? el("button", { title: `The past ${a.name} conversations: resume or rename them`, onclick: () => openTalks(a) }, "Conversations") : null,
+        a.conversations ? el("button", { title: a.conversations_editable ? `The past ${a.name} conversations: resume or rename them` : `The ${a.name} Code sessions: open them again`, onclick: () => openTalks(a) }, "Conversations") : null,
         el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Starts ${a.name}${a.app ? "" : " in a terminal"}`,
           onclick: () => launch(row, { agent: a.id, folder: folder || null }) }, "Launch")));
   };
@@ -201,7 +201,7 @@ const Launch = (() => {
   /// The command that resumes it by hand, in the folder where it took place: for the shell of
   /// a new terminal (zsh or bash on the Mac, PowerShell on Windows).
   const resumeCommand = (c) => {
-    const resume = `claude --resume ${c.id}`;
+    const resume = `claude --resume ${c.terminal}`;
     if (!c.folder) return resume;
     return Clak.mac
       ? `cd '${c.folder.replace(/'/g, "'\\''")}' && ${resume}`
@@ -243,10 +243,18 @@ const Launch = (() => {
     return button;
   };
 
+  /// Off, in its place, when Claude Code no longer has the conversation behind a session.
+  const copyButton = (c) => {
+    const button = Kit.iconButton("copy", c.terminal ? "Copies the command that resumes it in a terminal" : "Claude Code no longer has this conversation", () => copyCommand(c));
+    button.disabled = !c.terminal;
+    return button;
+  };
+
   const talkRow = (c, now, grouped) => {
     const row = `talk:${c.id}`;
     const renaming = talks.renaming?.id === c.id;
     const deleting = talks.deleting === c.id;
+    const editable = !!talks.agent.conversations_editable;
     const where = c.folder ? home(c.folder) : "No folder";
     const when = D.ago(c.updated / 1000, now);
     let field = null;
@@ -265,10 +273,10 @@ const Launch = (() => {
           el("button", { class: "danger", disabled: busy.has(row), onclick: () => deleteTalk(c) }, "Delete")]
         : [pinButton(c),
           folderButton(c, where),
-          Kit.iconButton("copy", "Copies the command that resumes it in a terminal", () => copyCommand(c)),
-          Kit.iconButton("trash", "Delete", () => askDelete(c)),
-          el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename"),
-          el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Resumes it in a terminal, in ${where}`,
+          copyButton(c),
+          editable ? Kit.iconButton("trash", "Delete", () => askDelete(c)) : null,
+          editable ? el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename") : null,
+          el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: talks.agent.app ? `Opens it in ${talks.agent.name}` : `Resumes it in a terminal, in ${where}`,
             onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume")];
     return el("div", { class: Clak.mac ? "row setup talk" : "card setup talk", "data-id": row },
       el("div", { class: "lines" },
@@ -346,7 +354,9 @@ const Launch = (() => {
             byFolder ? byFolders(rest, now) : group(rest.map((c) => talkRow(c, now, false)))]
           : Kit.empty("chat", words.length ? "No match" : "No conversations", words.length ? "Nothing with these words in the title or the folder" : `The conversations with ${a.name} show up here`),
       matches.length > SHOWN ? el("div", { class: "quiet hint" }, `The latest ${SHOWN} of ${matches.length}: the filter finds the others.`) : null,
-      el("div", { class: "quiet hint" }, `A conversation resumes in a terminal, in the folder where it took place, authorized like a launch from here.`));
+      el("div", { class: "quiet hint" }, a.app
+        ? `A session opens again in ${a.name}, authorized like a launch from here. ${a.name} renames and deletes its sessions itself.`
+        : `A conversation resumes in a terminal, in the folder where it took place, authorized like a launch from here.`));
   };
 
   // --- an agent's global instructions ----------------------------------------------
