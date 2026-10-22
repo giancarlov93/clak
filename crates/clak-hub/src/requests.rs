@@ -205,9 +205,28 @@ async fn list(cx: &Context<'_>) -> Result<Map<String, Value>, Gone> {
         Ok(key) => key,
         Err(answer) => return Ok(answer),
     };
-    Ok(ok(object(
-        json!({ "resources": cx.broker.run(|c| c.listing(&key)) }),
-    )))
+    let agent_key = agent_key(cx).await;
+    Ok(ok(object(json!({
+        "resources": cx.broker.run(|c| c.listing(&key, agent_key.as_deref(), cx.cwd)),
+    }))))
+}
+
+/// Who the agent is, for the standing rules: read once per process, outside the lock (an
+/// unsigned agent's content is hashed). None if it can't be told.
+async fn agent_key(cx: &Context<'_>) -> Option<String> {
+    let process = cx.agent.key();
+    if let Some(known) = cx.broker.run(|c| c.agent_keys.get(&process).cloned()) {
+        return known;
+    }
+    let platform = cx.broker.options().platform.clone();
+    let agent = cx.agent.clone();
+    let found = tokio::task::spawn_blocking(move || rules::agent_key(platform.as_ref(), &agent))
+        .await
+        .ok()
+        .flatten();
+    cx.broker
+        .run(|c| c.agent_keys.insert(process, found.clone()));
+    found
 }
 
 /// A program that is not there. The closest name is suggested only to an already connected
@@ -221,7 +240,7 @@ fn not_found(broker: &Broker, name: Option<&str>, suggest: bool) -> Map<String, 
     error(
         "not_found",
         &format!(
-            "No connected program is named '{}'{} `clak list` shows the connected ones.",
+            "No connected program is named '{}'{} `clak list --all` shows the connected ones.",
             name.unwrap_or(""),
             near.map_or(".".to_owned(), |n| format!(": did you mean '{n}'?"))
         ),
@@ -313,12 +332,7 @@ async fn call(
     // Who the agent is, for the standing rules: read outside the lock (an unsigned agent's
     // content is hashed), and only when a question would otherwise come.
     let agent_key = if grant_id.is_none() {
-        let platform = cx.broker.options().platform.clone();
-        let agent = cx.agent.clone();
-        tokio::task::spawn_blocking(move || rules::agent_key(platform.as_ref(), &agent))
-            .await
-            .ok()
-            .flatten()
+        agent_key(cx).await
     } else {
         None
     };

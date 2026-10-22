@@ -443,6 +443,35 @@ async fn a_document_renamed_while_connected_keeps_its_name_for_agents_and_its_pe
 }
 
 #[tokio::test]
+async fn the_list_says_how_the_agent_may_use_each_program() {
+    let hub = TestHub::start().await;
+    let _app = hub.register().await;
+    let access =
+        |listing: &serde_json::Map<String, Value>| listing["resources"][0]["access"].clone();
+
+    // Connected but not used yet: the first command will ask.
+    let (first, _) = tokio::join!(hub.ask("claude", "list", None), async {
+        hub.prompt.next(ConsentKind::Session).await.allow();
+    });
+    assert_eq!(access(&first), Value::Null);
+
+    // Used, with "Always allow": granted now, and a rule for the next process.
+    let (_, _) = tokio::join!(
+        hub.call("claude", "test-notepad", "get_text", None, None),
+        async {
+            hub.prompt.next(ConsentKind::Use).await.allow_always();
+        }
+    );
+    assert_eq!(access(&hub.ask("claude", "list", None).await), "granted");
+    hub.platform.restart("claude");
+    let (again, _) = tokio::join!(hub.ask("claude", "list", None), async {
+        hub.prompt.next(ConsentKind::Session).await.allow();
+    });
+    assert_eq!(access(&again), "rule");
+    hub.stop().await;
+}
+
+#[tokio::test]
 async fn a_no_holds_for_a_while_without_asking_again() {
     let hub = TestHub::start().await;
     let (first, _) = tokio::join!(hub.ask("claude", "list", None), async {

@@ -9,7 +9,7 @@ use crate::attachments;
 use crate::hub::{self, HubUnavailable};
 use crate::invocation::Invocation;
 use crate::output::{self, Exit};
-use crate::render::{self, Style};
+use crate::render::{self, Style, Which};
 use crate::shell::Shell;
 use crate::util::{Object, flag, objects, pretty, str_of};
 use serde_json::{Value, json};
@@ -210,8 +210,17 @@ pub fn run<S: AsRef<str>>(
             result = Some(Value::Object(response.clone()));
         }
         "list" => {
-            text = render::programs(&response, Style::Cli);
-            result = response.get("resources").cloned();
+            text = render::programs(&response, Style::Cli, invocation.which);
+            // In JSON too, the programs asked for: the others, only with --others or --all.
+            let shown = |r: &&Value| match invocation.which {
+                Which::All => true,
+                Which::Usable => r.as_object().is_some_and(render::usable),
+                Which::Others => !r.as_object().is_some_and(render::usable),
+            };
+            result = response
+                .get("resources")
+                .and_then(Value::as_array)
+                .map(|all| Value::Array(all.iter().filter(shown).cloned().collect()));
         }
         "tools" if invocation.command.is_some() => {
             let command = invocation.command.as_deref().unwrap_or("");

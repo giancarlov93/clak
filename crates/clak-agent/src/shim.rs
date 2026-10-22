@@ -17,7 +17,7 @@
 
 use crate::clock::Local;
 use crate::hub::{self, HubUnavailable};
-use crate::render::{self, Style};
+use crate::render::{self, Style, Which};
 use crate::util::{Object, flag, object_of, str_of};
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
@@ -264,9 +264,20 @@ pub fn tools() -> Value {
         {
             "name": "programs",
             "description": "Lists the programs open on the user's computer that are connected to Clak (documents, \
-                            spreadsheets, applications), with the name to use them by. The first time, Clak asks the user for \
-                            permission to connect this conversation: the call waits for their answer.",
-            "inputSchema": {"type": "object", "properties": {}},
+                            spreadsheets, applications), with the name to use them by: by default those you can already use, \
+                            and how many others there are. The first time, Clak asks the user for permission to connect this \
+                            conversation: the call waits for their answer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "which": {
+                        "type": "string",
+                        "enum": ["usable", "others", "all"],
+                        "description": "usable (default): the programs you can use without asking the user; others: the \
+                                        other connected ones, whose first command asks the user; all: both.",
+                    },
+                },
+            },
         },
         {
             "name": "commands",
@@ -384,7 +395,14 @@ fn call(home: Option<&std::path::Path>, parameters: &Object) -> Object {
 
     let is_error = flag(&response, "is_error");
     match name {
-        Some("programs") => result(&render::programs(&response, Style::Mcp), false),
+        Some("programs") => {
+            let which = match str_of(&arguments, "which") {
+                Some("others") => Which::Others,
+                Some("all") => Which::All,
+                _ => Which::Usable,
+            };
+            result(&render::programs(&response, Style::Mcp, which), false)
+        }
         Some("commands") => result(&render::commands(&response, Style::Mcp, false), false),
         // Text and image blocks pass through as they are: MCP already knows them.
         _ => match render::blocks(response.get("content")) {

@@ -324,6 +324,9 @@ pub struct Core {
     pub usage: Usage,
     /// The permissions the user made standing.
     pub rules: Rules,
+    /// Each agent's identity for the rules (see `rules::agent_key`), by its process: read
+    /// once, since an unsigned agent's content is hashed.
+    pub agent_keys: HashMap<String, Option<String>>,
     sink: Option<mpsc::UnboundedSender<String>>,
     connectors: Value,
     apis: Value,
@@ -764,6 +767,7 @@ impl Core {
             return;
         };
         let session = self.sessions.shift_remove(&key).expect("found above");
+        self.agent_keys.remove(&key);
         let ended: Vec<String> = self
             .grants
             .values()
@@ -1054,11 +1058,24 @@ impl Core {
     // What an agent sees
     // =====================================================================
 
-    pub fn listing(&self, session_key: &str) -> Value {
+    /// The connected programs as an agent sees them, each with how it may use it (`access`):
+    /// `granted` (it has the permission), `preset` (the preset it was launched with covers
+    /// it), `rule` (an "Always allow" covers it), or null (the first command asks the user).
+    /// `agent_key` and `cwd` are the agent's, for the rules.
+    pub fn listing(&self, session_key: &str, agent_key: Option<&str>, cwd: Option<&str>) -> Value {
         Value::Array(
             self.apps
                 .values()
                 .map(|a| {
+                    let access = if self.grant_of(session_key, &a.conn_id).is_some() {
+                        Some("granted")
+                    } else if self.preset_program(session_key, &a.conn_id).is_some() {
+                        Some("preset")
+                    } else if agent_key.is_some_and(|k| self.rules.find(k, cwd, a).is_some()) {
+                        Some("rule")
+                    } else {
+                        None
+                    };
                     json!({
                         "name": a.name,
                         "app": a.resource.app,
@@ -1070,6 +1087,10 @@ impl Core {
                         },
                         "tools": a.tools.len(),
                         "allowed": self.grant_of(session_key, &a.conn_id).is_some(),
+                        "access": access,
+                        "preset": (access == Some("preset"))
+                            .then(|| self.sessions.get(session_key).and_then(|s| s.preset.as_ref()).map(|p| p.name.clone()))
+                            .flatten(),
                     })
                 })
                 .collect(),
@@ -1441,6 +1462,7 @@ impl Broker {
             dirty: false,
             usage: Usage::default(),
             rules: Rules::default(),
+            agent_keys: HashMap::new(),
             sink,
             connectors: json!([]),
             apis: json!([]),

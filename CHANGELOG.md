@@ -110,6 +110,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- `clak list` shows the programs the agent can use without asking: permission already given,
+  covered by the preset it was launched with, or always allowed by the user, each saying
+  which. It ends with how many other programs are connected; `clak list --others` lists them
+  (their first command asks the user), `clak list --all` (`-a`) lists both. The same for MCP
+  clients, with `programs {"which": "others" | "all"}`, and in the skill.
 - Settings › Integration no longer confirms under a row what the row already says
   ("Installed · applies to new sessions", "Applies to new sessions"…): only what is left to
   do, such as restarting Claude Desktop, and the errors.

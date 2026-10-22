@@ -132,7 +132,9 @@ const HELP_CHAIN: &str = "not detached from the shell (in the background with &,
 
 const HELP: &str = r#"clak — use the programs open on the user's computer that are connected to Clak.
 
-  clak list                          the connected programs
+  clak list                          the connected programs you can use without asking the user
+  clak list --others                 the other connected programs: the first command asks the user
+  clak list --all, clak list -a      both
   clak <program> -h                  how to use it: its instructions, if it has any, and its commands
   clak <program> list                its commands, each with its usage line
   clak <program> search <text>       the commands that mention <text>
