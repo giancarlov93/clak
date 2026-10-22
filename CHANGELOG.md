@@ -150,6 +150,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - On Windows the icon's box opens at once, as on the Mac: closed, it is now cloaked rather
   than hidden, so it doesn't come back through a redrawn frame, its backdrop applied again
   and its page starting to draw from a stop; and opened in the same place it isn't moved.
+- The icon's box, on the Mac in light mode: the frosted white of the system's popovers, where
+  the glass showed the desktop through as a murky grey; the buttons no longer sit on a band
+  of their own.
 - Times read naturally: "yesterday" rather than "1 days ago", and the date past a week
   ("Oct 12", with the year when it isn't this one) rather than "240 days ago".
 - From the keyboard, a page drawn again (an agent connecting, a minute gone by, a switch
