@@ -4,14 +4,20 @@
 //! menu bar on the Mac), above the other windows, but without taking focus: an Enter
 //! typed in another window must not be able to answer on the user's behalf.
 //! For the same reason the buttons light up after a moment (the page does it), and neither
-//! of them is the default. Closing it is a no. Several questions at once stack up.
+//! of them is the default. Closing it is a no. Several questions at once stack up, and each
+//! says which it is of how many ("1 of 3").
+//!
+//! A yes can come with "Always allow" ticked, when the question offers it: the hub then makes
+//! it a standing rule (`clak_hub::rules`).
 
 use clak_hub::consent::BoxFuture;
 use clak_hub::{ConsentPrompt, ConsentRequest};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
+};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -30,6 +36,8 @@ struct Questions {
     open: HashMap<String, Open>,
     /// In order of arrival: the first sits closest to the corner.
     order: Vec<String>,
+    /// The questions answered yes with "Always allow" ticked, until the hub reads it.
+    always: std::collections::HashSet<String>,
 }
 
 /// The questions open now, and who is showing them.
@@ -72,16 +80,25 @@ impl WindowPrompt {
         let open = questions.open.get(id)?;
         let mut request = open.request.clone();
         request["expires"] = json!(open.expires);
+        request["queue"] = queue(&questions, id);
         Some(request)
     }
 
-    /// The user's answer. Only one: the others don't count.
-    pub fn answer(&self, id: &str, allow: bool) {
-        let sender = self
-            .questions()
-            .open
-            .get_mut(id)
-            .and_then(|o| o.answer.take());
+    /// The user's answer. Only one: the others don't count. `always` only where the question
+    /// offered it.
+    pub fn answer(&self, id: &str, allow: bool, always: bool) {
+        let sender = {
+            let mut questions = self.questions();
+            let open = questions.open.get_mut(id);
+            let offered = open
+                .as_ref()
+                .is_some_and(|o| !o.request["always"].is_null());
+            let sender = open.and_then(|o| o.answer.take());
+            if sender.is_some() && allow && always && offered {
+                questions.always.insert(id.to_owned());
+            }
+            sender
+        };
         if let Some(sender) = sender {
             let _ = sender.send(allow);
         }
@@ -129,8 +146,17 @@ impl WindowPrompt {
         self.stack();
     }
 
-    /// From the corner near the tray, one above (or below) the other.
+    /// From the corner near the tray, one above (or below) the other; each told where it is
+    /// in the line.
     fn stack(&self) {
+        {
+            let questions = self.questions();
+            for id in &questions.order {
+                if let Some(window) = self.app.get_webview_window(&label(id)) {
+                    let _ = window.emit_to(label(id), "consent-queue", queue(&questions, id));
+                }
+            }
+        }
         let (order, heights): (Vec<String>, Vec<f64>) = {
             let questions = self.questions();
             questions
@@ -220,7 +246,22 @@ impl WindowPrompt {
     }
 }
 
+/// Which question it is, of how many open: `{ "id", "position": 1, "total": 3 }`. The id
+/// lets each window take only its own.
+fn queue(questions: &Questions, id: &str) -> Value {
+    let position = questions
+        .order
+        .iter()
+        .position(|o| o == id)
+        .map_or(0, |p| p + 1);
+    json!({ "id": id, "position": position, "total": questions.order.len() })
+}
+
 impl ConsentPrompt for WindowPrompt {
+    fn always(&self, id: &str) -> bool {
+        self.questions().always.remove(id)
+    }
+
     fn ask(
         &self,
         request: ConsentRequest,

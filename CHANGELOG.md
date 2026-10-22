@@ -76,6 +76,13 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - The menu bar icon opens a box like the Windows one: each agent with the programs it may
   use under it, a Revoke button on each, and links into the panel. The right click opens it
   too.
+- Always allow, in a consent window: ticked with Allow, that agent may use that program from
+  then on without asking, in the folder it works in (anywhere, if it doesn't say). The agent is
+  recognized as programs are in `apps.json` (same executable and signer or, unsigned, same
+  content), the program as a preset names it; offered only for applications, MCP servers and
+  APIs, never ticked from the start. The rules are listed in Applications, where Remove brings
+  the questions back.
+- Several consent windows at once say which they are: "1 of 3".
 - In a permission's history, a click on a call shows what the agent sent and what came back.
   They stay only in memory, trimmed, for the latest 100 calls, and only the app hosting the
   hub sees them: never the control channel.

@@ -103,3 +103,9 @@ html.mac footer { padding: 6px 22px 18px; }
 .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .buttons button { min-width: 126px; }
 html.mac .buttons button { min-width: 90px; min-height: 28px; }
+
+/* --- "Always allow": a yes that holds from now on, never ticked from the start ------- */
+
+.always { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; cursor: default; }
+.always input { margin-top: 2px; flex: none; }
+.queue { font-variant-numeric: tabular-nums; }

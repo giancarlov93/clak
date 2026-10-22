@@ -147,11 +147,27 @@
     document.title = "Clak — permission";
   }
 
+  // A yes that holds from now on: offered by the hub only where it can recognize the agent
+  // and the program next time. Never ticked from the start.
+  if (request.always) {
+    $("always-text").textContent = request.always;
+    $("always-row").classList.remove("hidden");
+  }
+
+  // Several questions at once: which one this is.
+  const showQueue = (q) => {
+    const many = q && q.total > 1;
+    $("queue").textContent = many ? `${q.position} of ${q.total} · ` : "";
+    $("queue").classList.toggle("hidden", !many);
+  };
+  showQueue(request.queue);
+  Clak.listen("consent-queue", (q) => q?.id === id && showQueue(q));
+
   let answered = false;
   const answer = (allow) => {
     if (answered) return;
     answered = true;
-    invoke("consent_answer", { id, allow });
+    invoke("consent_answer", { id, allow, always: allow && $("always").checked });
   };
   $("allow").addEventListener("click", () => answer(true));
   $("deny").addEventListener("click", () => answer(false));
@@ -164,7 +180,7 @@
   const shown = Date.now();
   const tick = () => {
     const armed = Date.now() - shown >= ARMING_MS;
-    $("allow").disabled = $("deny").disabled = !armed || answered;
+    $("allow").disabled = $("deny").disabled = $("always").disabled = !armed || answered;
     const left = Math.max(0, Math.ceil(request.expires - Date.now() / 1000));
     $("countdown").textContent = `Withdrawn in ${left} s`;
   };

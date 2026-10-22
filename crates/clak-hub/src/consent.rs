@@ -79,6 +79,9 @@ pub struct ConsentRequest {
     pub warning: Option<String>,
     /// How long the permission lasts, if given.
     pub note: String,
+    /// The offer to make it standing ("Always allow Claude Code to use notion in ~/app"),
+    /// when it can be: the window shows it as a box to tick.
+    pub always: Option<String>,
 }
 
 impl ConsentRequest {
@@ -99,6 +102,7 @@ impl ConsentRequest {
             "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note })).collect::<Vec<_>>(),
             "warning": self.warning,
             "note": self.note,
+            "always": self.always,
         })
     }
 }
@@ -119,6 +123,11 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 /// Who shows the questions to the user. In the app it is a window; a hub without an
 /// interface has none, and then no permission is given.
 pub trait ConsentPrompt: Send + Sync + 'static {
+    /// After a yes: whether the user also ticked the request's `always`. Asked once.
+    fn always(&self, _id: &str) -> bool {
+        false
+    }
+
     /// True if the user consents. The token is cancelled when the answer is no longer needed
     /// (the asker has gone away, or too much time has passed): the question must be removed.
     /// An error means the question could not be shown.

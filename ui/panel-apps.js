@@ -1,5 +1,7 @@
 // The Applications tab: the programs the user allowed once and that the hub
-// remembers, by executable. "Forget" makes them ask again on the next connection.
+// remembers, by executable. "Forget" makes them ask again on the next connection. Below,
+// the standing permissions made with "Always allow" in a consent window: "Remove" makes
+// the agent ask again.
 "use strict";
 
 (() => {
@@ -34,14 +36,31 @@
         el("button", { title: "It will ask again the next time it connects", onclick: () => Panel.send({ type: "forget_app", key: app.key }) }, "Forget")));
   };
 
+  const ruleRow = (r, now) =>
+    el("div", { class: Clak.mac ? "row allowed" : "card allowed", "data-id": `rule:${r.id}` },
+      Kit.tile("shield", 36, "#34c759", r.exe),
+      el("div", { class: "lines" },
+        el("div", { class: "name" }, el("strong", null, `${r.agent} → ${r.program}`)),
+        el("div", { class: "mono quiet ellipsis selectable", title: r.folder || "" }, r.folder || "In any folder"),
+        el("div", { class: "quiet" }, `Always allowed since ${D.ago(r.since, now)}`)),
+      el("div", { class: "actions" },
+        el("button", { title: "It will ask again the next time it starts", onclick: () => Panel.send({ type: "forget_rule", id: r.id }) }, "Remove")));
+
   const draw = () => {
     if (!page) return;
     const now = Date.now();
     const apps = [...(state.apps || [])].sort((a, b) => a.since - b.since);
     const rows = apps.map((a) => row(a, now));
+    const rules = [...(state.rules || [])].sort((a, b) => a.since - b.since);
+    const ruleRows = rules.map((r) => ruleRow(r, now));
+    const group = (items) => (Clak.mac ? el("div", { class: "card group rows" }, items) : items);
     Kit.replace(list,
       Kit.section("Allowed", { count: apps.length, help: "Remembered by executable: same path and same developer or, if unsigned, same content" }),
-      apps.length === 0 ? Kit.empty("apps", "None allowed") : Clak.mac ? el("div", { class: "card group rows" }, rows) : rows);
+      apps.length === 0 ? Kit.empty("apps", "None allowed") : group(rows),
+      Kit.section("Always allowed", { count: rules.length, help: "An agent that may use a program without asking: made with “Always allow” in a consent window" }),
+      rules.length === 0
+        ? Kit.empty("shield", "None", "Tick “Always allow” in a consent window: that agent won't ask again for that program")
+        : group(ruleRows));
   };
 
   Panel.tab({

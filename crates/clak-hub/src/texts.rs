@@ -13,6 +13,7 @@ use unicode_general_category::{GeneralCategory, get_general_category};
 
 pub fn session(id: String, agent: &AgentIdentity, cwd: Option<&str>) -> ConsentRequest {
     ConsentRequest {
+        always: None,
         id,
         kind: ConsentKind::Session,
         title: format!("{} wants to connect to Clak", agent.name),
@@ -51,6 +52,7 @@ pub fn use_app(
     };
     if app.is_hub() {
         return ConsentRequest {
+            always: None,
             id,
             kind: ConsentKind::Use,
             title: format!("{} wants to use Clak's settings", agent.name),
@@ -70,6 +72,7 @@ pub fn use_app(
     let title = clean(Some(&app.resource.title), 80);
     let program = clean(Some(&app.resource.app), 80);
     ConsentRequest {
+        always: None,
         id,
         kind: ConsentKind::Use,
         title: format!("{} wants to use “{title}”", agent.name),
@@ -89,6 +92,24 @@ pub fn use_app(
     }
 }
 
+/// The offer under a question to use a program: make the yes standing, for this agent in
+/// this folder (anywhere, if it doesn't say where it works).
+pub fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String {
+    let program = if app.key.is_some() {
+        format!("{} (all its documents)", clean(Some(&app.resource.app), 80))
+    } else {
+        app.name.clone()
+    };
+    match cwd.filter(|c| !c.is_empty()) {
+        Some(folder) => format!(
+            "Always allow {} to use {program} in {}",
+            agent.name,
+            clean(Some(folder), 200)
+        ),
+        None => format!("Always allow {} to use {program}", agent.name),
+    }
+}
+
 /// An MCP server asks for confirmation halfway through a command. The message is its own:
 /// it is cleaned up, and the hub says who launched it.
 pub fn confirm(
@@ -100,6 +121,7 @@ pub fn confirm(
 ) -> ConsentRequest {
     let text = clean(Some(message), 600);
     ConsentRequest {
+        always: None,
         id,
         kind: ConsentKind::Confirm,
         title: format!(
@@ -129,6 +151,7 @@ pub fn change(
     change: &SettingsChange,
 ) -> ConsentRequest {
     ConsentRequest {
+        always: None,
         id,
         kind: ConsentKind::Change,
         title: clean(Some(&change.title), 120),
@@ -166,6 +189,7 @@ pub fn tool(
 ) -> ConsentRequest {
     let title = clean(Some(&app.resource.title), 80);
     ConsentRequest {
+        always: None,
         id,
         kind: ConsentKind::Tool,
         title: if changed {
@@ -236,6 +260,7 @@ pub fn app(
     let program = clean(Some(&resource.app), 80);
     let title = clean(Some(&resource.title), 80);
     ConsentRequest {
+        always: None,
         id,
         kind: ConsentKind::App,
         title: format!("{program} wants to connect to Clak"),
