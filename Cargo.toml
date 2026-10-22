@@ -63,6 +63,7 @@ regex = "1"
 dirs = "6"
 anyhow = "1"
 thiserror = "2"
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [profile.release]
 opt-level = 3
