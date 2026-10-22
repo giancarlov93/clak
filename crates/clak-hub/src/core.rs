@@ -13,6 +13,7 @@
 use crate::consent::{AgentIdentity, ConsentRequest, HubOptions, Verdict};
 use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
+use crate::usage::Usage;
 use crate::wire::{ResourceDef, ToolDef, origin_label, origin_short};
 use crate::{cli_names, texts};
 use clak_wire::json::{self, float, new_id, now, quoted, round3};
@@ -285,6 +286,9 @@ struct PendingCall {
     session_key: String,
     grant_id: Option<String>,
     tool: String,
+    /// Who asked and of whom, by name: for the usage, also if one of them is gone by the end.
+    agent: String,
+    program: String,
     /// What the agent sent, already trimmed, for the call's detail.
     arguments: Value,
     started: f64,
@@ -313,6 +317,8 @@ pub struct Core {
     monitors: IndexMap<String, Outbox>,
     events: VecDeque<Value>,
     dirty: bool,
+    /// How much the agents use the programs, kept across restarts.
+    pub usage: Usage,
     sink: Option<mpsc::UnboundedSender<String>>,
     connectors: Value,
     apis: Value,
@@ -400,6 +406,7 @@ impl Core {
     }
 
     fn publish(&mut self) {
+        self.usage.flush(now(), false);
         if !self.dirty {
             return;
         }
@@ -1067,6 +1074,11 @@ impl Core {
         }
     }
 
+    /// How much the agents used the programs, for the panel.
+    pub fn panel_usage(&self) -> Value {
+        self.usage.panel()
+    }
+
     /// A permission's history for the panel: the calls, most recent first, and the counts per
     /// command. No arguments or results: those only in [`Core::panel_call`], one call at a time.
     pub fn panel_history(&self, grant_id: Option<&str>) -> Value {
@@ -1134,12 +1146,11 @@ impl Core {
         grant.calls += 1;
         grant.last_call = Some(started);
         let (conn_id, session_key) = (grant.app_id.clone(), grant.session_key.clone());
-        let label = self
-            .sessions
-            .get(&session_key)
-            .map(SessionEntry::label)
-            .unwrap_or_default();
+        let session = self.sessions.get(&session_key);
+        let label = session.map(SessionEntry::label).unwrap_or_default();
+        let agent = session.map(|s| s.agent.name.clone()).unwrap_or_default();
         let app = self.apps.get(&conn_id)?;
+        let program = app.name.clone();
         let routed = new_id("call");
         let (answer, receiver) = oneshot::channel();
         let arguments = Value::Object(arguments.unwrap_or_default());
@@ -1159,6 +1170,8 @@ impl Core {
                 session_key,
                 grant_id: Some(grant_id.to_owned()),
                 tool: tool.name.clone(),
+                agent,
+                program,
                 arguments: kept,
                 started,
                 progress,
@@ -1172,6 +1185,10 @@ impl Core {
         let Some(call) = self.calls.remove(routed) else {
             return;
         };
+        // What ran, also if it failed: the program was used. An agent gone halfway, not.
+        if outcome != outcome::INTERRUPTED {
+            self.usage.count(call.started, &call.agent, &call.program);
+        }
         if let Some(grant) = call
             .grant_id
             .as_deref()
@@ -1287,6 +1304,7 @@ impl Broker {
             monitors: IndexMap::new(),
             events: VecDeque::new(),
             dirty: false,
+            usage: Usage::default(),
             sink,
             connectors: json!([]),
             apis: json!([]),

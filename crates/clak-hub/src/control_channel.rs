@@ -142,6 +142,10 @@ pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outb
                 reply.send(c.panel_history(text("grant_id")));
                 return;
             }
+            Some("usage") => {
+                reply.send(c.panel_usage());
+                return;
+            }
             Some("call") => {
                 reply.send(if inside {
                     c.panel_call(text("grant_id"), text("call_id"))

@@ -105,6 +105,8 @@ impl Hub {
         let sweep_interval = options.sweep_interval;
         let permissions = AppPermissions::load(home.join("apps.json"));
         let broker = Broker::new(control.clone(), options, permissions, sink, stop.clone());
+        let usage = crate::usage::Usage::load(home.join("usage.json"));
+        broker.run(|c| c.usage = usage);
 
         let (listener_ws, ws_port) = app_channel::bind().await?;
         broker.run(|c| c.ws_port = ws_port);
@@ -202,6 +204,9 @@ impl Hub {
         for path in [lockfile.with_extension("json.tmp"), lockfile] {
             let _ = std::fs::remove_file(path);
         }
+        // The last counts, not yet written.
+        self.broker
+            .run(|c| c.usage.flush(clak_wire::json::now(), true));
         self.stop.cancel();
         self.tracker.close();
         let _ = tokio::time::timeout(Duration::from_secs(5), async {
