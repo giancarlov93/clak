@@ -250,6 +250,26 @@ pub async fn conversations_delete(agent: String, id: String) -> Result<(), Strin
     .map_err(|e| e.to_string())?
 }
 
+/// Opens the folder where a conversation took place, in Finder or File Explorer. The page
+/// names the conversation, not the folder: only a conversation's own folder opens.
+#[tauri::command]
+pub async fn conversations_open_folder(
+    app: AppHandle,
+    agent: String,
+    id: String,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let folder = tauri::async_runtime::spawn_blocking(move || {
+        conversations::folder(&Places::real(), &agent, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??
+    .ok_or("This conversation doesn't say where it took place.")?;
+    app.opener()
+        .open_path(folder.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// The folder an agent works in, chosen by the user.
 #[tauri::command]
 pub async fn launch_choose_folder(window: WebviewWindow) -> Option<String> {

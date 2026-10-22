@@ -28,9 +28,12 @@ const Launch = (() => {
   let talks = null;
   const filter = el("input", { type: "search", placeholder: "Filter", "aria-label": "Filter conversations", spellcheck: "false" });
   filter.addEventListener("input", () => draw());
-  /// Grouped by folder or not: remembered on this computer, for the next time.
+  /// Grouped by folder or not, and the conversations pinned at the top: remembered on this
+  /// computer, for the next time.
   const BY_FOLDER = "clak.conversations.byFolder";
+  const PINNED = "clak.conversations.pinned";
   let byFolder = (() => { try { return localStorage.getItem(BY_FOLDER) === "1"; } catch { return false; } })();
+  const pinned = new Set((() => { try { return JSON.parse(localStorage.getItem(PINNED) || "[]"); } catch { return []; } })());
 
   const refresh = async () => {
     try {
@@ -178,13 +181,66 @@ const Launch = (() => {
     await loadTalks();
   };
 
-  /// The name being typed: a new field at every drawing, which takes over the focus and
-  /// the selection of the one it replaces.
+  const togglePin = (c) => {
+    if (!pinned.delete(c.id)) pinned.add(c.id);
+    try { localStorage.setItem(PINNED, JSON.stringify([...pinned])); } catch { /* only for the next time */ }
+    draw();
+  };
+
+  const openFolder = async (c) => {
+    const row = `talk:${c.id}`;
+    delete notes[row];
+    try {
+      await Clak.invoke("conversations_open_folder", { agent: talks.agent.id, id: c.id });
+    } catch (e) {
+      notes[row] = String(e);
+    }
+    draw();
+  };
+
+  /// The command that resumes it by hand, in the folder where it took place: for the shell of
+  /// a new terminal (zsh or bash on the Mac, PowerShell on Windows).
+  const resumeCommand = (c) => {
+    const resume = `claude --resume ${c.id}`;
+    if (!c.folder) return resume;
+    return Clak.mac
+      ? `cd '${c.folder.replace(/'/g, "'\\''")}' && ${resume}`
+      : `cd '${c.folder.replace(/'/g, "''")}'; ${resume}`;
+  };
+
+  /// What was copied, under the row for a moment.
+  const copied = {};
+  const copyCommand = async (c) => {
+    const row = `talk:${c.id}`;
+    const command = resumeCommand(c);
+    notes[row] = (await Kit.copy(command)) ? `Copied: ${command}` : "Couldn't copy it.";
+    clearTimeout(copied[row]);
+    copied[row] = setTimeout(() => { delete notes[row]; draw(); }, 4000);
+    draw();
+  };
+
+  /// The name being typed: a new field at every drawing, which Kit.replace gives the focus
+  /// and the selection of the one it replaces.
   const nameField = () => {
     const field = el("input", { type: "text", "aria-label": "Name", maxlength: "120", spellcheck: "false" });
     field.value = talks.renaming.value;
     field.addEventListener("input", () => { if (talks?.renaming) talks.renaming.value = field.value; });
     return field;
+  };
+
+  const pinButton = (c) => {
+    const on = pinned.has(c.id);
+    const button = Kit.iconButton("pin", on ? "Unpin" : "Pin to the top", () => togglePin(c));
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", String(on));
+    return button;
+  };
+
+  /// Off, in its place, when the conversation never said where it took place.
+  const folderButton = (c, where) => {
+    const button = Kit.iconButton("folder", c.folder ? `Opens ${where}` : "No folder", () => openFolder(c));
+    button.disabled = !c.folder;
+    return button;
   };
 
   const talkRow = (c, now, grouped) => {
@@ -207,7 +263,10 @@ const Launch = (() => {
       : deleting
         ? [el("button", { disabled: busy.has(row), onclick: cancel }, "Cancel"),
           el("button", { class: "danger", disabled: busy.has(row), onclick: () => deleteTalk(c) }, "Delete")]
-        : [Kit.iconButton("trash", "Delete", () => askDelete(c)),
+        : [pinButton(c),
+          folderButton(c, where),
+          Kit.iconButton("copy", "Copies the command that resumes it in a terminal", () => copyCommand(c)),
+          Kit.iconButton("trash", "Delete", () => askDelete(c)),
           el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename"),
           el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Resumes it in a terminal, in ${where}`,
             onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume")];
@@ -273,22 +332,21 @@ const Launch = (() => {
     });
     const now = Date.now();
     const shown = matches.slice(0, SHOWN);
-    // The name being typed: its field is new, the focus and the selection go over to it.
-    const typing = document.activeElement?.closest?.(".talk-name") ? document.activeElement : null;
-    const changed = Kit.replace(talks.body,
+    // The pinned ones over the others, whichever the order: in their folder they show it.
+    const top = shown.filter((c) => pinned.has(c.id));
+    const rest = shown.filter((c) => !pinned.has(c.id));
+    Kit.replace(talks.body,
       talks.error ? Kit.bar("err", talks.error) : null,
       talks.all === null
         ? el("div", { class: "quiet" }, "Reading the conversations…")
         : shown.length
-          ? byFolder ? byFolders(shown, now) : group(shown.map((c) => talkRow(c, now, false)))
+          ? [top.length ? [el("div", { class: "section" }, el("h2", null, "Pinned"), el("span", { class: "count" }, String(top.length))),
+              group(top.map((c) => talkRow(c, now, false)))] : null,
+            top.length > 0 && rest.length > 0 && !byFolder ? el("div", { class: "section" }, el("h2", null, "Others")) : null,
+            byFolder ? byFolders(rest, now) : group(rest.map((c) => talkRow(c, now, false)))]
           : Kit.empty("chat", words.length ? "No match" : "No conversations", words.length ? "Nothing with these words in the title or the folder" : `The conversations with ${a.name} show up here`),
       matches.length > SHOWN ? el("div", { class: "quiet hint" }, `The latest ${SHOWN} of ${matches.length}: the filter finds the others.`) : null,
       el("div", { class: "quiet hint" }, `A conversation resumes in a terminal, in the folder where it took place, authorized like a launch from here.`));
-    const field = talks.body.querySelector(".talk-name input");
-    if (changed && typing && field) {
-      field.focus();
-      field.setSelectionRange(typing.selectionStart, typing.selectionEnd);
-    }
   };
 
   // --- an agent's global instructions ----------------------------------------------
@@ -471,7 +529,7 @@ const Launch = (() => {
       drawEditor();
     });
     const head = el("label", { class: "pick" }, toggle, el("span", null, c.label), Kit.tag(c.kind));
-    if (!chosen) return el("div", { class: "pick-row" }, head);
+    if (!chosen) return el("div", { class: "pick-row", "data-id": c.id }, head);
     const all = el("input", { type: "checkbox" });
     all.checked = !chosen.tools;
     all.disabled = c.tools.length === 0 && !chosen.tools;
@@ -490,7 +548,7 @@ const Launch = (() => {
         return el("label", { class: "pick mono" }, box, el("span", null, name));
       }))
       : null;
-    return el("div", { class: "pick-row" }, head,
+    return el("div", { class: "pick-row", "data-id": c.id }, head,
       el("label", { class: "pick indent-pick", title: c.tools.length ? "" : "Its commands can be chosen while it is connected" },
         all, el("span", null, c.tools.length || chosen.tools ? "All commands" : "All commands (connect it to choose some)")),
       tools);
@@ -565,7 +623,7 @@ const Launch = (() => {
     for (const [id, p] of draft.programs) {
       if (!all.some((c) => c.id === id)) all.push({ id, target: p.app ? { app: p.app } : { name: p.name }, label: p.label || p.name || "Program", kind: "Gone", tools: [] });
     }
-    host.replaceChildren(el("div", { class: "card ed-dialog preset-editor" },
+    Kit.replace(host, el("div", { class: "card ed-dialog preset-editor" },
       el("div", { class: "editor-title" }, el("strong", null, draft.id ? "Edit preset" : "New preset")),
       el("label", { class: "field" }, el("span", null, "Name"), name),
       el("label", { class: "field" }, el("span", null, "Agent"), agent),

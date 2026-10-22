@@ -36,6 +36,16 @@ const Describe = (() => {
 
   // --- time -------------------------------------------------------------------
 
+  /// How many calendar days before `now` the moment fell: 0 today, 1 yesterday.
+  const daysBefore = (epoch, now) => {
+    const at = new Date(epoch * 1000);
+    const today = new Date(now ?? Date.now());
+    return Math.round(
+      (new Date(today.getFullYear(), today.getMonth(), today.getDate()) - new Date(at.getFullYear(), at.getMonth(), at.getDate())) / 86400000);
+  };
+
+  /// "just now", "5 min ago", "3 hours ago", "yesterday", "4 days ago"; past a week the date:
+  /// "Oct 12", with the year if it isn't this one.
   const ago = (epoch, now) => {
     const s = seconds(now) - epoch;
     if (s < 45) return "just now";
@@ -43,7 +53,12 @@ const Describe = (() => {
     if (s < 3600) return `${Math.round(s / 60)} min ago`;
     if (s < 5400) return "an hour ago";
     if (s < 86400) return `${Math.round(s / 3600)} hours ago`;
-    return `${Math.round(s / 86400)} days ago`;
+    const day = daysBefore(epoch, now);
+    if (day <= 1) return "yesterday";
+    if (day < 7) return `${day} days ago`;
+    const at = new Date(epoch * 1000);
+    const year = at.getFullYear() === new Date(now ?? Date.now()).getFullYear() ? "" : `, ${at.getFullYear()}`;
+    return `${MONTHS[at.getMonth()]} ${at.getDate()}${year}`;
   };
 
   const clock = (epoch) => {
@@ -54,9 +69,7 @@ const Describe = (() => {
   /// A history row: "14:32:05", "yesterday 09:10:00", "Oct 12 18:00:00".
   const when = (epoch, now) => {
     const at = new Date(epoch * 1000);
-    const today = new Date(now ?? Date.now());
-    const day = Math.round(
-      (new Date(today.getFullYear(), today.getMonth(), today.getDate()) - new Date(at.getFullYear(), at.getMonth(), at.getDate())) / 86400000);
+    const day = daysBefore(epoch, now);
     if (day === 0) return clock(epoch);
     if (day === 1) return `yesterday ${clock(epoch)}`;
     return `${MONTHS[at.getMonth()]} ${at.getDate()} ${clock(epoch)}`;

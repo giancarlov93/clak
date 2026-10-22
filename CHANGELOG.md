@@ -17,7 +17,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - Conversations, in the Agents tab: the past Claude Code conversations, the latest first, with
   their folder, filtered by words, or grouped under their folder with a switch. Each one resumes
   in a terminal in the folder where it took place, authorized like a launch from Clak, gets a
-  name of its own, as `/rename` gives it, or is deleted, after a confirmation.
+  name of its own, as `/rename` gives it, or is deleted, after a confirmation. From its row
+  it is also pinned at the top, its folder opens in Finder or File Explorer, and the command
+  that resumes it by hand is copied.
 - Launch, in the Agents tab: the agents installed on this computer (Claude Code, Codex, Gemini
   CLI, OpenCode, Claude Desktop, VS Code, Cursor, Windsurf), launched from Clak and authorized
   without a question. A command-line agent opens in a terminal in the folder you pick, with a
@@ -81,6 +83,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- Times read naturally: "yesterday" rather than "1 days ago", and the date past a week
+  ("Oct 12", with the year when it isn't this one) rather than "240 days ago".
+- From the keyboard, a page drawn again (an agent connecting, a minute gone by, a switch
+  turned, a program ticked in a preset) no longer takes the focus away: the same control
+  keeps it. The tray box no longer rebuilds its rows when nothing changed.
 - On Windows, the first click on the icon opened the box and closed it at once: it took a
   second click. The box now opens when its page is ready.
 - The icon's box was always as tall as with several agents connected: now it takes the height
