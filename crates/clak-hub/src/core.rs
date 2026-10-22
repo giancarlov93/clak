@@ -608,6 +608,24 @@ impl Core {
         self.touch();
     }
 
+    /// A program's live resource has a new title: shown to the user and to the agents from
+    /// now on. Its name for the agents and its permissions stay as they are.
+    pub fn retitle(&mut self, conn_id: &str, title: String) {
+        let Some(app) = self.apps.get_mut(conn_id) else {
+            return;
+        };
+        if app.resource.title == title {
+            return;
+        }
+        let line = format!(
+            "{}: now “{}”, was “{}”",
+            app.name, title, app.resource.title
+        );
+        app.resource.title = title;
+        self.log(line);
+        self.touch();
+    }
+
     pub fn set_instructions(&mut self, conn_id: &str, instructions: Option<String>) {
         if let Some(app) = self.apps.get_mut(conn_id) {
             app.instructions = instructions;

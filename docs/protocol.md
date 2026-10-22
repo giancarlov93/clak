@@ -118,6 +118,8 @@ sequenceDiagram
         Note over E,H: the agent stopped waiting
         E->>H: tools_changed
         Note over E,H: the selection changed, so did the commands
+        E->>H: resource_changed
+        Note over E,H: the document was saved under another name
         H-->>E: revoked
         Note over E,H: the agent lost its permission
     end
@@ -192,6 +194,27 @@ whole list.
 `tools` is required and has the same form as in `register`; `active` works the same way.
 If `instructions` is present it replaces the previous instructions (an empty string
 removes them); if it is absent they stay as they were.
+
+### `resource_changed`
+
+The same document has a new name: saved under another name, renamed. The hub shows the new
+title to the user and to agents from now on; the grants stay.
+
+```json
+{"type": "resource_changed", "title": "groceries.txt"}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `title` | yes | The new `resource.title`, as in `register`. |
+
+Only the title changes. `resource.app` and `resource.instance_id` stay those of `register`:
+the user's consent and the agents' command name depend on them. A *different* document (the
+window now shows another file) is not a new title: it is another opening, so send `close`
+and `register` it on a new connection, and agents ask again for it.
+
+A hub that doesn't know this message ignores it, as it ignores any message it doesn't know:
+the title stays the registered one until the next `register`.
 
 ### `result`
 

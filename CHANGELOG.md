@@ -14,6 +14,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- Protocol: `resource_changed`, for a document saved under another name while connected.
+  The new title shows to the user and to agents at once, and their permissions stay; a
+  different document is still a new connection, and agents ask again. In `clak-kit`,
+  `LiveResource::set_title`. Hubs that don't know it ignore it: the protocol stays version 1.
 - Import, in the MCP tab: the MCP servers Claude Desktop, Cursor and VS Code already have, to
   tick and add in one go, with their environment variables and their token (a Bearer header).
   Those already in Clak, and those Clak can't take as they are (a `${input:…}` VS Code fills
