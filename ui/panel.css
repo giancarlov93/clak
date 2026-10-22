@@ -155,9 +155,8 @@ html.mac .count { background: none; padding: 0; min-width: 0; height: auto; font
 .cleanup select { margin: 0 4px; }
 .cleanup .actions { display: flex; align-items: center; gap: 8px; }
 
-/* An agent's newer version, and the usage: per agent, the programs as chips. */
+/* An agent's newer version; the buttons of a span (Usage). */
 .update-line { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
-.usage .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }
 .usage-span { display: flex; gap: 4px; }
 .usage-span button.selected { background: var(--accent); color: #fff; border-color: transparent; }
 

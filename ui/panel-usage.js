@@ -32,6 +32,12 @@
   };
   /// The kinds of token, each at its own price: their colors after the harnesses'.
   const KINDS = [["input", "Input", 5], ["output", "Output", 6], ["cache_write", "Cache write", 7], ["cache_read", "Cache read", 8]];
+  const KIND_HELP = {
+    input: "What the model read without the cache. Claude Code puts almost all of it in the cache: there, most of what is read is cache read",
+    output: "What the model wrote, its reasoning included",
+    cache_write: "What was put in the cache, dearer than input (for an hour dearer still)",
+    cache_read: "What was read again from the cache: a tenth of the price of input, or so",
+  };
 
   // --- numbers and days ----------------------------------------------------------------
 
@@ -246,7 +252,10 @@
   /// A table: the header, then a row each; the first column says what, the others are numbers.
   const table = (columns, rows) =>
     el("div", { class: "card cost-table", style: `--columns:${columns.length - 1}`, role: "table" },
-      el("div", { class: "head", role: "row" }, columns.map((c, i) => el("span", { role: "columnheader", class: i ? "right" : "" }, c))),
+      el("div", { class: "head", role: "row" }, columns.map((c, i) => {
+        const [text, help] = Array.isArray(c) ? c : [c];
+        return el("span", { role: "columnheader", class: i ? "right" : "", title: help }, text);
+      })),
       rows.map((cells) => el("div", { role: "row" }, cells.map((c, i) => el("span", { role: "cell", class: i ? "right" : "lines" }, c)))));
 
   /// A cost with its tokens under it.
@@ -278,7 +287,7 @@
         el("span", { class: "quiet ellipsis", title: k }, Clak.plural(g.sessions.size, "conversation", "conversations") + (k ? " · " + k : ""))];
     };
     const shown = choice.rows === "folder" ? sorted.slice(0, 15) : sorted;
-    return table([{ agent: "Harness", model: "Model", folder: "Folder" }[choice.rows], "Requests", ...KINDS.map(([, name]) => name), "Total"],
+    return table([{ agent: "Harness", model: "Model", folder: "Folder" }[choice.rows], "Requests", ...KINDS.map(([k, name]) => [name, KIND_HELP[k]]), "Total"],
       shown.map(([k, g, t]) => {
         const cost = t.unpriced === t.requests
           ? el("span", { class: "quiet-text", title: "No price for this model" }, "—")

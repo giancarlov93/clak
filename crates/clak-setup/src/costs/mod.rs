@@ -119,11 +119,12 @@ impl Ledger {
         Ledger::default()
     }
 
-    /// Every agent's requests, each once.
+    /// Every agent's requests, each once: of an answer written more than once, the last
+    /// version (Claude Code writes the first parts while the output is still growing).
     pub fn read(&mut self, places: &Places) -> Vec<Request> {
         let mut found = HashSet::new();
-        let mut all = Vec::new();
-        let mut seen = HashSet::new();
+        let mut all: Vec<Request> = Vec::new();
+        let mut seen: HashMap<String, usize> = HashMap::new();
         for source in read::sources(places) {
             let stamp = source.stamp();
             found.insert(source.path.clone());
@@ -132,8 +133,18 @@ impl Ledger {
                 self.files.insert(source.path.clone(), (stamp, requests));
             }
             for request in &self.files[&source.path].1 {
-                if request.key.as_ref().is_none_or(|k| seen.insert(k.clone())) {
-                    all.push(request.clone());
+                match request.key.as_ref().and_then(|k| seen.get(k)) {
+                    Some(&at) => {
+                        if request.tokens.total() > all[at].tokens.total() {
+                            all[at] = request.clone();
+                        }
+                    }
+                    None => {
+                        if let Some(key) = &request.key {
+                            seen.insert(key.clone(), all.len());
+                        }
+                        all.push(request.clone());
+                    }
                 }
             }
         }

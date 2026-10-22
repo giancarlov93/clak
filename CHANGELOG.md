@@ -21,7 +21,7 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   what input, output, cache written and cache read cost (each at its rate, the cache of an
   hour and long prompts dearer), grouped by harness, model or folder. The prices are LiteLLM's list, read once a day; a copy comes with
   Clak for when there is no network. The files are only read, and only those that changed are
-  read again.
+  read again. The Agents tab loses its Usage section, the commands per program.
 - Protocol: `resource_changed`, for a document saved under another name while connected.
   The new title shows to the user and to agents at once, and their permissions stay; a
   different document is still a new connection, and agents ask again. In `clak-kit`,

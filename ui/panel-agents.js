@@ -1,5 +1,4 @@
-// The Agents tab: the agents to launch, their instructions, the presets and how much the
-// agents used the programs (panel-launch.js).
+// The Agents tab: the agents to launch, their instructions and the presets (panel-launch.js).
 // How the agents reach Clak (the command line, the skills, the MCP clients) is in Settings ›
 // Integration (panel-setup.js). It is re-read on every opening and when the window comes back
 // to the foreground: an agent installed meanwhile shows up.
@@ -26,9 +25,6 @@
     /// The presets' programs: connected or not.
     render() {
       Launch.draw();
-    },
-    message(m) {
-      if (m.type === "usage") Launch.usage(m.rows);
     },
   });
 })();
