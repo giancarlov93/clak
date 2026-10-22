@@ -42,9 +42,6 @@ const Launch = (() => {
 
   /// Per agent: { version, latest, newer, update: { itself, command } }, read after the rest.
   let versions = {};
-  /// The hub's usage rows ({ at, agent, program, calls }), and how many days are shown.
-  let usage = null;
-  let usageDays = 1;
 
   const loadVersions = async () => {
     try {
@@ -54,7 +51,6 @@ const Launch = (() => {
   };
 
   const refresh = async () => {
-    Panel.send({ type: "usage" });
     loadVersions();
     try {
       data = await Clak.invoke("launch_status");
@@ -146,50 +142,6 @@ const Launch = (() => {
       notes[row] = String(e);
     }
     draw();
-  };
-
-  // --- how much the agents used the programs ----------------------------------------
-
-  /// Since local midnight, `days` days back (1: today).
-  const since = (days) => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - (days - 1));
-    return start.getTime() / 1000;
-  };
-
-  /// Per agent, its commands and the programs they went to, the busiest first.
-  const usageRows = () => {
-    const from = since(usageDays);
-    const agents = new Map();
-    for (const r of usage || []) {
-      if (r.at < from) continue;
-      const a = agents.get(r.agent) || { total: 0, programs: new Map() };
-      a.total += r.calls;
-      a.programs.set(r.program, (a.programs.get(r.program) || 0) + r.calls);
-      agents.set(r.agent, a);
-    }
-    return [...agents].sort((x, y) => y[1].total - x[1].total).map(([agent, a]) =>
-      el("div", { class: Clak.mac ? "row setup usage" : "card setup usage", "data-id": `usage:${agent}` },
-        el("div", { class: "lines" },
-          el("div", { class: "name" }, el("strong", null, agent || "Agent"), Kit.tag(Clak.plural(a.total, "command", "commands"))),
-          el("div", { class: "chips" }, [...a.programs].sort((x, y) => y[1] - x[1]).map(([program, calls]) =>
-            el("span", { class: "chip" }, `${program} · ${calls}`))))));
-  };
-
-  const usageSection = () => {
-    const pick = (days, label) => el("button", { class: "small" + (usageDays === days ? " selected" : ""), "aria-pressed": String(usageDays === days),
-      onclick: () => { usageDays = days; draw(); } }, label);
-    const rows = usage ? usageRows() : [];
-    return [
-      Kit.section("Usage", {
-        help: "The commands the agents ran, per program: only how many, never what they sent",
-        right: el("div", { class: "usage-span" }, pick(1, "Today"), pick(7, "7 days")),
-      }),
-      usage === null
-        ? el("div", { class: "quiet" }, "Reading…")
-        : rows.length ? group(rows) : Kit.empty("calls", usageDays === 1 ? "No command today" : "No command in 7 days", "What the agents run through Clak shows up here"),
-    ];
   };
 
   // --- an agent's past conversations ----------------------------------------------
@@ -891,8 +843,7 @@ const Launch = (() => {
         help: "An agent, a folder and the programs it may use without asking",
         right: el("button", { class: "small", disabled: !installed.length, onclick: () => edit(null) }, Kit.icon("plus"), el("span", null, "New preset")),
       }),
-      presets.length ? group(presets.map((p) => presetRow(p, state))) : Kit.empty("agents", "None", "A preset launches an agent already allowed to use some programs"),
-      usageSection());
+      presets.length ? group(presets.map((p) => presetRow(p, state))) : Kit.empty("agents", "None", "A preset launches an agent already allowed to use some programs"));
   };
 
   return {
@@ -904,10 +855,5 @@ const Launch = (() => {
     },
     refresh,
     draw,
-    /// The hub's answer to "usage".
-    usage(rows) {
-      usage = rows || [];
-      draw();
-    },
   };
 })();

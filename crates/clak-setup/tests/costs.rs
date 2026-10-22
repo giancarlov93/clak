@@ -50,8 +50,8 @@ fn claude_code_counts_each_answer_once_with_the_cache_of_an_hour() {
     );
     let lines = [
         r#"{"type":"user","timestamp":"2026-10-21T09:59:00.000Z","cwd":"/work/app","sessionId":"s1","message":{"role":"user","content":"hi"}}"#.to_owned(),
-        first.clone(),
-        // The same answer again: its next part.
+        // An answer's first part, written while its output was still growing; then its last.
+        first.replace(r#""output_tokens":200"#, r#""output_tokens":150"#),
         first.clone(),
         claude_answer("msg_2", "req_2", "2026-10-21T10:01:00.000Z", "/work/app/src", r#"{"input_tokens":5,"output_tokens":50}"#),
         r#"{"type":"assistant","timestamp":"2026-10-21T10:02:00.000Z","sessionId":"s1","message":{"id":"msg_3","model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}"#.to_owned(),

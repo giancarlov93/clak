@@ -10,7 +10,7 @@
 (() => {
   const el = Clak.el;
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const SPANS = [["7", "7 days"], ["30", "30 days"], ["month", "This month"], ["all", "All"]];
+  const SPANS = [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["month", "This month"], ["all", "All"]];
   const SVG = "http://www.w3.org/2000/svg";
   let page = null;
   let body = null;
@@ -32,6 +32,12 @@
   };
   /// The kinds of token, each at its own price: their colors after the harnesses'.
   const KINDS = [["input", "Input", 5], ["output", "Output", 6], ["cache_write", "Cache write", 7], ["cache_read", "Cache read", 8]];
+  const KIND_HELP = {
+    input: "What the model read without the cache. Claude Code puts almost all of it in the cache: there, most of what is read is cache read",
+    output: "What the model wrote, its reasoning included",
+    cache_write: "What was put in the cache, dearer than input (for an hour dearer still)",
+    cache_read: "What was read again from the cache: a tenth of the price of input, or so",
+  };
 
   // --- numbers and days ----------------------------------------------------------------
 
@@ -80,7 +86,7 @@
   }, { cost: 0, tokens: 0, own: 0, requests: 0, unpriced: 0, ...Object.fromEntries(KINDS.flatMap(([k]) => [[k, 0], [`cost_${k}`, 0]])) });
 
   /// The first day of the span: "" for all of it.
-  const from = (which) => which === "7" ? daysAgo(6) : which === "30" ? daysAgo(29)
+  const from = (which) => which === "today" ? today() : which === "7" ? daysAgo(6) : which === "30" ? daysAgo(29)
     : which === "month" ? today().slice(0, 8) + "01" : "";
   const since = (rows, day) => rows.filter((r) => r.day >= day);
 
@@ -128,17 +134,18 @@
       el("div", { class: "meter" }, el("span", { style: `width:${done.toFixed(1)}%` })));
   };
 
-  /// The costs of each day of the span (of each month, past four months), a harness or a
-  /// kind of token per color: the first one at the bottom.
+  /// The costs of each day of the span (of each month, past four months; of each hour, today),
+  /// a harness or a kind of token per color: the first one at the bottom.
   const chart = (rows, order) => {
+    const hourly = choice.span === "today";
     const first = from(choice.span) || rows.reduce((min, r) => (r.day < min ? r.day : min), today());
     const days = [];
     for (const d = dateOf(first); dayOf(d) <= today(); d.setDate(d.getDate() + 1)) days.push(dayOf(d));
     const monthly = days.length > 120;
-    const keys = monthly ? [...new Set(days.map((d) => d.slice(0, 7)))] : days;
+    const keys = hourly ? [...Array(24).keys()] : monthly ? [...new Set(days.map((d) => d.slice(0, 7)))] : days;
     const buckets = new Map(keys.map((k) => [k, { key: k, cost: 0, parts: new Map() }]));
-    for (const r of rows) {
-      const b = buckets.get(monthly ? r.day.slice(0, 7) : r.day);
+    for (const r of hourly ? report.hours || [] : rows) {
+      const b = buckets.get(hourly ? r.hour : monthly ? r.day.slice(0, 7) : r.day);
       if (!b) continue;
       b.cost += r.cost;
       for (const s of order) b.parts.set(s.id, (b.parts.get(s.id) || 0) + s.of(r));
@@ -170,7 +177,8 @@
     svg.setAttribute("width", W);
     svg.setAttribute("height", H);
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", `Costs per ${monthly ? "month" : "day"}`);
+    svg.setAttribute("aria-label", `Costs per ${hourly ? "hour" : monthly ? "month" : "day"}`);
+    const name = (key) => hourly ? `${pad(key)}:00` : monthly ? monthLabel(key) : dayLabel(key);
     for (let v = 0; v <= max + step / 2; v += step) {
       add("line", { x1: left, x2: W - 4, y1: y(v), y2: y(v), class: "grid" });
       add("text", { x: left - 8, y: y(v) + 4, class: "axis", "text-anchor": "end" }).textContent = axisMoney(v);
@@ -195,7 +203,7 @@
       if (labelled(i)) {
         const anchor = i === 0 && last > 0 ? "start" : i === last ? "end" : "middle";
         const at = anchor === "start" ? left + slot * i : anchor === "end" ? Math.min(left + slot * (i + 1), W - 4) : left + slot * i + slot / 2;
-        add("text", { x: at, y: H - 6, class: "axis", "text-anchor": anchor }).textContent = monthly ? monthLabel(b.key) : dayLabel(b.key);
+        add("text", { x: at, y: H - 6, class: "axis", "text-anchor": anchor }).textContent = name(b.key);
       }
       // Wider than the bar: the hover finds it.
       const hit = add("rect", { x: left + slot * i, y: top, width: slot, height: plotH, class: "hit" });
@@ -211,7 +219,7 @@
       svg.querySelectorAll(".hit.over").forEach((n) => n.classList.remove("over"));
       e.target.classList.add("over");
       tip.replaceChildren(
-        el("strong", null, monthly ? monthLabel(b.key) : dayLabel(b.key) + ", " + b.key.slice(0, 4)),
+        el("strong", null, hourly ? `${pad(b.key)}:00–${pad((b.key + 1) % 24)}:00` : monthly ? monthLabel(b.key) : dayLabel(b.key) + ", " + b.key.slice(0, 4)),
         el("div", { class: "tip-row" }, el("span", null, "Total"), el("span", { class: "strong" }, money(b.cost))),
         ...order.filter((s) => b.parts.get(s.id) > 0).reverse().map((s) =>
           el("div", { class: "tip-row" }, el("span", null, dot(s.color), s.name), el("span", null, money(b.parts.get(s.id))))));
@@ -246,7 +254,10 @@
   /// A table: the header, then a row each; the first column says what, the others are numbers.
   const table = (columns, rows) =>
     el("div", { class: "card cost-table", style: `--columns:${columns.length - 1}`, role: "table" },
-      el("div", { class: "head", role: "row" }, columns.map((c, i) => el("span", { role: "columnheader", class: i ? "right" : "" }, c))),
+      el("div", { class: "head", role: "row" }, columns.map((c, i) => {
+        const [text, help] = Array.isArray(c) ? c : [c];
+        return el("span", { role: "columnheader", class: i ? "right" : "", title: help }, text);
+      })),
       rows.map((cells) => el("div", { role: "row" }, cells.map((c, i) => el("span", { role: "cell", class: i ? "right" : "lines" }, c)))));
 
   /// A cost with its tokens under it.
@@ -278,7 +289,7 @@
         el("span", { class: "quiet ellipsis", title: k }, Clak.plural(g.sessions.size, "conversation", "conversations") + (k ? " · " + k : ""))];
     };
     const shown = choice.rows === "folder" ? sorted.slice(0, 15) : sorted;
-    return table([{ agent: "Harness", model: "Model", folder: "Folder" }[choice.rows], "Requests", ...KINDS.map(([, name]) => name), "Total"],
+    return table([{ agent: "Harness", model: "Model", folder: "Folder" }[choice.rows], "Requests", ...KINDS.map(([k, name]) => [name, KIND_HELP[k]]), "Total"],
       shown.map(([k, g, t]) => {
         const cost = t.unpriced === t.requests
           ? el("span", { class: "quiet-text", title: "No price for this model" }, "—")
@@ -325,7 +336,7 @@
       tiles(rows),
       report.window ? windowCard(report.window) : null,
       Kit.section(SPANS.find(([id]) => id === choice.span)?.[1] || "Span", {
-        help: "What each day cost",
+        help: "What each day cost; today, each hour",
         right: picker("span", SPANS, "Span"),
       }),
       el("div", { class: "card cost-span" },
