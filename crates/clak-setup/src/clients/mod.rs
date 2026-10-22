@@ -17,6 +17,7 @@
 mod catalog;
 mod claude_code;
 mod codex;
+pub mod import;
 mod json;
 mod json_file;
 mod toml;

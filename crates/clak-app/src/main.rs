@@ -195,6 +195,8 @@ fn main() {
             editors::connector_save,
             editors::connector_enable,
             editors::connector_remove,
+            editors::connector_import_list,
+            editors::connector_import,
             editors::api_open,
             editors::api_draft,
             editors::api_check,
