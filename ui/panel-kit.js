@@ -13,7 +13,7 @@ const Kit = (() => {
     people: "", folder: "", chevron: "", back: "", copy: "", skill: "",
     client: "", file: "", refresh: "", search: "", trash: "", power: "",
     bell: "", speaker: "", options: "", calls: "", warn: "", stopwatch: "",
-    shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", pin: "",
+    costs: "\uE9D2", shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", pin: "",
   };
 
   // On the Mac: 16 px strokes, like SF symbols at regular weight.
@@ -22,6 +22,7 @@ const Kit = (() => {
     status: '<circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/><path d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.1 3.1a7 7 0 0 0 0 9.8M12.9 3.1a7 7 0 0 1 0 9.8"/>',
     agents: '<path d="M7 1.5l1.3 3.7L12 6.5 8.3 7.8 7 11.5 5.7 7.8 2 6.5l3.7-1.3zM12.5 10l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor" stroke="none"/>',
     apps: '<rect x="2" y="2" width="12" height="12" rx="3"/><path d="M5.2 8.2l2 2 3.8-4"/>',
+    costs: '<path d="M2 14h12"/><rect x="3" y="8.5" width="2.6" height="5.5" rx=".6"/><rect x="6.7" y="3" width="2.6" height="11" rx=".6"/><rect x="10.4" y="6" width="2.6" height="8" rx=".6"/>',
     log: '<rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M5 5h6M5 8h6M5 11h4"/>',
     settings: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
     program: '<rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 5.5h13"/>',
@@ -83,7 +84,7 @@ const Kit = (() => {
     return exe ? Clak.withIcon(node, exe, size || 32) : node;
   };
 
-  const TINTS = { status: "#34c759", agents: "#ff9500", apps: "#007aff", log: "#8e8e93", settings: "#8e8e93" };
+  const TINTS = { status: "#34c759", agents: "#ff9500", apps: "#007aff", costs: "#5856d6", log: "#8e8e93", settings: "#8e8e93" };
 
   /// The page title, with what it needs on the right (a filter, a button).
   const title = (text, ...right) => el("header", { class: "title" }, el("h1", null, text), right.length ? el("div", { class: "actions" }, right) : null);

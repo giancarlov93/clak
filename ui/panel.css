@@ -514,3 +514,47 @@ html.mac .pivot button.selected::after { display: none; }
 /* Settings › Configuration: the warning before exporting, what an import did. */
 .caution-text { color: var(--caution); font-size: 12px; }
 .transfer-results { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 12px; max-height: 200px; overflow: auto; }
+
+/* --- Costs ---------------------------------------------------------------------------- */
+
+/* An agent per color, in a fixed order: the same agent keeps its color in every span. */
+.costs { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
+}
+:root[data-theme="dark"] .costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
+
+.cost-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) { .cost-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cost-stat { display: block; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; margin-right: 6px; vertical-align: -1px; }
+
+.cost-window .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cost-window .line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.cost-window .value, .cost-span .value { font-size: 22px; font-weight: 600; line-height: 1.2; }
+
+.cost-span .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+.cost-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.cost-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+.cost-legend .swatch { margin-right: 0; }
+
+.cost-chart { position: relative; overflow: hidden; }
+.cost-chart svg { display: block; }
+.cost-chart .grid { stroke: var(--stroke); stroke-width: 1; }
+.cost-chart .axis { fill: var(--quiet); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cost-chart .hit { fill: transparent; }
+.cost-chart .hit.over { fill: var(--subtle); }
+.cost-tip { position: absolute; top: 0; min-width: 160px; padding: 8px 10px; border-radius: var(--radius); background: var(--solid); border: 1px solid var(--stroke); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); pointer-events: none; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
+.cost-tip .tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+
+.cost-table { padding: 0; overflow: hidden; }
+.cost-table > div { display: grid; grid-template-columns: minmax(160px, 1fr) repeat(var(--columns), minmax(64px, max-content)); gap: 0 20px; align-items: center; padding: 8px 16px; }
+.cost-table > div + div { border-top: 1px solid var(--stroke); }
+.cost-table > .head { font-size: 12px; font-weight: 600; color: var(--quiet); padding-top: 10px; padding-bottom: 8px; }
+.cost-table .right { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cost-table .lines .quiet { display: flex; align-items: center; }
+@media (max-width: 900px) {
+  .cost-table > div > :nth-child(n+3):nth-last-child(n+2) { display: none; }
+  .cost-table > div { grid-template-columns: minmax(140px, 1fr) repeat(2, max-content); }
+}
+.cost-note { margin: 16px 1px 0; line-height: 1.5; }
