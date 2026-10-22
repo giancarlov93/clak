@@ -14,6 +14,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- Import, in the MCP tab: the MCP servers Claude Desktop, Cursor and VS Code already have, to
+  tick and add in one go, with their environment variables and their token (a Bearer header).
+  Those already in Clak, and those Clak can't take as they are (a `${input:…}` VS Code fills
+  in, another header, an environment file), are shown with the reason. The other apps' files
+  are only read, and the panel sees the names of the variables, never their values.
 - Conversations, in the Agents tab: the past Claude Code conversations, the latest first, with
   their folder, filtered by words, or grouped under their folder with a switch. Each one resumes
   in a terminal in the folder where it took place, authorized like a launch from Clak, gets a

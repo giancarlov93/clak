@@ -24,6 +24,7 @@ use clak_connectors::{
     ConnectorCredential, ConnectorEntry, ConnectorHub, ConnectorLink, OAuthClient, OAuthError,
 };
 use clak_hub::cli_names;
+use clak_setup::clients::import::{self, Server};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -915,6 +916,79 @@ pub fn connector_remove(app: AppHandle, id: String) {
             tell(&app, &problem);
         }
     });
+}
+
+/// The MCP servers Claude Desktop, Cursor and VS Code have, for the import in the MCP tab:
+/// what the panel may see of them, and whether Clak has the same one already.
+#[tauri::command]
+pub async fn connector_import_list(app: AppHandle) -> Result<Vec<Value>, String> {
+    let hub = connectors(&app)?;
+    let found = tauri::async_runtime::spawn_blocking(|| import::found(&clak_setup::Places::real()))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(found
+        .iter()
+        .map(|f| {
+            let mut json = f.to_json();
+            json["added"] = json!(existing(&hub, f).map(|e| e.name));
+            json
+        })
+        .collect())
+}
+
+/// Adds the servers chosen by their key, read again from the apps' files: the values of the
+/// variables and the tokens never went through the panel. One that Clak has already, or
+/// that came in a moment ago from another app, is not added twice.
+#[tauri::command]
+pub async fn connector_import(app: AppHandle, keys: Vec<String>) -> Result<Vec<Value>, String> {
+    let hub = connectors(&app)?;
+    let found = tauri::async_runtime::spawn_blocking(|| import::found(&clak_setup::Places::real()))
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut results = Vec::new();
+    for key in keys {
+        let Some(f) = found.iter().find(|f| f.key() == key) else {
+            results.push(json!({ "key": key, "ok": false, "message": "It is no longer in that app's configuration." }));
+            continue;
+        };
+        if let Some(problem) = &f.problem {
+            results.push(json!({ "key": key, "ok": false, "message": problem }));
+            continue;
+        }
+        if let Some(entry) = existing(&hub, f) {
+            results.push(json!({ "key": key, "ok": true, "message": format!("Already in Clak as “{}”.", entry.name) }));
+            continue;
+        }
+        let added = match &f.server {
+            Server::Program { program, args, env } => {
+                let launch = Launch {
+                    program: program.clone(),
+                    args: args.clone(),
+                };
+                hub.add_stdio(&f.name, &launch, env, None)
+            }
+            Server::Address { url, token } => hub.add(&f.name, url, token.as_deref(), None),
+        };
+        results.push(match added {
+            Ok(entry) => {
+                json!({ "key": key, "ok": true, "message": format!("Added as “{}”.", entry.name) })
+            }
+            Err(problem) => json!({ "key": key, "ok": false, "message": problem }),
+        });
+    }
+    Ok(results)
+}
+
+/// The connector that is the same server: the same address, or the same program with the
+/// same arguments.
+fn existing(hub: &ConnectorHub, found: &import::Found) -> Option<ConnectorEntry> {
+    match &found.server {
+        Server::Program { program, args, .. } => hub.find_by_launch(&Launch {
+            program: program.clone(),
+            args: args.clone(),
+        }),
+        Server::Address { url, .. } => hub.find_by_url(url),
+    }
 }
 
 /// Confirming a step that can't be undone: whoever used it no longer sees it, and the secret goes away.

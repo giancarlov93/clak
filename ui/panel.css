@@ -457,6 +457,15 @@ table.calls td:last-child { width: 1px; }
 .preset-editor .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .preset-editor .hint { font-size: 12px; }
 
+/* The import of MCP servers from other apps: a row to tick per server, under its app. */
+.import-card { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; padding: 14px 16px; }
+.import-card .import-source .section { margin: 6px 0 4px 1px; }
+.import-card .import-row { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; }
+.import-card .import-row input { margin-top: 3px; flex: none; }
+.import-card .import-row .lines { min-width: 0; flex: 1; }
+.import-card .import-row .danger { font-size: 12px; }
+.import-card .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+
 /* The parts of a tab (Settings): a pivot on Windows, a segmented control on the Mac. */
 .pivot { display: flex; gap: 4px; margin: -4px 0 16px; }
 .pivot button { border: none; box-shadow: none; background: none; min-height: 32px; padding: 0 10px; color: var(--quiet); position: relative; }
