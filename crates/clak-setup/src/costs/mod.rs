@@ -154,13 +154,13 @@ impl Ledger {
 }
 
 /// The requests as the panel adds them up: a row per day, agent, model, folder and
-/// conversation; the Claude window still open; the models with no price. `day` is the
-/// local date of a time, as `2026-10-22`.
+/// conversation; today's costs per hour and agent; the Claude window still open; the models
+/// with no price. `local` is the local date and hour of a time: `("2026-10-22", 14)`.
 pub fn report(
     requests: &[Request],
     prices: &Prices,
     now: i64,
-    day: impl Fn(i64) -> String,
+    local: impl Fn(i64) -> (String, u32),
 ) -> Value {
     #[derive(Default)]
     struct Row {
@@ -171,30 +171,44 @@ pub fn report(
         unpriced: u64,
     }
     let mut rows: BTreeMap<(String, &str, &str, Option<&str>, &str), Row> = BTreeMap::new();
-    let mut unpriced = BTreeMap::<&str, u64>::new();
-    for request in requests {
-        let row = rows
-            .entry((
-                day(request.at),
-                request.agent,
-                &request.model,
-                request.folder.as_deref(),
-                &request.session,
-            ))
-            .or_default();
-        row.tokens.add(&request.tokens);
-        row.requests += 1;
-        match (request.split(prices), request.recorded) {
-            (Some(split), _) => {
-                row.split.add(&split);
-                row.cost += split.total();
-            }
-            (None, Some(recorded)) => row.cost += recorded,
-            (None, None) => {
-                row.unpriced += 1;
-                *unpriced.entry(&request.model).or_default() += request.tokens.total();
+    impl Row {
+        fn add(&mut self, request: &Request, split: Option<Split>) {
+            self.tokens.add(&request.tokens);
+            self.requests += 1;
+            match (split, request.recorded) {
+                (Some(split), _) => {
+                    self.split.add(&split);
+                    self.cost += split.total();
+                }
+                (None, Some(recorded)) => self.cost += recorded,
+                (None, None) => self.unpriced += 1,
             }
         }
+    }
+    let mut hours: BTreeMap<(u32, &str), Row> = BTreeMap::new();
+    let mut unpriced = BTreeMap::<&str, u64>::new();
+    let (today, _) = local(now);
+    for request in requests {
+        let (day, hour) = local(request.at);
+        let split = request.split(prices);
+        if split.is_none() && request.recorded.is_none() {
+            *unpriced.entry(&request.model).or_default() += request.tokens.total();
+        }
+        if day == today {
+            hours
+                .entry((hour, request.agent))
+                .or_default()
+                .add(request, split);
+        }
+        rows.entry((
+            day,
+            request.agent,
+            &request.model,
+            request.folder.as_deref(),
+            &request.session,
+        ))
+        .or_default()
+        .add(request, split);
     }
     let rows: Vec<Value> = rows
         .into_iter()
@@ -219,9 +233,24 @@ pub fn report(
             })
         })
         .collect();
+    let hours: Vec<Value> = hours
+        .into_iter()
+        .map(|((hour, agent), row)| {
+            json!({
+                "hour": hour,
+                "agent": agent,
+                "cost": row.cost,
+                "cost_input": row.split.input,
+                "cost_output": row.split.output,
+                "cost_cache_write": row.split.cache_write,
+                "cost_cache_read": row.split.cache_read,
+            })
+        })
+        .collect();
     json!({
         "agents": AGENTS.iter().map(|(id, name)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
         "rows": rows,
+        "hours": hours,
         "window": window(requests, prices, now),
         "unpriced": unpriced.into_iter().map(|(model, tokens)| json!({ "model": model, "tokens": tokens })).collect::<Vec<_>>(),
     })
@@ -298,14 +327,14 @@ mod tests {
 
     #[test]
     fn rows_add_up_by_day_agent_model_folder_and_conversation() {
-        let day = |at: i64| format!("d{}", at / (24 * HOUR));
+        let local = |at: i64| (format!("d{}", at / (24 * HOUR)), (at / HOUR % 24) as u32);
         let requests = [
             request(CLAUDE_CODE, HOUR, "m", "a"),
             request(CLAUDE_CODE, 2 * HOUR, "m", "a"),
             request(CLAUDE_CODE, 3 * HOUR, "m", "b"),
             request(CODEX, 25 * HOUR, "unknown", "c"),
         ];
-        let report = report(&requests, &prices(), 100 * HOUR, day);
+        let report = report(&requests, &prices(), 26 * HOUR, local);
         let rows = report["rows"].as_array().unwrap();
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0]["session"], "a");
@@ -324,6 +353,13 @@ mod tests {
         assert_eq!(report["unpriced"][0]["model"], "unknown");
         // Long gone: no window open.
         assert!(report["window"].is_null());
+        // Today, by hour: Codex's request at one in the morning.
+        let hours = report["hours"].as_array().unwrap();
+        assert_eq!(hours.len(), 1);
+        assert_eq!(
+            (hours[0]["hour"].as_u64(), hours[0]["agent"].as_str()),
+            (Some(1), Some(CODEX))
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! without the network the one kept, and before the first the one that comes with Clak.
 
 use crate::bridge;
-use chrono::{Local, TimeZone};
+use chrono::{Local, TimeZone, Timelike};
 use clak_setup::Places;
 use clak_setup::costs::{self, Ledger, Prices};
 use serde_json::{Value, json};
@@ -45,7 +45,7 @@ pub async fn costs_report(app: AppHandle, refresh: Option<bool>) -> Result<Value
             .lock()
             .map(|mut ledger| ledger.read(&places))
             .unwrap_or_default();
-        costs::report(&requests, &prices, now(), local_day)
+        costs::report(&requests, &prices, now(), local)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -59,11 +59,12 @@ fn now() -> i64 {
         .map_or(0, |d| d.as_millis() as i64)
 }
 
-fn local_day(at: i64) -> String {
+/// The local date and hour of a time.
+fn local(at: i64) -> (String, u32) {
     Local
         .timestamp_millis_opt(at)
         .single()
-        .map(|t| t.format("%Y-%m-%d").to_string())
+        .map(|t| (t.format("%Y-%m-%d").to_string(), t.hour()))
         .unwrap_or_default()
 }
 
