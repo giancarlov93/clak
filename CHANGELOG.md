@@ -17,9 +17,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - Usage, a tab of its own above Settings: what the agents' tokens would cost at the API's prices, from the
   agents' own files (Claude Code and Claude Desktop's Code tab, Codex, Gemini CLI, OpenCode).
   Today, the last 7 days, the month and all time; Claude's five-hour window while it is open,
-  with the cost an hour and where it is heading; each day by agent, then by model (input,
-  output, cache written and read, each at its rate, the cache of an hour and long prompts
-  dearer) and by folder. The prices are LiteLLM's list, read once a day; a copy comes with
+  with the cost an hour and where it is heading; each day by harness or by kind of token;
+  what input, output, cache written and cache read cost (each at its rate, the cache of an
+  hour and long prompts dearer), grouped by harness, model or folder. The prices are LiteLLM's list, read once a day; a copy comes with
   Clak for when there is no network. The files are only read, and only those that changed are
   read again.
 - Protocol: `resource_changed`, for a document saved under another name while connected.

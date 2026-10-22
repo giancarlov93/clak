@@ -11,7 +11,7 @@
 pub mod prices;
 mod read;
 
-pub use prices::Prices;
+pub use prices::{Prices, Split};
 
 use crate::Places;
 use serde_json::{Value, json};
@@ -97,6 +97,12 @@ impl Request {
             .cost(&self.model, self.provider.as_deref(), &self.tokens)
             .or(self.recorded)
     }
+
+    /// At the API's rates, by kind of token: `None` without a price, the agent's own cost
+    /// being a total.
+    pub fn split(&self, prices: &Prices) -> Option<Split> {
+        prices.split(&self.model, self.provider.as_deref(), &self.tokens)
+    }
 }
 
 /// When a file was last read: its size and when it was written.
@@ -149,6 +155,7 @@ pub fn report(
     struct Row {
         tokens: Tokens,
         cost: f64,
+        split: Split,
         requests: u64,
         unpriced: u64,
     }
@@ -166,9 +173,13 @@ pub fn report(
             .or_default();
         row.tokens.add(&request.tokens);
         row.requests += 1;
-        match request.cost(prices) {
-            Some(cost) => row.cost += cost,
-            None => {
+        match (request.split(prices), request.recorded) {
+            (Some(split), _) => {
+                row.split.add(&split);
+                row.cost += split.total();
+            }
+            (None, Some(recorded)) => row.cost += recorded,
+            (None, None) => {
                 row.unpriced += 1;
                 *unpriced.entry(&request.model).or_default() += request.tokens.total();
             }
@@ -188,6 +199,10 @@ pub fn report(
                 "cache_write": row.tokens.cache_write + row.tokens.cache_write_hour,
                 "cache_read": row.tokens.cache_read,
                 "cost": row.cost,
+                "cost_input": row.split.input,
+                "cost_output": row.split.output,
+                "cost_cache_write": row.split.cache_write,
+                "cost_cache_read": row.split.cache_read,
                 "requests": row.requests,
                 "unpriced": row.unpriced,
             })
@@ -289,6 +304,10 @@ mod tests {
             (rows[0]["cost"].as_f64().unwrap() - 2.0 * (1000.0 * 1e-6 + 100.0 * 1e-5)).abs()
                 < 1e-12
         );
+        let near = |name: &str, value: f64| (rows[0][name].as_f64().unwrap() - value).abs() < 1e-12;
+        assert!(near("cost_input", 2.0 * 1000.0 * 1e-6));
+        assert!(near("cost_output", 2.0 * 100.0 * 1e-5));
+        assert!(near("cost_cache_read", 0.0));
         assert_eq!(rows[2]["day"], "d1");
         assert_eq!(rows[2]["unpriced"], 1);
         assert_eq!(report["unpriced"][0]["model"], "unknown");

@@ -54,6 +54,29 @@ struct Model {
     tiers: Vec<(u64, Rates)>,
 }
 
+/// What a request cost, in dollars, by kind of token: the cache written for an hour with
+/// the rest of the cache written.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Split {
+    pub input: f64,
+    pub output: f64,
+    pub cache_write: f64,
+    pub cache_read: f64,
+}
+
+impl Split {
+    pub fn total(&self) -> f64 {
+        self.input + self.output + self.cache_write + self.cache_read
+    }
+
+    pub(crate) fn add(&mut self, other: &Split) {
+        self.input += other.input;
+        self.output += other.output;
+        self.cache_write += other.cache_write;
+        self.cache_read += other.cache_read;
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Prices {
     models: HashMap<String, Model>,
@@ -117,6 +140,11 @@ impl Prices {
 
     /// What these tokens cost with this model, in dollars; `None` if it has no price.
     pub fn cost(&self, model: &str, provider: Option<&str>, tokens: &Tokens) -> Option<f64> {
+        self.split(model, provider, tokens).map(|s| s.total())
+    }
+
+    /// The same, by kind of token.
+    pub fn split(&self, model: &str, provider: Option<&str>, tokens: &Tokens) -> Option<Split> {
         let model = self.find(model, provider)?;
         let prompt = tokens.prompt();
         let rates = model
@@ -127,13 +155,13 @@ impl Prices {
             .map_or(model.base, |(_, tier)| tier.over(model.base));
         let input = rates.input.unwrap_or(0.0);
         let cache_write = rates.cache_write.unwrap_or(input);
-        Some(
-            tokens.input as f64 * input
-                + tokens.output as f64 * rates.output.unwrap_or(0.0)
-                + tokens.cache_write as f64 * cache_write
-                + tokens.cache_write_hour as f64 * rates.cache_write_hour.unwrap_or(cache_write)
-                + tokens.cache_read as f64 * rates.cache_read.unwrap_or(input),
-        )
+        Some(Split {
+            input: tokens.input as f64 * input,
+            output: tokens.output as f64 * rates.output.unwrap_or(0.0),
+            cache_write: tokens.cache_write as f64 * cache_write
+                + tokens.cache_write_hour as f64 * rates.cache_write_hour.unwrap_or(cache_write),
+            cache_read: tokens.cache_read as f64 * rates.cache_read.unwrap_or(input),
+        })
     }
 
     /// The model by its name as the agent wrote it: as it is, without the provider in front
@@ -208,8 +236,14 @@ mod tests {
             cache_write_hour: 1_000,
             cache_read: 10_000,
         };
+        let split = prices().split("claude-sonnet-9", None, &tokens).unwrap();
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(near(split.input, 0.003));
+        assert!(near(split.output, 0.015));
+        assert!(near(split.cache_write, 0.00375 + 0.006));
+        assert!(near(split.cache_read, 0.003));
         let cost = prices().cost("claude-sonnet-9", None, &tokens).unwrap();
-        assert!((cost - (0.003 + 0.015 + 0.00375 + 0.006 + 0.003)).abs() < 1e-9);
+        assert!(near(cost, 0.003 + 0.015 + 0.00375 + 0.006 + 0.003));
     }
 
     #[test]

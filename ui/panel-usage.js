@@ -1,7 +1,8 @@
 // The Usage tab: what the agents' tokens would cost at the API's prices, read from the
 // agents' own files (costs.rs). The totals of today, the week, the month and all time;
-// Claude's five-hour window while it is open; the days of the span chosen, an agent per
-// color; the models and the folders of that span. Read again on every opening, when the
+// Claude's five-hour window while it is open; the days of the span chosen, by harness or
+// by kind of token; that span's costs by kind of token, grouped by harness, model or
+// folder. Read again on every opening, when the
 // window comes back to the foreground and every minute while the tab is shown: only the
 // files that changed are read again.
 "use strict";
@@ -19,10 +20,18 @@
   /// The chart's width, and the page's when it was measured: redrawn when the page changes.
   let width = 0;
   let measured = 0;
-  let span = "30";
+  /// What the user chose, kept in this window: the span, the chart's colors, the table's rows.
+  const choice = { span: "30", colors: "agent", rows: "agent" };
   try {
-    span = localStorage.getItem("costs.span") || span;
-  } catch { /* no storage: the default */ }
+    for (const k of Object.keys(choice)) choice[k] = localStorage.getItem(`costs.${k}`) || choice[k];
+  } catch { /* no storage: the defaults */ }
+  const choose = (k, v) => {
+    choice[k] = v;
+    try { localStorage.setItem(`costs.${k}`, v); } catch { /* not kept */ }
+    draw();
+  };
+  /// The kinds of token, each at its own price: their colors after the harnesses'.
+  const KINDS = [["input", "Input", 5], ["output", "Output", 6], ["cache_write", "Cache write", 7], ["cache_read", "Cache read", 8]];
 
   // --- numbers and days ----------------------------------------------------------------
 
@@ -55,17 +64,20 @@
     : n >= 1e3 ? `${+(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}K` : String(n);
 
   const tokensOf = (r) => r.input + r.output + r.cache_write + r.cache_read;
+  /// Rows added up: the tokens and the cost of each kind (`cost_input`…), the total cost
+  /// with what agents worked out themselves (`own`: not split by kind).
   const total = (rows) => rows.reduce((t, r) => {
     t.cost += r.cost;
     t.tokens += tokensOf(r);
-    t.input += r.input;
-    t.output += r.output;
-    t.cache_write += r.cache_write;
-    t.cache_read += r.cache_read;
+    for (const [k] of KINDS) {
+      t[k] += r[k];
+      t[`cost_${k}`] += r[`cost_${k}`] || 0;
+    }
+    t.own += r.cost - KINDS.reduce((sum, [k]) => sum + (r[`cost_${k}`] || 0), 0);
     t.requests += r.requests;
     t.unpriced += r.unpriced;
     return t;
-  }, { cost: 0, tokens: 0, input: 0, output: 0, cache_write: 0, cache_read: 0, requests: 0, unpriced: 0 });
+  }, { cost: 0, tokens: 0, own: 0, requests: 0, unpriced: 0, ...Object.fromEntries(KINDS.flatMap(([k]) => [[k, 0], [`cost_${k}`, 0]])) });
 
   /// The first day of the span: "" for all of it.
   const from = (which) => which === "7" ? daysAgo(6) : which === "30" ? daysAgo(29)
@@ -75,6 +87,14 @@
   const agentName = (id) => report.agents.find((a) => a.id === id)?.name || id;
   const series = (id) => Math.max(0, report.agents.findIndex((a) => a.id === id)) + 1;
   const swatch = (id) => el("span", { class: "swatch", style: `background:var(--series-${series(id)})` });
+
+  /// The chart's series: the harnesses, or the kinds of token (and what agents worked out
+  /// themselves, which has no kind). Each with its color and what a row gives it.
+  const chartSeries = () => choice.colors === "kind"
+    ? [...KINDS.map(([k, name, slot]) => ({ id: k, name, color: `var(--series-${slot})`, of: (r) => r[`cost_${k}`] || 0 })),
+      { id: "own", name: "Agents' own cost", color: "var(--faint)", of: (r) => Math.max(0, r.cost - KINDS.reduce((s, [k]) => s + (r[`cost_${k}`] || 0), 0)) }]
+    : report.agents.map((a) => ({ id: a.id, name: a.name, color: `var(--series-${series(a.id)})`, of: (r) => (r.agent === a.id ? r.cost : 0) }));
+  const dot = (color) => el("span", { class: "swatch", style: `background:${color}` });
 
   // --- the pieces ----------------------------------------------------------------------
 
@@ -108,23 +128,22 @@
       el("div", { class: "meter" }, el("span", { style: `width:${done.toFixed(1)}%` })));
   };
 
-  /// The costs of each day of the span (of each month, past four months), an agent per
-  /// color: the first agent at the bottom.
-  const chart = (rows) => {
-    const first = from(span) || rows.reduce((min, r) => (r.day < min ? r.day : min), today());
+  /// The costs of each day of the span (of each month, past four months), a harness or a
+  /// kind of token per color: the first one at the bottom.
+  const chart = (rows, order) => {
+    const first = from(choice.span) || rows.reduce((min, r) => (r.day < min ? r.day : min), today());
     const days = [];
     for (const d = dateOf(first); dayOf(d) <= today(); d.setDate(d.getDate() + 1)) days.push(dayOf(d));
     const monthly = days.length > 120;
     const keys = monthly ? [...new Set(days.map((d) => d.slice(0, 7)))] : days;
-    const buckets = new Map(keys.map((k) => [k, { key: k, cost: 0, agents: new Map() }]));
+    const buckets = new Map(keys.map((k) => [k, { key: k, cost: 0, parts: new Map() }]));
     for (const r of rows) {
       const b = buckets.get(monthly ? r.day.slice(0, 7) : r.day);
       if (!b) continue;
       b.cost += r.cost;
-      b.agents.set(r.agent, (b.agents.get(r.agent) || 0) + r.cost);
+      for (const s of order) b.parts.set(s.id, (b.parts.get(s.id) || 0) + s.of(r));
     }
     const all = [...buckets.values()];
-    const order = report.agents.map((a) => a.id);
 
     const W = Math.max(width, 320);
     const H = 200;
@@ -162,14 +181,14 @@
     const labelled = (i) => i === last || (i % every === 0 && last - i >= every);
     all.forEach((b, i) => {
       const x = left + slot * i + (slot - bar) / 2;
-      const stack = order.filter((id) => (b.agents.get(id) || 0) > 0);
+      const stack = order.filter((s) => (b.parts.get(s.id) || 0) > 0);
       let base = y(0);
-      stack.forEach((id, n) => {
-        const h = (b.agents.get(id) / max) * plotH;
+      stack.forEach((s, n) => {
+        const h = (b.parts.get(s.id) / max) * plotH;
         const gap = n > 0 && h > 3 ? 2 : 0;
         const segment = { x, y: base - h, w: bar, h: h - gap };
         if (segment.h > 0) {
-          add("path", { d: n === stack.length - 1 ? rounded(segment, Math.min(4, bar / 2)) : square(segment), fill: `var(--series-${series(id)})` });
+          add("path", { d: n === stack.length - 1 ? rounded(segment, Math.min(4, bar / 2)) : square(segment), fill: s.color });
         }
         base -= h;
       });
@@ -194,8 +213,8 @@
       tip.replaceChildren(
         el("strong", null, monthly ? monthLabel(b.key) : dayLabel(b.key) + ", " + b.key.slice(0, 4)),
         el("div", { class: "tip-row" }, el("span", null, "Total"), el("span", { class: "strong" }, money(b.cost))),
-        ...order.filter((id) => b.agents.get(id) > 0).reverse().map((id) =>
-          el("div", { class: "tip-row" }, el("span", null, swatch(id), agentName(id)), el("span", null, money(b.agents.get(id))))));
+        ...order.filter((s) => b.parts.get(s.id) > 0).reverse().map((s) =>
+          el("div", { class: "tip-row" }, el("span", null, dot(s.color), s.name), el("span", null, money(b.parts.get(s.id))))));
       tip.classList.remove("hidden");
       const at = left + slot * Number(i) + slot / 2;
       tip.style.left = `${Math.min(Math.max(at - tip.offsetWidth / 2, 0), W - tip.offsetWidth)}px`;
@@ -218,12 +237,11 @@
     return `M${s.x},${s.y + s.h}V${s.y + k}Q${s.x},${s.y} ${s.x + k},${s.y}H${s.x + s.w - k}Q${s.x + s.w},${s.y} ${s.x + s.w},${s.y + k}V${s.y + s.h}Z`;
   };
 
-  const legend = (rows) => {
-    const by = new Map();
-    for (const r of rows) by.set(r.agent, (by.get(r.agent) || 0) + r.cost);
-    return el("div", { class: "cost-legend" }, report.agents.filter((a) => by.has(a.id)).map((a) =>
-      el("span", { class: "item" }, swatch(a.id), el("span", null, a.name), el("span", { class: "strong" }, money(by.get(a.id))))));
-  };
+  const legend = (rows, order) => el("div", { class: "cost-legend" }, order.map((s) => {
+    const cost = rows.reduce((sum, r) => sum + s.of(r), 0);
+    const shown = s.id === "own" ? cost >= 0.005 : rows.some((r) => s.of(r) > 0 || (r.agent === s.id));
+    return shown ? el("span", { class: "item" }, dot(s.color), el("span", null, s.name), el("span", { class: "strong" }, money(cost))) : null;
+  }));
 
   /// A table: the header, then a row each; the first column says what, the others are numbers.
   const table = (columns, rows) =>
@@ -231,38 +249,44 @@
       el("div", { class: "head", role: "row" }, columns.map((c, i) => el("span", { role: "columnheader", class: i ? "right" : "" }, c))),
       rows.map((cells) => el("div", { role: "row" }, cells.map((c, i) => el("span", { role: "cell", class: i ? "right" : "lines" }, c)))));
 
-  const byModel = (rows) => {
-    const models = new Map();
-    for (const r of rows) {
-      const key = `${r.agent}\n${r.model}`;
-      models.set(key, [...(models.get(key) || []), r]);
-    }
-    const sorted = [...models].map(([key, list]) => [key, total(list)]).sort((a, b) => b[1].cost - a[1].cost || b[1].tokens - a[1].tokens);
-    return table(["Model", "Requests", "Input", "Output", "Cache write", "Cache read", "Cost"], sorted.map(([key, t]) => {
-      const [agent, model] = key.split("\n");
-      const cost = t.unpriced === t.requests
-        ? el("span", { class: "quiet-text", title: "No price for this model" }, "—")
-        : el("span", { class: "strong", title: t.unpriced ? `${Clak.plural(t.unpriced, "request", "requests")} without a price` : "" }, money(t.cost) + (t.unpriced ? "*" : ""));
-      return [[el("span", { class: "ellipsis mono", title: model }, model), el("span", { class: "quiet ellipsis" }, swatch(agent), agentName(agent))],
-        count(t.requests), count(t.input), count(t.output), count(t.cache_write), count(t.cache_read), cost];
-    }));
-  };
+  /// A cost with its tokens under it.
+  const both = (cost, tokens) => el("span", { class: "both" }, el("span", null, money(cost)), el("span", { class: "quiet" }, count(tokens)));
 
-  const byFolder = (rows) => {
-    const folders = new Map();
+  /// The span's costs by kind of token, a row per harness, model or folder.
+  const breakdown = (rows) => {
+    const key = { agent: (r) => r.agent, model: (r) => `${r.agent}\n${r.model}`, folder: (r) => r.folder || "" }[choice.rows];
+    const groups = new Map();
     for (const r of rows) {
-      const key = r.folder || "";
-      const f = folders.get(key) || { rows: [], sessions: new Set() };
-      f.rows.push(r);
-      f.sessions.add(`${r.agent}:${r.session}`);
-      folders.set(key, f);
+      const g = groups.get(key(r)) || { rows: [], sessions: new Set(), models: new Set() };
+      g.rows.push(r);
+      g.sessions.add(`${r.agent}:${r.session}`);
+      g.models.add(r.model);
+      groups.set(key(r), g);
     }
-    const sorted = [...folders].map(([folder, f]) => [folder, total(f.rows), f.sessions.size]).sort((a, b) => b[1].cost - a[1].cost);
-    return table(["Folder", "Conversations", "Tokens", "Cost"], sorted.slice(0, 12).map(([folder, t, sessions]) => {
-      const name = folder ? folder.split(/[\\/]/).filter(Boolean).pop() || folder : "No folder";
-      return [[el("span", { class: "ellipsis strong", title: folder }, name), folder ? el("span", { class: "quiet ellipsis", title: folder }, folder) : null],
-        String(sessions), count(t.tokens), el("span", { class: "strong" }, money(t.cost))];
-    }));
+    const sorted = [...groups].map(([k, g]) => [k, g, total(g.rows)]).sort((a, b) => b[2].cost - a[2].cost || b[2].tokens - a[2].tokens);
+    const label = (k, g) => {
+      if (choice.rows === "agent") {
+        return [el("span", { class: "ellipsis strong" }, swatch(k), agentName(k)),
+          el("span", { class: "quiet ellipsis" }, `${Clak.plural(g.sessions.size, "conversation", "conversations")} · ${Clak.plural(g.models.size, "model", "models")}`)];
+      }
+      if (choice.rows === "model") {
+        const [agent, model] = k.split("\n");
+        return [el("span", { class: "ellipsis mono", title: model }, model), el("span", { class: "quiet ellipsis" }, swatch(agent), agentName(agent))];
+      }
+      const name = k ? k.split(/[\\/]/).filter(Boolean).pop() || k : "No folder";
+      return [el("span", { class: "ellipsis strong", title: k }, name),
+        el("span", { class: "quiet ellipsis", title: k }, Clak.plural(g.sessions.size, "conversation", "conversations") + (k ? " · " + k : ""))];
+    };
+    const shown = choice.rows === "folder" ? sorted.slice(0, 15) : sorted;
+    return table([{ agent: "Harness", model: "Model", folder: "Folder" }[choice.rows], "Requests", ...KINDS.map(([, name]) => name), "Total"],
+      shown.map(([k, g, t]) => {
+        const cost = t.unpriced === t.requests
+          ? el("span", { class: "quiet-text", title: "No price for this model" }, "—")
+          : el("span", { class: "strong", title: [t.unpriced ? `${Clak.plural(t.unpriced, "request", "requests")} without a price` : "",
+            t.own >= 0.005 ? `${money(t.own)} worked out by the agent itself, not by kind` : ""].filter(Boolean).join("; ") },
+          money(t.cost) + (t.unpriced || t.own >= 0.005 ? "*" : ""));
+        return [label(k, g), count(t.requests), ...KINDS.map(([k2]) => both(t[`cost_${k2}`], t[k2])), cost];
+      }));
   };
 
   const footnote = () => {
@@ -270,22 +294,20 @@
     const where = p.updated
       ? `Prices from LiteLLM's list, read ${Describe.ago(Math.floor(p.updated / 1000))}`
       : "Prices from the list that came with Clak: LiteLLM's couldn't be read yet";
+    const own = total(report.rows).own >= 0.005 ? " OpenCode's own costs, for the models with no price, aren't split by kind (*)." : "";
     const unpriced = report.unpriced.length
       ? ` No price for ${report.unpriced.map((u) => u.model).join(", ")}: not counted.`
       : "";
     return el("p", { class: "quiet cost-note" },
-      `${where}. With a subscription you pay a flat fee: these are the same tokens at the API's prices.${unpriced}`);
+      `${where}. With a subscription you pay a flat fee: these are the same tokens at the API's prices.${own}${unpriced}`);
   };
 
   // --- the page ------------------------------------------------------------------------
 
-  const spanPicker = () => el("div", { class: "usage-span" }, SPANS.map(([id, label]) =>
-    el("button", { class: "small" + (span === id ? " selected" : ""), "aria-pressed": String(span === id),
-      onclick: () => {
-        span = id;
-        try { localStorage.setItem("costs.span", id); } catch { /* not kept */ }
-        draw();
-      } }, label)));
+  /// Buttons of which one is on: `choice[k]` among `options` ([value, label]).
+  const picker = (k, options, label) => el("div", { class: "usage-span", role: "group", "aria-label": label }, options.map(([id, text]) =>
+    el("button", { class: "small" + (choice[k] === id ? " selected" : ""), "aria-pressed": String(choice[k] === id),
+      onclick: () => choose(k, id) }, text)));
 
   const draw = () => {
     if (!body) return;
@@ -296,23 +318,27 @@
       return Kit.replace(body, Kit.empty("costs", "No tokens yet",
         "What Claude Code, Codex, Gemini CLI and OpenCode spend shows up here"), footnote());
     }
-    const shown = since(rows, from(span));
+    const shown = since(rows, from(choice.span));
     const spanTotal = total(shown);
+    const order = chartSeries();
     Kit.replace(body,
       tiles(rows),
       report.window ? windowCard(report.window) : null,
-      Kit.section(SPANS.find(([id]) => id === span)?.[1] || "Span", {
-        help: "What each day cost, an agent per color",
-        right: spanPicker(),
+      Kit.section(SPANS.find(([id]) => id === choice.span)?.[1] || "Span", {
+        help: "What each day cost",
+        right: picker("span", SPANS, "Span"),
       }),
       el("div", { class: "card cost-span" },
         el("div", { class: "head" },
           el("div", null, el("div", { class: "value" }, money(spanTotal.cost)),
             el("div", { class: "quiet" }, `${count(spanTotal.tokens)} tokens · ${Clak.plural(spanTotal.requests, "request", "requests")}`)),
-          legend(shown)),
-        chart(shown)),
-      shown.length ? [Kit.section("Models", { help: "The tokens of each model, by kind: the cache is written and read at its own price" }), byModel(shown),
-        Kit.section("Folders", { help: "Where the agents worked: the twelve that cost the most" }), byFolder(shown)] : null,
+          picker("colors", [["agent", "Harness"], ["kind", "Token type"]], "Colors")),
+        legend(shown, order),
+        chart(shown, order)),
+      shown.length ? [Kit.section("Breakdown", {
+        help: "What each kind of token cost, with how many there were: the cache is written and read at its own price",
+        right: picker("rows", [["agent", "Harness"], ["model", "Model"], ["folder", "Folder"]], "Group by"),
+      }), breakdown(shown)] : null,
       footnote());
     // The chart is as wide as its card: measured once drawn, drawn again if it was off.
     measured = body.clientWidth;

@@ -517,12 +517,16 @@ html.mac .pivot button.selected::after { display: none; }
 
 /* --- Usage ---------------------------------------------------------------------------- */
 
-/* An agent per color, in a fixed order: the same agent keeps its color in every span. */
-.usage-costs { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; }
+/* A harness per color, then a kind of token per color, in a fixed order: each keeps its
+   color in every span. */
+.usage-costs { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
+  :root:not([data-theme="light"]) .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; }
 }
-:root[data-theme="dark"] .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
+:root[data-theme="dark"] .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; }
 
 .cost-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 900px) { .cost-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -534,7 +538,7 @@ html.mac .pivot button.selected::after { display: none; }
 .cost-window .value, .cost-span .value { font-size: 22px; font-weight: 600; line-height: 1.2; }
 
 .cost-span .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
-.cost-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.cost-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
 .cost-legend .item { display: inline-flex; align-items: center; gap: 6px; }
 .cost-legend .swatch { margin-right: 0; }
 
@@ -553,8 +557,11 @@ html.mac .pivot button.selected::after { display: none; }
 .cost-table > .head { font-size: 12px; font-weight: 600; color: var(--quiet); padding-top: 10px; padding-bottom: 8px; }
 .cost-table .right { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cost-table .lines .quiet { display: flex; align-items: center; }
+.cost-table .both { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+/* Narrow: without the requests, closer; past that it scrolls sideways. */
+.cost-table { overflow-x: auto; }
 @media (max-width: 900px) {
-  .cost-table > div > :nth-child(n+3):nth-last-child(n+2) { display: none; }
-  .cost-table > div { grid-template-columns: minmax(140px, 1fr) repeat(2, max-content); }
+  .cost-table > div > :nth-child(2) { display: none; }
+  .cost-table > div { grid-template-columns: minmax(120px, 1fr) repeat(calc(var(--columns) - 1), max-content); gap: 0 14px; padding: 8px 12px; }
 }
 .cost-note { margin: 16px 1px 0; line-height: 1.5; }
