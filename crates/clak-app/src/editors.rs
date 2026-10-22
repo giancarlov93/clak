@@ -41,7 +41,7 @@ const PANEL: &str = "panel";
 const CONNECTOR: &str = "connector";
 const API: &str = "api";
 const ENDPOINT: &str = "endpoint";
-const READ_ONLY: &str = "Read-only: the hub runs in another process.";
+pub const READ_ONLY: &str = "Read-only: the hub runs in another process.";
 /// From a link, the button lights up after a moment: a click already under way doesn't find it ready.
 const ARMING: Duration = Duration::from_millis(800);
 const STOPPED: &str = "Sign-in stopped.";

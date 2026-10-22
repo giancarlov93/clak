@@ -40,8 +40,12 @@ const Panel = (() => {
   const badges = () => {
     for (const t of tabs) {
       const n = t.count ? t.count(state) : 0;
-      t.badge.textContent = n > 0 ? String(n) : "";
-      t.badge.classList.toggle("hidden", !(n > 0));
+      // What needs the user (a sign-in expired) shows instead of the count, in red.
+      const alert = t.alert ? t.alert(state) : 0;
+      t.badge.textContent = alert > 0 ? String(alert) : n > 0 ? String(n) : "";
+      t.badge.classList.toggle("hidden", !(alert > 0 || n > 0));
+      t.badge.classList.toggle("alert", alert > 0);
+      t.badge.title = alert > 0 ? (alert === 1 ? "One needs you" : `${alert} need you`) : "";
     }
   };
 

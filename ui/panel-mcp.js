@@ -204,6 +204,7 @@
     icon: Kit.navIcon("mcp", TINT),
     order: 40,
     count: (s) => (s.connectors || []).length,
+    alert: (s) => D.attention(s).filter((n) => n.kind === "mcp").length,
 
     mount(section) {
       page = section;

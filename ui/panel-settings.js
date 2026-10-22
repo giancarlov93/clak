@@ -1,8 +1,9 @@
 // The Settings tab, in three parts: General (when the app starts, how it notifies, where the
-// hub lives), Integration (how the agents reach Clak: panel-setup.js) and About (the version
-// and the updates). No setting touches the permissions, which are given only in the consent
-// windows. It is re-read on every opening: startup also changes from Task Manager (on the Mac
-// from Login Items).
+// hub lives, the configuration exported and imported), Integration (how the agents reach
+// Clak: panel-setup.js) and About (the version and the updates). No setting touches the
+// permissions, which are given only in the consent windows: not even an imported file. It is
+// re-read on every opening: startup also changes from Task Manager (on the Mac from Login
+// Items).
 "use strict";
 
 (() => {
@@ -25,6 +26,7 @@
     } catch (e) {
       message = String(e);
     }
+    transfer.secrets = await Clak.invoke("config_secrets_in_commands").catch(() => []);
     draw();
   };
 
@@ -207,12 +209,57 @@
     if (part === "integration") Setup.refresh();
   };
 
+  /// The export and the import of the configuration: what happened last, and the servers
+  /// whose command line looks like it carries a key (they'd go in the file as they are).
+  let transfer = { note: null, results: null, secrets: [] };
+
+  const exportConfig = async () => {
+    try {
+      const done = await Clak.invoke("config_export");
+      if (done) {
+        const c = done.counts;
+        transfer = { ...transfer, results: null, note: `Exported ${Clak.plural(c.presets, "preset", "presets")}, ${Clak.plural(c.connectors, "MCP server", "MCP servers")}, ${Clak.plural(c.apis, "API", "APIs")} to ${done.path}` };
+      }
+    } catch (e) {
+      transfer = { ...transfer, results: null, note: String(e) };
+    }
+    draw();
+  };
+
+  const importConfig = async () => {
+    try {
+      const results = await Clak.invoke("config_import");
+      if (results) transfer = { ...transfer, note: null, results };
+    } catch (e) {
+      transfer = { ...transfer, results: null, note: String(e) };
+    }
+    draw();
+  };
+
+  const configuration = () => {
+    const results = transfer.results;
+    const line = (r) => el("div", { class: r.ok ? "quiet" : "danger" },
+      `${r.kind} “${r.name}”: ${r.ok ? (r.added ? "added" : "already here") : r.message}`);
+    const below = [
+      transfer.secrets.length
+        ? el("div", { class: "caution-text" }, `The command line of ${transfer.secrets.join(", ")} looks like it carries a key: it goes in the file as it is.`)
+        : null,
+      transfer.note ? el("div", { class: "quiet selectable" }, transfer.note) : null,
+      results ? el("div", { class: "transfer-results" }, results.length ? results.map(line) : el("div", { class: "quiet" }, "Nothing in that file.")) : null,
+    ];
+    return el("div", { class: "card group settings" },
+      setting("file", "#8e8e93", "Configuration", "Presets, MCP servers and APIs, in one file: for another computer, or to keep aside",
+        [el("button", { onclick: importConfig, disabled: !!state.offline }, "Import…"), el("button", { onclick: exportConfig }, "Export…")],
+        { help: "No token, key or sign-in goes in the file, and no permission: each server asks for what it needs, and each agent asks as usual", below }));
+  };
+
   const draw = () => {
     if (!page || !data) return;
     Kit.replace(parts.general,
       Kit.section("Startup"), startup(),
       Kit.section("Alerts"), alerts(),
-      Kit.section("Hub"), hub());
+      Kit.section("Hub"), hub(),
+      Kit.section("Configuration"), configuration());
     Kit.replace(parts.about, about(), updates());
   };
 

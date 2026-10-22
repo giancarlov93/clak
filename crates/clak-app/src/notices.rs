@@ -1,6 +1,7 @@
 //! What is worth telling the user even with the panel closed, with a system
-//! notification: a program connecting, an agent starting or stopping using it. And the
-//! short sentences with which the tray and the menu describe the state.
+//! notification: a program connecting, an agent starting or stopping using it, an MCP
+//! server or an API that needs them (a sign-in expired, a token refused) before an agent
+//! finds out. And the short sentences with which the tray and the menu describe the state.
 
 use serde_json::Value;
 
@@ -104,7 +105,37 @@ pub fn between(before: Option<&Value>, after: &Value) -> Changes {
             ),
         });
     }
+    for (key, kind, tab) in [("connectors", "MCP server", "MCP"), ("apis", "API", "APIs")] {
+        for item in list(after, key) {
+            let Some(problem) = attention(item) else {
+                continue;
+            };
+            let was = find(before, key, text(item, "id")).and_then(attention);
+            if was == Some(problem) {
+                continue;
+            }
+            notices.push(Notice {
+                title: format!("{} needs you", text(item, "name")),
+                text: format!(
+                    "{problem} The {kind} is in Clak's {tab} tab: fix it before an agent needs it."
+                ),
+            });
+        }
+    }
     changes
+}
+
+/// What an MCP server or an API needs from the user, if anything: a new sign-in, another
+/// token. Only for one turned on: one turned off bothers nobody.
+fn attention(item: &Value) -> Option<&'static str> {
+    if item.get("enabled").and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
+    match text(item, "state") {
+        "sign-in required" => Some("Its sign-in has expired."),
+        "token rejected" => Some("It no longer accepts its token."),
+        _ => None,
+    }
 }
 
 pub fn plural(n: usize, one: &str, many: &str) -> String {
@@ -286,6 +317,19 @@ mod tests {
         );
         assert_eq!(gone.notices[0].title, "“groceries.txt” no longer in use");
         assert_eq!(headline(&connected), "1 agent · 1 program · 1 permission");
+    }
+
+    #[test]
+    fn a_server_that_needs_a_new_sign_in_says_so_once() {
+        let fine = json!({"connectors": [{"id": "c1", "name": "notion", "enabled": true, "state": "active"}],
+            "apis": [{"id": "a1", "name": "Shop", "enabled": true, "state": "active"}]});
+        let expired = json!({"connectors": [{"id": "c1", "name": "notion", "enabled": true, "state": "sign-in required"}],
+            "apis": [{"id": "a1", "name": "Shop", "enabled": false, "state": "sign-in required"}]});
+        let notices = between(Some(&fine), &expired).notices;
+        assert_eq!(notices.len(), 1, "the API is off");
+        assert_eq!(notices[0].title, "notion needs you");
+        assert!(notices[0].text.contains("sign-in has expired"));
+        assert!(between(Some(&expired), &expired).notices.is_empty());
     }
 
     #[test]
