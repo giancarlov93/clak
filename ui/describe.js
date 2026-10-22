@@ -296,6 +296,17 @@ const Describe = (() => {
     return { text: parts.join(" · "), failed };
   };
 
+  /// The MCP servers and APIs turned on that need the user: a sign-in expired, a token
+  /// refused. [{ kind: "mcp" | "api", id, name, problem, signIn }]
+  const attention = (state) => {
+    const needs = (item) => item.enabled !== false && (item.state === "sign-in required" || item.state === "token rejected");
+    const of = (kind) => (item) => ({
+      kind, id: item.id, name: item.name, signIn: item.state === "sign-in required",
+      problem: item.state === "sign-in required" ? "its sign-in has expired" : "it no longer accepts its token",
+    });
+    return [...(state?.connectors || []).filter(needs).map(of("mcp")), ...(state?.apis || []).filter(needs).map(of("api"))];
+  };
+
   /// An API in one line: how many endpoints, how it signs in, and whether the secret is there.
   const apiState = (a) => {
     if (!a.enabled) return "off: agents don't see it";
@@ -337,6 +348,6 @@ const Describe = (() => {
     grantBrief, recent, grantDetail, allowedAppDetail, users, headline,
     history, usageLine, failureLine, outcome,
     tool, tools, usage, parameterType,
-    connectorKind, connectorState, apiState, health, unencrypted, logKind,
+    connectorKind, connectorState, apiState, health, attention, unencrypted, logKind,
   };
 })();

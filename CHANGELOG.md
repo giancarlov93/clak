@@ -71,6 +71,14 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   website (SVG too). Server icons in Settings › Hub turns it on (off by default: it tells
   each site that Clak uses it); Clak fetches them, not the page, and keeps them for a week in
   `~/.clak/icons`.
+- Settings › General › Configuration: Export… writes the presets, the MCP servers and the APIs
+  in one file, Import… adds those of a file that aren't here yet, each with what happened. No
+  token, key or sign-in goes in it (of a program's variables, only the names), and no
+  permission: the allowed applications and the "Always allow" rules stay on this computer. A
+  command line that looks like it carries a key is pointed out before exporting.
+- An MCP server or an API that needs you (its sign-in expired, its token refused) says so
+  before an agent finds out: a notification, a bar in Status with Sign in… or Edit…, and a red
+  count on the MCP and APIs tabs.
 - Clak's own settings show Clak's icon in Status, in the tray box and in the tray menu.
 - Clak updates itself. When a newer version is out it says so (a notification, the tray box
   and Settings › About), and Install and restart downloads it, checks its signature and

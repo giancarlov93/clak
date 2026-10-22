@@ -508,3 +508,9 @@ html.mac .pivot button.selected::after { display: none; }
 .try-result { display: flex; flex-direction: column; gap: 8px; }
 .try-result pre { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; padding: 10px; border-radius: 6px; background: var(--subtle); }
 .ed-state.caution { color: var(--caution); }
+/* A tab's badge when something there needs the user. */
+#nav .badge.alert { background: var(--danger); color: #fff; }
+
+/* Settings › Configuration: the warning before exporting, what an import did. */
+.caution-text { color: var(--caution); font-size: 12px; }
+.transfer-results { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 12px; max-height: 200px; overflow: auto; }

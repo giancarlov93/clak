@@ -90,6 +90,7 @@
     icon: Kit.navIcon("api", TINT),
     order: 50,
     count: (s) => (s.apis || []).length,
+    alert: (s) => D.attention(s).filter((n) => n.kind === "api").length,
 
     mount(section) {
       page = section;

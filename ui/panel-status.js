@@ -141,6 +141,10 @@
         stat("agents", sessions.length, sessions.length === 1 ? "agent" : "agents"),
         stat("program", programs, programs === 1 ? "program" : "programs"),
         stat("shield", grants, grants === 1 ? "permission" : "permissions")),
+      // A server or an API that needs the user, before an agent finds out.
+      D.attention(state).map((n) => Kit.bar("err", `${n.name}: ${n.problem}.`, ctx.readonly ? null
+        : el("button", { onclick: () => Clak.invoke(n.kind === "mcp" ? "connector_open" : "api_open", { id: n.id, signIn: n.signIn }).catch(() => {}) },
+          n.signIn ? "Sign in…" : "Edit…"))),
       pending.length
         ? el("div", { title: Clak.mac ? "The question is in a window at the top right" : "The question is in a window at the bottom right" },
           Kit.bar("warn", [el("strong", null, "Waiting for your answer"), ...pending.map((p) => el("div", null, p.title))]))

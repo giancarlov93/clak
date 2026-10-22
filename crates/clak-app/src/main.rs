@@ -18,6 +18,7 @@ mod bridge;
 #[cfg(windows)]
 mod closing;
 mod commands;
+mod config_file;
 mod editors;
 mod front;
 mod icon;
@@ -148,6 +149,9 @@ fn main() {
             commands::hub_hello,
             commands::hub_send,
             commands::program_try,
+            config_file::config_export,
+            config_file::config_import,
+            config_file::config_secrets_in_commands,
             commands::consent_request,
             commands::consent_answer,
             commands::consent_resize,
