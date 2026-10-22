@@ -134,6 +134,7 @@ pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outb
             Some("revoke") => c.revoke(text("grant_id")),
             Some("forget_session") => c.forget_session(text("session_id"), "user"),
             Some("forget_app") => c.forget_app(text("key")),
+            Some("forget_rule") => c.forget_rule(text("id")),
             Some("describe") => {
                 reply.send(c.panel_tools(text("resource_id")));
                 return;

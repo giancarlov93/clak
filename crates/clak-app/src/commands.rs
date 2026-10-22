@@ -14,10 +14,11 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
-    const ALLOWED: [&str; 7] = [
+    const ALLOWED: [&str; 8] = [
         "revoke",
         "forget_session",
         "forget_app",
+        "forget_rule",
         "describe",
         "history",
         "call",
@@ -40,9 +41,17 @@ pub fn consent_request(app: AppHandle, id: String) -> Option<Value> {
 
 /// The user's answer. It only counts from that question's window.
 #[tauri::command]
-pub fn consent_answer(app: AppHandle, window: WebviewWindow, id: String, allow: bool) {
+pub fn consent_answer(
+    app: AppHandle,
+    window: WebviewWindow,
+    id: String,
+    allow: bool,
+    always: Option<bool>,
+) {
     if window.label() == crate::prompt::label(&id) {
-        bridge::of(&app).prompt().answer(&id, allow);
+        bridge::of(&app)
+            .prompt()
+            .answer(&id, allow, always.unwrap_or(false));
     }
 }
 

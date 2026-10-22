@@ -13,9 +13,9 @@
 //! granted…»), so an agent knows what it is waiting for.
 
 use crate::consent::{AgentIdentity, Verdict};
-use crate::core::{Broker, Gone, Progress, outcome};
+use crate::core::{Allow, Broker, Core, Gone, Progress, outcome};
 use crate::wire::{Malformed, ToolDef};
-use crate::{flags, texts};
+use crate::{flags, rules, texts};
 use clak_wire::json::{self};
 use clak_wire::names;
 use serde_json::{Map, Value, json};
@@ -310,6 +310,26 @@ async fn call(
         // Launched with a preset that covers the program: no question.
         grant_id = cx.broker.run(|c| c.preset_grant(&key, &conn_id));
     }
+    // Who the agent is, for the standing rules: read outside the lock (an unsigned agent's
+    // content is hashed), and only when a question would otherwise come.
+    let agent_key = if grant_id.is_none() {
+        let platform = cx.broker.options().platform.clone();
+        let agent = cx.agent.clone();
+        tokio::task::spawn_blocking(move || rules::agent_key(platform.as_ref(), &agent))
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    if grant_id.is_none()
+        && let Some(agent_key) = &agent_key
+    {
+        // A rule the user made standing: no question either.
+        grant_id = cx
+            .broker
+            .run(|c| c.rule_grant(agent_key, cx.agent, cx.cwd, cx.via, &conn_id));
+    }
     if grant_id.is_none() {
         let new_session = cx.broker.run(|c| c.session(cx.agent).is_none());
         cx.tell.waiting(&if new_session {
@@ -324,18 +344,46 @@ async fn call(
             cx.via,
             conn_id.clone(),
         );
+        // "Always allow": offered only for an agent that can be recognized next time.
+        let remember: Option<Allow> = agent_key.clone().map(|agent_key| {
+            let (agent, cwd, target) =
+                (cx.agent.clone(), cx.cwd.map(str::to_owned), conn_id.clone());
+            Box::new(move |c: &mut Core| {
+                let Some(app) = c.app_by_id(&target).cloned() else {
+                    return;
+                };
+                let line = {
+                    let rule = c.rules.add(&agent_key, &agent, cwd.as_deref(), &app);
+                    match &rule.folder {
+                        Some(folder) => format!(
+                            "always allowed from now: {} on «{}» in {folder}",
+                            rule.agent, rule.label
+                        ),
+                        None => format!(
+                            "always allowed from now: {} on «{}»",
+                            rule.agent, rule.label
+                        ),
+                    }
+                };
+                c.log(line);
+                c.touch();
+            }) as Allow
+        });
+        // Only for a program that can be recognized next time too: an application by its
+        // key, a connector or an API by the name the user gave it. Not for Clak's own
+        // settings, where every change asks anyway.
+        let offer = agent_key.is_some() && (app.key.is_some() || app.is_connector());
         let verdict = cx
             .broker
-            .consent(
+            .consent_remembering(
                 &format!("use:{key}:{conn_id}"),
                 |id, c| {
-                    texts::use_app(
-                        id,
-                        cx.agent,
-                        cx.cwd,
-                        new_session,
-                        c.app_by_id(&conn_id).unwrap_or(&app),
-                    )
+                    let app = c.app_by_id(&conn_id).unwrap_or(&app);
+                    let mut request = texts::use_app(id, cx.agent, cx.cwd, new_session, app);
+                    if offer {
+                        request.always = Some(texts::always(cx.agent, cx.cwd, app));
+                    }
+                    request
                 },
                 move |c| {
                     if c.registered(&target) {
@@ -343,6 +391,7 @@ async fn call(
                         c.grant(&session, &target);
                     }
                 },
+                remember,
                 cx.gone,
             )
             .await?;

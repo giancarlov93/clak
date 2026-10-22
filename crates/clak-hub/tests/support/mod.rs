@@ -21,11 +21,19 @@ pub struct Question {
     pub request: ConsentRequest,
     answer: Option<oneshot::Sender<bool>>,
     pub cancel: CancellationToken,
+    /// The questions answered yes with "Always allow" ticked.
+    always: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Question {
     pub fn allow(mut self) {
         let _ = self.answer.take().unwrap().send(true);
+    }
+
+    /// Yes, with "Always allow" ticked.
+    pub fn allow_always(self) {
+        self.always.lock().unwrap().insert(self.request.id.clone());
+        self.allow();
     }
 
     pub fn deny(mut self) {
@@ -37,6 +45,7 @@ impl Question {
 /// `allow_all` it always says yes, and counts.
 pub struct FakePrompt {
     pub allow_all: AtomicBool,
+    always: Arc<Mutex<HashSet<String>>>,
     count: AtomicUsize,
     sender: mpsc::UnboundedSender<Question>,
     receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<Question>>,
@@ -47,6 +56,7 @@ impl FakePrompt {
         let (sender, receiver) = mpsc::unbounded_channel();
         Arc::new(FakePrompt {
             allow_all: AtomicBool::new(false),
+            always: Arc::default(),
             count: AtomicUsize::new(0),
             sender,
             receiver: tokio::sync::Mutex::new(receiver),
@@ -86,6 +96,10 @@ impl FakePrompt {
 }
 
 impl ConsentPrompt for FakePrompt {
+    fn always(&self, id: &str) -> bool {
+        self.always.lock().unwrap().remove(id)
+    }
+
     fn ask(
         &self,
         request: ConsentRequest,
@@ -100,6 +114,7 @@ impl ConsentPrompt for FakePrompt {
             request,
             answer: Some(answer),
             cancel: cancel.clone(),
+            always: self.always.clone(),
         });
         Box::pin(async move {
             tokio::select! {
@@ -146,6 +161,17 @@ impl FakePlatform {
             name.to_owned(),
             above.iter().map(|a| (*a).to_owned()).collect(),
         );
+    }
+
+    /// The same agent, executable and signature, in a new process: the old one ends.
+    pub fn restart(&self, name: &str) {
+        let old = self.agent(name);
+        self.dead.lock().unwrap().insert(old.key());
+        let now = clak_wire::json::now();
+        let mut new = old;
+        new.pid = 40_000 + self.pids.fetch_add(1, Ordering::SeqCst);
+        new.started = now as i64;
+        self.agents.lock().unwrap().insert(name.to_owned(), new);
     }
 
     /// The agent's process ends.

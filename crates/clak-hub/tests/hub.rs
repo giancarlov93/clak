@@ -272,6 +272,84 @@ async fn using_a_program_asks_one_question_even_for_a_new_agent() {
 }
 
 #[tokio::test]
+async fn always_allow_makes_a_standing_rule_for_that_agent_and_program() {
+    let hub = TestHub::start().await;
+    let _app = hub.register().await;
+
+    let (result, _) = tokio::join!(
+        hub.call("claude", "test-notepad", "get_text", None, None),
+        async {
+            let question = hub.prompt.next(ConsentKind::Use).await;
+            let offer = question.request.always.clone().unwrap();
+            assert!(offer.contains("claude"), "{offer}");
+            assert!(
+                offer.contains("Test Notepad (all its documents)"),
+                "{offer}"
+            );
+            assert!(offer.contains(r"C:\Projects\demo"), "{offer}");
+            question.allow_always();
+        }
+    );
+    assert!(ok(&result));
+    let rules = hub.snapshot().await["rules"].as_array().unwrap().clone();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0]["program"], "Test Notepad");
+    assert_eq!(rules[0]["folder"], r"C:\Projects\demo");
+    let saved = std::fs::read_to_string(hub.home.join("rules.json")).unwrap();
+    assert!(saved.contains("Test Notepad"), "{saved}");
+
+    // The same agent in a new process: no question, the rule covers it.
+    hub.platform.restart("claude");
+    let again = hub
+        .call("claude", "test-notepad", "get_text", None, None)
+        .await;
+    assert_eq!(content(&again), Some("milk"));
+    hub.prompt.quiet(100).await;
+
+    // A new process in another folder, or another agent: they ask.
+    hub.platform.restart("claude");
+    let (elsewhere, _) = tokio::join!(
+        hub.ask(
+            "claude",
+            "call",
+            Some(json!({ "resource": "test-notepad", "tool": "get_text", "arguments": {}, "cwd": r"C:\Projects\other" })),
+        ),
+        async {
+            hub.prompt.next(ConsentKind::Use).await.deny();
+        }
+    );
+    assert_eq!(code(&elsewhere), Some("denied"));
+    let (other, _) = tokio::join!(
+        hub.call("codex", "test-notepad", "get_text", None, None),
+        async {
+            hub.prompt.next(ConsentKind::Use).await.deny();
+        }
+    );
+    assert_eq!(code(&other), Some("denied"));
+
+    // Removed from the panel: the next new process asks again.
+    let (outbox, _replies) = clak_hub::core::Outbox::channel();
+    clak_hub::control_channel::panel_message(
+        hub.hub().broker(),
+        json!({ "type": "forget_rule", "id": rules[0]["id"] })
+            .as_object()
+            .unwrap(),
+        &outbox,
+        true,
+    );
+    assert!(hub.snapshot().await["rules"].as_array().unwrap().is_empty());
+    hub.platform.restart("claude");
+    let (asked, _) = tokio::join!(
+        hub.call("claude", "test-notepad", "get_text", None, None),
+        async {
+            hub.prompt.next(ConsentKind::Use).await.deny();
+        }
+    );
+    assert_eq!(code(&asked), Some("denied"));
+    hub.stop().await;
+}
+
+#[tokio::test]
 async fn a_no_holds_for_a_while_without_asking_again() {
     let hub = TestHub::start().await;
     let (first, _) = tokio::join!(hub.ask("claude", "list", None), async {

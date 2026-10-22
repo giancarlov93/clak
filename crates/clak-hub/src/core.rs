@@ -13,6 +13,7 @@
 use crate::consent::{AgentIdentity, ConsentRequest, HubOptions, Verdict};
 use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
+use crate::rules::Rules;
 use crate::usage::Usage;
 use crate::wire::{ResourceDef, ToolDef, origin_label, origin_short};
 use crate::{cli_names, texts};
@@ -268,12 +269,14 @@ impl GrantEntry {
     }
 }
 
-type Allow = Box<dyn FnOnce(&mut Core) + Send>;
+pub type Allow = Box<dyn FnOnce(&mut Core) + Send>;
 
 /// A question to the user in progress. Whoever asks the same thing waits for the same answer.
 struct PendingConsent {
     request: ConsentRequest,
     allow: Option<Allow>,
+    /// What a yes with "Always allow" ticked adds: the standing rule.
+    remember: Option<Allow>,
     done: watch::Sender<Option<Verdict>>,
     cancel: CancellationToken,
     waiters: usize,
@@ -319,6 +322,8 @@ pub struct Core {
     dirty: bool,
     /// How much the agents use the programs, kept across restarts.
     pub usage: Usage,
+    /// The permissions the user made standing.
+    pub rules: Rules,
     sink: Option<mpsc::UnboundedSender<String>>,
     connectors: Value,
     apis: Value,
@@ -363,6 +368,7 @@ impl Core {
                 "since": float(l.created),
                 "expires": float(l.expires),
             })).collect::<Vec<_>>(),
+            "rules": self.rules.all().iter().map(|r| r.panel()).collect::<Vec<_>>(),
             "resources": self.apps.values().map(|a| json!({
                 "id": a.conn_id,
                 "name": a.name,
@@ -989,6 +995,42 @@ impl Core {
         self.grant_tools(session_key, conn_id, |tool| program.covers(&tool.name))
     }
 
+    /// The permission a standing rule gives: the agent (by `agent_key`, its identity) in its
+    /// folder on the program, without a question, the session authorized if it is new.
+    /// None if no rule covers them.
+    pub fn rule_grant(
+        &mut self,
+        agent_key: &str,
+        agent: &AgentIdentity,
+        cwd: Option<&str>,
+        via: &str,
+        conn_id: &str,
+    ) -> Option<String> {
+        let app = self.apps.get(conn_id)?;
+        let rule = self.rules.find(agent_key, cwd, app)?.clone();
+        let session = self.authorize(agent, cwd, via);
+        let grant = self.grant_tools(&session, conn_id, |tool| rule.program.covers(&tool.name))?;
+        let label = self
+            .sessions
+            .get(&session)
+            .map(SessionEntry::label)
+            .unwrap_or_default();
+        self.log(format!("{label} uses «{}»: always allowed", rule.label));
+        Some(grant)
+    }
+
+    /// Removes a standing rule: the next time, the agent asks again. Its permissions given
+    /// so far stay, as an answer given stays.
+    pub fn forget_rule(&mut self, id: Option<&str>) {
+        if let Some(rule) = id.and_then(|id| self.rules.remove(id)) {
+            self.log(format!(
+                "no longer always allowed: {} on «{}»",
+                rule.agent, rule.label
+            ));
+            self.touch();
+        }
+    }
+
     // =====================================================================
     // What an agent sees
     // =====================================================================
@@ -1305,6 +1347,7 @@ impl Broker {
             events: VecDeque::new(),
             dirty: false,
             usage: Usage::default(),
+            rules: Rules::default(),
             sink,
             connectors: json!([]),
             apis: json!([]),
@@ -1372,6 +1415,20 @@ impl Broker {
         allow: impl FnOnce(&mut Core) + Send + 'static,
         gone: &CancellationToken,
     ) -> Result<Verdict, Gone> {
+        self.consent_remembering(key, build, allow, None, gone)
+            .await
+    }
+
+    /// As [`Broker::consent`], with what a yes adds when the user also ticks the request's
+    /// `always`: the standing rule.
+    pub async fn consent_remembering(
+        &self,
+        key: &str,
+        build: impl FnOnce(String, &Core) -> ConsentRequest,
+        allow: impl FnOnce(&mut Core) + Send + 'static,
+        remember: Option<Allow>,
+        gone: &CancellationToken,
+    ) -> Result<Verdict, Gone> {
         #[allow(clippy::large_enum_variant)]
         enum Start {
             Now(Verdict),
@@ -1405,6 +1462,7 @@ impl Broker {
                     PendingConsent {
                         request,
                         allow: Some(allow),
+                        remember,
                         done,
                         cancel,
                         waiters: 0,
@@ -1457,12 +1515,14 @@ impl Broker {
                 limit.cancel();
             });
             let title = request.title.clone();
+            let id = request.id.clone();
             let answer = tokio::select! {
                 answer = prompt.ask(request, cancel.clone()) => Some(answer),
                 _ = cancel.cancelled() => None,
             };
             timer.abort();
             let verdict = verdict_of(&broker, answer, &cancel);
+            let always = verdict == Verdict::Allowed && prompt.always(&id);
             let done = broker.run(|c| {
                 let mut pending = c.pending.shift_remove(&key);
                 match verdict {
@@ -1470,6 +1530,11 @@ impl Broker {
                         c.log(format!("allowed: {title}"));
                         if let Some(allow) = pending.as_mut().and_then(|p| p.allow.take()) {
                             allow(c);
+                        }
+                        if always
+                            && let Some(remember) = pending.as_mut().and_then(|p| p.remember.take())
+                        {
+                            remember(c);
                         }
                     }
                     Verdict::Denied => {
