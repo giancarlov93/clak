@@ -68,10 +68,17 @@ jobs:
           ref: ${{ env.SHA }}
 
       # The Rust of rust-toolchain.toml (rustup is already on the runners), with this target.
+      # Only that one: rust-cache puts every installed toolchain in its key, and the runner
+      # images come with different ones (as in checks.yml).
       - name: Rust
         shell: bash
         run: |
           rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
           rustup target add "${{ matrix.target }}"
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
