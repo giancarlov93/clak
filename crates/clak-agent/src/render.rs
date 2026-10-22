@@ -15,28 +15,101 @@ pub enum Style {
     Mcp,
 }
 
-/// The connected programs, with the name to use them by.
-pub fn programs(response: &Object, style: Style) -> String {
+/// Which connected programs a list shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Which {
+    /// Those the agent can use without a question: permission given, its preset, a rule.
+    #[default]
+    Usable,
+    /// The others: the first command of each asks the user.
+    Others,
+    /// Both, in two parts.
+    All,
+}
+
+/// Whether the agent can use it now without a question. A hub that doesn't say `access`
+/// says `allowed`.
+pub fn usable(resource: &Object) -> bool {
+    resource.get("access").is_some_and(|a| !a.is_null()) || flag(resource, "allowed")
+}
+
+/// The connected programs, with the name to use them by: those the agent can use, the
+/// others, or both. The next step is always written at the end.
+pub fn programs(response: &Object, style: Style, which: Which) -> String {
     let list = objects(response.get("resources"));
     if list.is_empty() {
         return "No programs connected to Clak. A program connects by itself, usually with a \
                 command or a button inside it: ask the user to do that."
             .into();
     }
+    let (mine, others): (Vec<&Object>, Vec<&Object>) = list.iter().partition(|r| usable(r));
+    let others_call = match style {
+        Style::Cli => "clak list --others",
+        Style::Mcp => r#"programs {"which": "others"}"#,
+    };
+    let mut text = String::new();
+    if which != Which::Others {
+        if mine.is_empty() {
+            text.push_str("No program you can use yet without asking the user.\n");
+        } else {
+            text.push_str(&format!("Programs you can use ({}):\n\n", mine.len()));
+            text.push_str(&rows(&mine));
+        }
+    }
+    if which == Which::Usable {
+        if !others.is_empty() {
+            text.push_str(&format!(
+                "\nOther connected programs: {}. The first command of each asks the user for permission. List them: {others_call}\n",
+                others.len()
+            ));
+        }
+    } else {
+        if which == Which::All {
+            text.push('\n');
+        }
+        if others.is_empty() {
+            text.push_str("No other connected program.\n");
+        } else {
+            text.push_str(&format!(
+                "Other connected programs ({}): the first command of each asks the user for permission.\n\n",
+                others.len()
+            ));
+            text.push_str(&rows(&others));
+        }
+    }
+    text.push('\n');
+    text.push_str(match style {
+        Style::Cli => "A program's commands: clak <name> list",
+        Style::Mcp => "A program's commands: commands {\"program\": \"<name>\"}",
+    });
+    text
+}
 
+/// One program per two lines: its name for the agent, what is open, how it may be used.
+fn rows(list: &[&Object]) -> String {
     let width = list
         .iter()
         .map(|r| utf16_len(str_of(r, "name").unwrap_or("")))
         .max()
         .unwrap_or(0);
-    let mut text = format!("Connected programs ({}):\n\n", list.len());
-    for r in &list {
+    let mut text = String::new();
+    for r in list {
         let tools = r
             .get("tools")
             .and_then(Value::as_i64)
             .filter(|n| i32::try_from(*n).is_ok())
             .unwrap_or(0);
         let name = str_of(r, "name").unwrap_or("");
+        let access = match str_of(r, "access") {
+            Some("granted") => "permission granted".to_owned(),
+            Some("preset") => match str_of(r, "preset") {
+                Some(preset) => format!("allowed by the preset «{preset}»"),
+                None => "allowed by the preset you were launched with".to_owned(),
+            },
+            Some("rule") => "always allowed by the user".to_owned(),
+            _ if flag(r, "allowed") => "permission granted".to_owned(),
+            _ => "the first command will ask the user for permission".to_owned(),
+        };
         text.push_str(&format!(
             "  {}  {} — {}\n",
             pad(name, width),
@@ -44,23 +117,13 @@ pub fn programs(response: &Object, style: Style) -> String {
             str_of(r, "title").unwrap_or("")
         ));
         text.push_str(&format!(
-            "  {}  {} · {}{} · {}\n",
+            "  {}  {} · {}{} · {access}\n",
             " ".repeat(width),
             str_of(r, "origin").unwrap_or(""),
             tools,
             if tools == 1 { " command" } else { " commands" },
-            if flag(r, "allowed") {
-                "permission granted"
-            } else {
-                "the first command will ask the user for permission"
-            }
         ));
     }
-    text.push('\n');
-    text.push_str(match style {
-        Style::Cli => "A program's commands: clak <name> list",
-        Style::Mcp => "A program's commands: commands {\"program\": \"<name>\"}",
-    });
     text
 }
 
@@ -410,12 +473,49 @@ mod tests {
         let response = object(content(
             r#"{"resources":[{"name":"word","app":"Word","title":"contract.docx","origin":"winword.exe","tools":3,"allowed":false}]}"#,
         ));
-        let text = programs(&response, Style::Cli);
+        let text = programs(&response, Style::Cli, Which::Others);
         assert!(text.contains("word  Word — contract.docx"));
         assert!(text.contains("3 commands · the first command will ask the user for permission"));
         assert!(text.ends_with("clak <name> list"));
-        assert!(programs(&response, Style::Mcp).contains("commands {"));
-        assert!(programs(&object(json!({"resources": []})), Style::Cli).contains("ask the user"));
+        assert!(programs(&response, Style::Mcp, Which::All).contains("commands {"));
+        assert!(
+            programs(&object(json!({"resources": []})), Style::Cli, Which::Usable)
+                .contains("ask the user")
+        );
+    }
+
+    #[test]
+    fn the_list_shows_what_the_agent_can_use_and_says_how_many_others_there_are() {
+        let response = object(content(
+            r#"{"resources":[
+                {"name":"word","app":"Word","title":"a.docx","origin":"winword.exe","tools":3,"allowed":true,"access":"granted"},
+                {"name":"excel","app":"Excel","title":"b.xlsx","origin":"excel.exe","tools":2,"allowed":false,"access":"preset","preset":"Shopping"},
+                {"name":"notion","app":"Notion","title":"MCP","origin":"mcp.notion.com","tools":9,"allowed":false,"access":"rule"},
+                {"name":"revit","app":"Revit","title":"m.rvt","origin":"revit.exe","tools":4,"allowed":false,"access":null}]}"#,
+        ));
+        let mine = programs(&response, Style::Cli, Which::Usable);
+        assert!(mine.starts_with("Programs you can use (3):"), "{mine}");
+        assert!(mine.contains("permission granted"));
+        assert!(mine.contains("allowed by the preset «Shopping»"));
+        assert!(mine.contains("always allowed by the user"));
+        assert!(!mine.contains("revit  Revit"));
+        assert!(mine.contains("Other connected programs: 1. The first command of each asks the user for permission. List them: clak list --others"));
+        let others = programs(&response, Style::Cli, Which::Others);
+        assert!(others.contains("revit  Revit — m.rvt"));
+        assert!(!others.contains("Word — a.docx"));
+        let all = programs(&response, Style::Cli, Which::All);
+        assert!(all.contains("Word — a.docx") && all.contains("revit  Revit — m.rvt"));
+        assert!(
+            programs(&response, Style::Mcp, Which::Usable)
+                .contains(r#"programs {"which": "others"}"#)
+        );
+
+        let none_mine = object(content(
+            r#"{"resources":[{"name":"revit","app":"Revit","title":"m.rvt","tools":4,"allowed":false}]}"#,
+        ));
+        let text = programs(&none_mine, Style::Cli, Which::Usable);
+        assert!(text.starts_with("No program you can use yet"), "{text}");
+        assert!(text.contains("clak list --others"));
     }
 
     #[test]

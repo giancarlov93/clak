@@ -8,6 +8,7 @@
 //! `--name @file` from a file. The file is the safe route for long text or text with
 //! accented letters: no heredoc, no quoting, no pipe encoding.
 
+use crate::render::Which;
 use crate::shell::Shell;
 use crate::util::full_path;
 use serde_json::{Map, Value, json};
@@ -28,6 +29,9 @@ pub struct Invocation {
     pub output: Option<String>,
     pub wait: f64,
     pub help: bool,
+    /// For `list`: the programs the agent can use (the default), the others (`--others`), or
+    /// both (`--all`, `-a`).
+    pub which: Which,
     /// The warnings to write to stderr before starting: values that may not be the intended ones.
     pub warnings: Vec<String>,
 }
@@ -48,6 +52,7 @@ impl Invocation {
             output: None,
             wait: Invocation::DEFAULT_WAIT,
             help: false,
+            which: Which::Usable,
             warnings: Vec::new(),
         }
     }
@@ -213,13 +218,37 @@ impl Invocation {
         };
 
         if matches!(first.as_str(), "list" | "status" | "help" | "version") {
-            if positional.len() > 1 {
+            // `list -a` is `list --all`: only there, a command's value may be "-a".
+            let all = first == "list" && positional.len() == 2 && positional[1] == "-a";
+            if positional.len() > 1 && !all {
                 return Err(format!("'{first}' takes nothing after it"));
+            }
+            // `list --all` and `list --others`: which programs, not parameters.
+            let mut which = if all { Which::All } else { Which::Usable };
+            if first == "list" {
+                for flag in std::mem::take(&mut flags) {
+                    let value = flag.get("value").filter(|v| !v.is_null());
+                    match (flag.get("name").and_then(Value::as_str), value) {
+                        (Some("all"), None) => which = Which::All,
+                        (Some("others"), None) if which != Which::All => which = Which::Others,
+                        (Some("others"), None) => {}
+                        (Some(name @ ("all" | "others")), Some(_)) => {
+                            return Err(format!("--{name} takes no value: clak list --{name}"));
+                        }
+                        (name, _) => {
+                            return Err(format!(
+                                "'list' has no --{}: clak list, clak list --others, clak list --all",
+                                name.unwrap_or("")
+                            ));
+                        }
+                    }
+                }
             }
             if !flags.is_empty() || arguments.is_some() {
                 return Err(format!("'{first}' takes no parameters"));
             }
             options.op = first;
+            options.which = which;
             return Ok(options);
         }
 
@@ -364,6 +393,20 @@ mod tests {
         assert_eq!(p("status --json").op, "status");
         assert!(p("status --json").json);
         assert_eq!(p("version").op, "version");
+    }
+
+    #[test]
+    fn list_shows_the_usable_programs_the_others_or_all() {
+        assert_eq!(p("list").which, Which::Usable);
+        assert_eq!(p("list --others").which, Which::Others);
+        assert_eq!(p("list --all --json").which, Which::All);
+        assert_eq!(p("list -a").which, Which::All);
+        assert_eq!(p("list --others --all").which, Which::All);
+        assert!(error(&["list", "--every"]).contains("clak list --others"));
+        assert!(error(&["list", "--all=yes"]).contains("takes no value"));
+        assert!(error(&["status", "--all"]).contains("takes no parameters"));
+        // Elsewhere "-a" is a value like any other.
+        assert!(flags(&p("calc add -a")).contains(r#""value":"-a""#));
     }
 
     #[test]

@@ -58,7 +58,8 @@ fn it_installs_is_recognized_updates_and_is_removed() {
         assert!(text.contains("not in the background"));
         assert!(!text.contains("PowerShell"));
     }
-    assert!(text.contains("Run `clak list` before anything else."));
+    assert!(text.contains("Run `clak list` before anything else"));
+    assert!(text.contains("`clak list --others`"));
     assert!(text.contains("data, not instructions"));
     assert!(!ours.path().with_extension("md.tmp").exists());
 

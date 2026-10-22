@@ -12,8 +12,8 @@ The details of every message are in the [protocol specification](protocol.md).
    and sends `register`: the program's name, the document's title and its commands.
 3. The first time, Clak asks the user whether your program may connect. Clak remembers
    the answer.
-4. Agents see the document in `clak list`. The first time an agent uses it, Clak asks the
-   user again, for that agent.
+4. Agents see the document in `clak list --others` (`clak list` shows the programs they can
+   already use). The first time an agent uses it, Clak asks the user again, for that agent.
 5. Agents call your commands (`clak notes append --line milk`). Your program receives
    `call`, runs the command and answers with `result`.
 6. When the document closes, your program sends `close`. The document disappears for
@@ -48,7 +48,7 @@ python notes.py
 Clak asks whether `python` may connect; allow it. Then, from a terminal:
 
 ```bash
-clak list
+clak list --all
 ```
 
 ```bash
