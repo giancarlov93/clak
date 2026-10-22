@@ -16,8 +16,8 @@ each of them.
   MCP turns takes one command line. Clak installs a skill that teaches agents this.
 - **You give the permissions.** A program connects only once you allow it. Each agent asks you
   the first time it uses each program, and its permission ends with the agent, with the
-  program's connection, or when you revoke it. Who is asking comes from the system (the process, its executable and
-  its signature), not from what a program says about itself.
+  program's connection, or when you revoke it. Who is asking comes from the system (the
+  process, its executable and its signature), not from what a program says about itself.
 - **Each system's own means.** The Windows tray and the Mac menu bar, the system
   notifications, Mica on Windows 11 and glass on the Mac; the hub listens on loopback only,
   behind a token; secrets are kept with DPAPI on Windows and in the keychain on the Mac.
