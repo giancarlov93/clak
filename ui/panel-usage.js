@@ -1,4 +1,4 @@
-// The Costs tab: what the agents' tokens would cost at the API's prices, read from the
+// The Usage tab: what the agents' tokens would cost at the API's prices, read from the
 // agents' own files (costs.rs). The totals of today, the week, the month and all time;
 // Claude's five-hour window while it is open; the days of the span chosen, an agent per
 // color; the models and the folders of that span. Read again on every opening, when the
@@ -340,15 +340,15 @@
   const visible = () => page && !page.classList.contains("hidden") && document.visibilityState === "visible";
 
   Panel.tab({
-    id: "costs",
-    title: "Costs",
+    id: "usage",
+    title: "Usage",
     icon: Kit.navIcon("costs", Kit.TINTS.costs),
-    order: 25,
+    order: 65,
     mount(section) {
       page = section;
-      page.classList.add("costs");
+      page.classList.add("usage-costs");
       body = el("div", { class: "cost-body" });
-      page.append(Kit.title("Costs", Kit.iconButton("refresh", "Read again, the prices included", () => load(true))), body);
+      page.append(Kit.title("Usage", Kit.iconButton("refresh", "Read again, the prices included", () => load(true))), body);
       window.addEventListener("focus", () => visible() && load());
       setInterval(() => visible() && load(), 60_000);
       new ResizeObserver(() => {

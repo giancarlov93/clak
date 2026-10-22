@@ -1,4 +1,4 @@
-//! The Costs tab: the agents' tokens (clak-setup's `costs`) at the API's prices. The prices
+//! The Usage tab: the agents' tokens (clak-setup's `costs`) at the API's prices. The prices
 //! are LiteLLM's list, read at most once a day and kept in Clak's folder (`prices.json`):
 //! without the network the one kept, and before the first the one that comes with Clak.
 
@@ -33,7 +33,7 @@ static PRICES: LazyLock<tokio::sync::Mutex<Option<Known>>> = LazyLock::new(Defau
 /// The files already read: only those that changed are read again.
 static LEDGER: LazyLock<Mutex<Ledger>> = LazyLock::new(Default::default);
 
-/// The rows of the Costs tab; with `refresh` the prices are read again from LiteLLM.
+/// The rows of the Usage tab; with `refresh` the prices are read again from LiteLLM.
 #[tauri::command]
 pub async fn costs_report(app: AppHandle, refresh: Option<bool>) -> Result<Value, String> {
     let home = bridge::of(&app).home().clone();

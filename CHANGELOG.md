@@ -14,7 +14,7 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
-- Costs, a tab of its own: what the agents' tokens would cost at the API's prices, from the
+- Usage, a tab of its own above Settings: what the agents' tokens would cost at the API's prices, from the
   agents' own files (Claude Code and Claude Desktop's Code tab, Codex, Gemini CLI, OpenCode).
   Today, the last 7 days, the month and all time; Claude's five-hour window while it is open,
   with the cost an hour and where it is heading; each day by agent, then by model (input,

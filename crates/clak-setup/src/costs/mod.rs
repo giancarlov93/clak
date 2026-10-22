@@ -1,4 +1,4 @@
-//! What the agents spent, from the Costs tab: the tokens of every request, read from the
+//! What the agents spent, from the Usage tab: the tokens of every request, read from the
 //! agents' own files, and their price at the API's rates (`prices`). With a subscription
 //! the user pays a flat fee: these are what the same tokens would cost through the API.
 //!

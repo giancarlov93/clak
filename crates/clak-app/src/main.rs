@@ -195,7 +195,7 @@ fn main() {
             launch::conversations_export,
             launch::agents_versions,
             launch::agent_update,
-            // The Costs tab (costs.rs).
+            // The Usage tab (costs.rs).
             costs::costs_report,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,

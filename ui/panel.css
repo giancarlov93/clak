@@ -515,14 +515,14 @@ html.mac .pivot button.selected::after { display: none; }
 .caution-text { color: var(--caution); font-size: 12px; }
 .transfer-results { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 12px; max-height: 200px; overflow: auto; }
 
-/* --- Costs ---------------------------------------------------------------------------- */
+/* --- Usage ---------------------------------------------------------------------------- */
 
 /* An agent per color, in a fixed order: the same agent keeps its color in every span. */
-.costs { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; }
+.usage-costs { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
+  :root:not([data-theme="light"]) .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
 }
-:root[data-theme="dark"] .costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
+:root[data-theme="dark"] .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; }
 
 .cost-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 900px) { .cost-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
