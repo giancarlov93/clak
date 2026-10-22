@@ -108,6 +108,15 @@ Keep `resource.app` the same across versions and documents. It is the name users
 it is part of what Clak remembers when the user allows your program, and it gives agents
 the command name.
 
+When the user saves the document under another name, send `resource_changed` with the
+new title: agents see it at once and keep their permissions. With `clak-kit`, call
+`set_title`. When the window shows a different document instead, that is another opening:
+close the connection and register the new document, so agents have to ask for it.
+
+```json
+{"type": "resource_changed", "title": "groceries.txt"}
+```
+
 ### Connect only when the user asks
 
 Connecting is the user's decision: offer a *Connect to Clak* command and let it stay on

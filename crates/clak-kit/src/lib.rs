@@ -70,6 +70,8 @@ struct Entry {
 
 #[derive(Default)]
 struct State {
+    /// What is open: it can change name while connected (`set_title`).
+    title: String,
     tools: Vec<Entry>,
     active: BTreeSet<String>,
     users: Vec<(String, String)>,
@@ -83,7 +85,6 @@ struct State {
 
 struct Inner {
     app: String,
-    title: String,
     publisher: Option<String>,
     instance_id: String,
     home: PathBuf,
@@ -106,11 +107,13 @@ impl LiveResource {
     ) -> LiveResource {
         LiveResource(Arc::new(Inner {
             app: app.to_owned(),
-            title: title.to_owned(),
             publisher: publisher.map(str::to_owned),
             instance_id: clak_wire::json::new_id("inst"),
             home: home.unwrap_or_else(clak_wire::location::home),
-            state: Mutex::new(State::default()),
+            state: Mutex::new(State {
+                title: title.to_owned(),
+                ..State::default()
+            }),
         }))
     }
 
@@ -122,8 +125,24 @@ impl LiveResource {
         &self.0.app
     }
 
-    pub fn title(&self) -> &str {
-        &self.0.title
+    pub fn title(&self) -> String {
+        self.state().title.clone()
+    }
+
+    /// The same document has a new name (saved as, renamed): the hub shows it to the user and
+    /// to agents from now on, and the agents keep their permissions. Sent at once if
+    /// connected, otherwise with the next `register`. Another document is not a new name:
+    /// it's another `LiveResource`, and the agents ask again.
+    pub fn set_title(&self, title: &str) {
+        let mut state = self.state();
+        if state.title == title {
+            return;
+        }
+        state.title = title.to_owned();
+        send(
+            &state,
+            &json!({ "type": "resource_changed", "title": title }),
+        );
     }
 
     /// The identity of *this* opening, not of the file.
@@ -279,7 +298,7 @@ impl LiveResource {
                     "token": lock.token,
                     "resource": {
                         "app": self.0.app,
-                        "title": self.0.title,
+                        "title": state.title,
                         "instance_id": self.0.instance_id,
                         "publisher": self.0.publisher,
                     },

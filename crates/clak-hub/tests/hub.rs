@@ -403,6 +403,46 @@ async fn the_user_tries_a_command_and_each_program_says_how_it_has_been_answerin
 }
 
 #[tokio::test]
+async fn a_document_renamed_while_connected_keeps_its_name_for_agents_and_its_permissions() {
+    let hub = TestHub::start().await;
+    let app = hub.register().await;
+    hub.prompt.set_allow_all(true);
+    assert_eq!(
+        content(
+            &hub.call("claude", "test-notepad", "get_text", None, None)
+                .await
+        ),
+        Some("milk")
+    );
+    let asked = hub.prompt.count();
+
+    app.resource.set_title("groceries.txt");
+    wait_until(|| async {
+        hub.snapshot().await["resources"][0]["resource"]["title"] == "groceries.txt"
+    })
+    .await;
+    let snapshot = hub.snapshot().await;
+    assert_eq!(snapshot["resources"][0]["name"], "test-notepad");
+    assert_eq!(snapshot["grants"].as_array().unwrap().len(), 1);
+    let listing = hub.ask("claude", "list", None).await;
+    assert!(
+        clak_wire::json::text(&Value::Object(listing)).contains("groceries.txt"),
+        "agents see the new title"
+    );
+
+    // The same permission, no new question.
+    assert_eq!(
+        content(
+            &hub.call("claude", "test-notepad", "get_text", None, None)
+                .await
+        ),
+        Some("milk")
+    );
+    assert_eq!(hub.prompt.count(), asked);
+    hub.stop().await;
+}
+
+#[tokio::test]
 async fn a_no_holds_for_a_while_without_asking_again() {
     let hub = TestHub::start().await;
     let (first, _) = tokio::join!(hub.ask("claude", "list", None), async {
