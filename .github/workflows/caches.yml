@@ -1,0 +1,123 @@
+# The caches the pull requests start from. Only main saves them, and on main Checks skips its
+# jobs for the files already checked on their pull request, so the release starts at once. When
+# that merge changed what goes in the caches (Cargo.lock, a Cargo.toml, the toolchain, the
+# checks), this builds what the checks build, without checking or running anything again, and
+# saves it. Alongside the release, holding nothing up.
+name: Caches
+
+on:
+  workflow_run:
+    workflows: [Checks]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: caches
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+# As in checks.yml: part of the caches' keys.
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  # Whether Checks skipped its jobs (when it ran them, they saved the caches) on a commit that
+  # changes what the caches hold.
+  needed:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.look.outputs.run }}
+    steps:
+      - id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.event.workflow_run.id }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          run=false
+          ran=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '[.jobs[] | select(.name == "coverage" and .conclusion == "success")] | length' || echo 1)
+          if [ "$ran" = 0 ]; then
+            changed=$(gh api "repos/$REPO/commits/$SHA" --jq '(.files // [])[].filename' || echo '?')
+            if printf '%s\n' "$changed" | grep -qE '^\?$|(^|/)Cargo\.(toml|lock)$|^rust-toolchain\.toml$|^\.github/workflows/(checks|caches)\.yml$'; then
+              run=true
+              echo "This commit changes what the caches hold: they are built again." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  # The job ids are those of checks.yml: rust-cache keys a cache by job id, system, Rust, the
+  # environment and the lockfile, so the pull requests' checks find these. The steps up to the
+  # cache are the same too.
+  clippy-test:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+      # Already saved for exactly these keys: nothing to build.
+      - id: cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build for clippy
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Build the tests
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo test --workspace --locked --no-run
+
+  coverage:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+          rustup component add llvm-tools
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-llvm-cov
+      # Already saved for exactly these keys: nothing to build.
+      - id: cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build for clippy
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked
+      # The tests built for coverage and only listed, not run.
+      - name: Build the tests for coverage
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo llvm-cov --workspace --locked --no-report -- --list
+      # The doc tests can't be built without running: there is one.
+      - name: Doc tests
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo test --workspace --locked --doc
