@@ -299,6 +299,24 @@ pub fn signature(exe: &str) -> Signature {
     read
 }
 
+/// For the tests: the signature once PowerShell has answered. Cold, on a CI runner, its
+/// first start can take longer than the 15 s the app waits, and more so with several started
+/// at once: one at a time, and asked again while it says "unknown" (which isn't cached).
+/// The answer is cached, so the code under test finds it.
+#[cfg(test)]
+pub(crate) fn settled_signature(exe: &str) -> Signature {
+    static ONE: Mutex<()> = Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|p| p.into_inner());
+    let mut read = signature(exe);
+    for _ in 0..3 {
+        if read.0 != "unknown" {
+            break;
+        }
+        read = signature(exe);
+    }
+    read
+}
+
 /// In-house first: the signature embedded in the file is verified with WinVerifyTrust
 /// in a few milliseconds. But a Windows executable (notepad.exe) is only
 /// catalog-signed, and so shows up as "unsigned": for those, and only for those,
@@ -583,13 +601,16 @@ mod tests {
         let notepad = system.join("notepad.exe");
         if notepad.is_file() {
             assert_eq!(
-                signature(notepad.to_str().unwrap()),
+                settled_signature(notepad.to_str().unwrap()),
                 ("valid".into(), Some("Microsoft Windows".into()))
             );
         }
         // No signature: this very test executable.
         let me = std::env::current_exe().unwrap();
-        assert_eq!(signature(me.to_str().unwrap()), ("unsigned".into(), None));
+        assert_eq!(
+            settled_signature(me.to_str().unwrap()),
+            ("unsigned".into(), None)
+        );
         let missing =
             std::env::temp_dir().join(format!("does-not-exist-{}.exe", std::process::id()));
         assert_eq!(signature(missing.to_str().unwrap()), unknown());
