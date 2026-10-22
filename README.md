@@ -1,13 +1,29 @@
 # Clak
 
-Clak for Windows and Mac: Rust for the hub and the command line, Tauri 2
-for the app. Each system uses its own things: the Windows tray and the Mac menu bar,
-the system notifications, Mica on Windows 11 and glass (vibrancy) on the Mac, the named pipe and
-DPAPI on Windows, the Unix socket and the keychain on the Mac.
+Clak lets the AI agents on your computer (Claude Code, Codex, Gemini CLI, OpenCode…) use your
+programs and services: the document open in a desktop program, an MCP server, a REST API.
+Nothing happens without your say: you decide which programs connect, and which agent may use
+each of them.
 
-The protocol lives in a few places: `~/.clak/daemon.json`, the control channel, the
-programs' WebSocket, the files `apps.json`, `connectors.json`, `apis.json` and their
-`.secrets`. A program, an agent or a panel talks to the hub only through those.
+## How
+
+- **Programs offer commands.** A desktop program connects to the Clak *hub* on your computer
+  and offers commands for the document it has open: one connection per open document. MCP
+  servers and REST APIs are connected the same way and become programs too.
+- **Agents use one command line.** `clak list` shows what an agent can use, `clak <program> -h`
+  its commands. Clak installs a skill that teaches agents this, and `clak-shim` serves the same
+  over MCP for agents that prefer it.
+- **You give the permissions.** A program connects only once you allow it. Each agent asks you
+  the first time it uses each program, and its permission ends with the agent, the document,
+  or when you revoke it. Who is asking comes from the system (the process, its executable and
+  its signature), not from what a program says about itself.
+- **Each system's own means.** The Windows tray and the Mac menu bar, the system
+  notifications, Mica on Windows 11 and glass on the Mac; the hub listens on loopback only,
+  behind a token; secrets are kept with DPAPI on Windows and in the keychain on the Mac.
+
+The app around the hub shows what is connected and who is using it, asks the consent
+questions, launches agents with programs already allowed (presets), and shows what the agents'
+tokens would cost at the API's prices.
 
 ## The pieces
 
@@ -21,33 +37,32 @@ crates/
   clak-settings    the settings as a program: `clak settings …`
   clak-host        everything together, with the real system
   clak-agent       `clak` (command line) and `clak-shim` (MCP over stdio)
-  clak-setup       skill, PATH, start with the system, clak://, MCP clients
+  clak-setup       the skill, PATH, start with the system, clak://, MCP clients, the agents'
+                   conversations, presets, token costs
   clak-kit         the program side, for writing programs in Rust
   clak-daemon      the hub on its own, without an interface
   clak-app         the Tauri app: tray, notifications, consent, panel
 ui/                the app's pages (plain HTML, CSS and JS, no bundler)
 docs/              the program protocol and the extension guide
 examples/          the same minimal extension in Python, JavaScript and C#
-scripts/           the installers
+scripts/           packaging, release notes and the version; the git hook
 ```
+
+The hub, the app and the command line share only `daemon.json` (in `~/.clak`, or
+`CLAK_HOME`), the control channel, the programs' WebSocket and the hub's files (`apps.json`,
+`rules.json`, `presets.json`, `connectors.json`, `apis.json` and their `.secrets`).
 
 ## Extensions
 
-How a program connects to Clak, for those writing an extension:
-
 - [Writing an extension](docs/extensions.md): the guide, with examples in four languages.
-- [The Clak extension protocol](docs/protocol.md): the specification of every message.
+- [The Clak extension protocol](docs/protocol.md): every message.
 
-The protocol version is `clak_wire::PROTOCOL`: it changes only when an extension
-written for the previous one would stop working, and the specification must be updated with it.
+The protocol version is `clak_wire::PROTOCOL`. It changes only when an extension written for
+the previous one would stop working, and the specification changes with it.
 
 ## Building
 
-The Rust version is fixed in `rust-toolchain.toml`: in this folder rustup uses it.
-
-```bash
-rustup toolchain install
-```
+The Rust version is fixed in `rust-toolchain.toml`.
 
 ```bash
 cargo build
@@ -57,18 +72,14 @@ cargo build
 cargo test
 ```
 
-The app (it is not among the default members, because it pulls in Tauri):
+The app isn't among the default members, because it pulls in Tauri:
 
 ```bash
 cargo build -p clak-app
 ```
 
-The Mac check can also be run from Windows: `cargo check --target aarch64-apple-darwin`.
-`clak-app` needs a C compiler for the Mac target; for `check` alone a fake one
-that writes empty files is enough (`CC_aarch64_apple_darwin`, `AR_aarch64_apple_darwin`).
-
-Before a pull request, the same checks as CI (`.github/workflows/checks.yml`): formatting and
-clippy without warnings.
+The checks of CI (`.github/workflows/checks.yml`) are formatting, clippy without warnings, the
+tests on Windows and the Mac, and a coverage floor (`COVERAGE_FLOOR`):
 
 ```bash
 cargo fmt --all
@@ -78,40 +89,32 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-A git hook runs them before every commit that touches Rust; turn it on once per clone:
+```bash
+cargo llvm-cov --workspace --summary-only
+```
+
+A git hook runs formatting and clippy before every commit that touches Rust:
 
 ```bash
 git config core.hooksPath scripts/hooks
 ```
 
-CI also measures how many lines the tests run through, on the Mac, and fails below a floor
-(`COVERAGE_FLOOR` in the workflow). To see it before pushing, with
-[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov):
-
-```bash
-cargo llvm-cov --workspace --summary-only
-```
-
-`.gitignore` already leaves out the files of macOS, Windows and the common editors (`.DS_Store`,
-`.vscode/`…). Anything else of your own setup goes in your global ignore file
-(`git config --global core.excludesFile`).
-
 ## Trying it
 
-With a separate home, so as not to touch the real one:
+With a home of its own, so as not to touch the real one:
 
 ```bash
-CLAK_HOME="$LOCALAPPDATA/Temp/clak-try" "$CARGO_TARGET_DIR/debug/ClakApp.exe" --show
+CLAK_HOME=/tmp/clak-try cargo run -p clak-app -- --show
 ```
 
 A test program, a notepad that agents read and extend:
 
 ```bash
-CLAK_HOME="$LOCALAPPDATA/Temp/clak-try" cargo run -p clak-kit --example notes
+CLAK_HOME=/tmp/clak-try cargo run -p clak-kit --example notes
 ```
 
 ```bash
-CLAK_HOME="$LOCALAPPDATA/Temp/clak-try" "$CARGO_TARGET_DIR/debug/clak.exe" notes append --line "milk"
+CLAK_HOME=/tmp/clak-try cargo run -p clak-agent --bin clak -- notes append --line "milk"
 ```
 
 ## The app
@@ -125,46 +128,32 @@ ClakApp --setup | --uninstall from the installer
 ClakApp clak://…              a link, to the running copy
 ```
 
-If a hub is already running (another copy, the daemon) the app watches it from the
-control channel, read-only for connectors and APIs, and takes its place as soon as
-it goes away.
+If a hub is already running (another copy, the daemon), the app watches it from the control
+channel, read-only for connectors and APIs, and takes its place as soon as it goes away.
 
-## Installer
+## Installer and release
 
 ```bash
 node scripts/bundle.mjs
 ```
 
-On Windows a per-user NSIS installer (without administrator privileges) that after
-copying calls `ClakApp --setup` and before removal `ClakApp --uninstall`; on the Mac
-`.app` and `.dmg`. `clak` and `clak-shim` go next to the app.
+On Windows a per-user NSIS installer, without administrator rights, that calls
+`ClakApp --setup` after copying and `ClakApp --uninstall` before removal; on the Mac `.app` and
+`.dmg`. `clak` and `clak-shim` go next to the app.
 
-## Release
+Every commit on `main` that passes the checks is released (`.github/workflows/release.yml`):
+installers for Windows x64, Mac ARM and Mac Intel, with notes that start from the
+**Unreleased** section of `CHANGELOG.md`. The version is `X.Y` from `[workspace.package]` in
+`Cargo.toml` plus the run number; `node scripts/version.mjs 0.4.0` moves to a new `X.Y`.
 
-Once the checks pass on `main` (`.github/workflows/checks.yml`: formatting, clippy, the tests;
-skipped when the same files already passed on their pull request), GitHub Actions
-(`.github/workflows/release.yml`) builds the installers for Windows x64, Mac ARM and Mac Intel
-of that same commit, and a release with notes generated from the commits. The version is `X.Y`
-from `[workspace.package]` in `Cargo.toml` plus the run number (`0.3.17`): to move to `0.4`
-change it there, by hand or with
-
-```bash
-node scripts/version.mjs 0.4.0
-```
-
-On the Mac the app is signed with a Developer ID and sent to Apple for notarization without waiting:
-until Apple accepts it, macOS asks before the first opening.
-
-The installed apps update themselves through Tauri's updater: each release also carries the
-installer's `.sig`, the Mac `.app.tar.gz` with its `.sig`, and `latest.json`
-(`scripts/updater-manifest.mjs`). The updater installs only files signed with Clak's key, whose
-public half is in `crates/clak-app/tauri.conf.json`. The private key and its password are the
-`TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets of the `release`
-environment; for a local build, `.secrets/updater.key` and `.secrets/updater.password`. Without
-them the installers are built as before, without the updater files.
+The Mac app is signed with a Developer ID and notarized. The installed apps update themselves
+through Tauri's updater, which installs only files signed with Clak's key: its public half is
+in `crates/clak-app/tauri.conf.json`, the private one in the `release` environment's secrets
+(`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) or, for a local build, in
+`.secrets/updater.key` and `.secrets/updater.password`. Without it the installers have no
+updater files.
 
 ## License
 
-MIT: see [LICENSE](LICENSE). The dependency notices, which their licenses require to be
-distributed with the binaries, are written by `scripts/notices.mjs` for every installer: they end up
-next to the app as `THIRD-PARTY-NOTICES.txt`, together with `LICENSE.txt`.
+MIT: see [LICENSE](LICENSE). The dependencies' notices are written by `scripts/notices.mjs` for
+every installer and go next to the app as `THIRD-PARTY-NOTICES.txt`, with `LICENSE.txt`.

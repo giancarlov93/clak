@@ -40,14 +40,16 @@ The hub keeps its files in a folder called its *home*:
 - otherwise `.clak` in the user's home folder (`%USERPROFILE%\.clak` on Windows,
   `~/.clak` on macOS).
 
-While the hub runs, the home contains `daemon.json`, readable only by the user:
+While the hub runs, the home contains `daemon.json`. On the Mac only the user can read it; on
+Windows it has the access rules of the folder it is in, which in the user's profile are the
+user's own:
 
 ```json
 {
   "ws_port": 61969,
   "token": "3f1c9a…",
-  "control": "\\\\.\\pipe\\clak-e87e5f920564",
-  "pid": 86888,
+  "control": "…",
+  "pid": 12345,
   "protocol": 1
 }
 ```
@@ -78,7 +80,7 @@ leaves the computer.
 - The WebSocket handshake must complete within 10 seconds.
 - The hub sends a ping every 20 seconds. Answer with a pong, as WebSocket libraries do on
   their own.
-- Anything that is not a JSON object closes the connection.
+- Anything that is not a JSON object, or an object with a repeated key, closes the connection.
 - Every message has a `type`. Ignore fields you don't know and message types you don't
   know: future versions of the hub may add them without changing the protocol version.
 
@@ -131,14 +133,12 @@ sequenceDiagram
     end
 ```
 
-Solid arrows carry work, dashed ones withdraw it (an agent that no longer waits, a permission
-taken back), a cross ends the connection.
-
 ## 4. Messages from the extension
 
 ### `register`
 
-The first message on every connection. Until it is accepted, nothing else is read.
+The first message on every connection, sent once: what comes before it is ignored, what comes
+after it is read once it is accepted.
 
 ```json
 {
@@ -191,7 +191,8 @@ whole list.
 {"type": "tools_changed", "tools": [ … ], "active": ["read"], "instructions": "…"}
 ```
 
-`tools` is required and has the same form as in `register`; `active` works the same way.
+`tools` is required and has the same form as in `register`; `active` works the same way, and
+names in it that aren't among `tools` are ignored.
 If `instructions` is present it replaces the previous instructions (an empty string
 removes them); if it is absent they stay as they were.
 
@@ -208,13 +209,8 @@ title to the user and to agents from now on; the grants stay.
 | --- | --- | --- |
 | `title` | yes | The new `resource.title`, as in `register`. |
 
-Only the title changes. `resource.app` and `resource.instance_id` stay those of `register`:
-the user's consent and the agents' command name depend on them. A *different* document (the
-window now shows another file) is not a new title: it is another opening, so send `close`
+A *different* document (the window now shows another file) is another opening: send `close`
 and `register` it on a new connection, and agents ask again for it.
-
-A hub that doesn't know this message ignores it, as it ignores any message it doesn't know:
-the title stays the registered one until the next `register`.
 
 ### `result`
 
@@ -234,7 +230,8 @@ The answer to a `call`.
 | `content` | no | What the command returns (section 7). |
 | `is_error` | no | `true` if the command failed; `content` then says why, in words the agent can act on. |
 
-A result for a call that was cancelled, or that the hub doesn't know, is ignored.
+A result for a call that was cancelled, or that the hub doesn't know, is ignored. One without a
+`call_id` is malformed.
 
 ### `close`
 
@@ -276,22 +273,23 @@ speaks.
 ```
 
 The program may not connect, and the hub closes the connection. `reason` is `user` (the
-user said no), `no_answer` (nobody answered in time) or `no_prompt` (the hub has no
-window to ask in). Don't reconnect on your own: wait for the user to try again.
+user said no), `no_answer` (nobody answered within 120 seconds) or `no_prompt` (the hub has
+no window to ask in). After a no, the same program connecting again within 60 seconds is
+denied without asking. Don't reconnect on your own: wait for the user to try again.
 
 ### `granted`
 
 ```json
-{"type": "granted", "grant_id": "grant_6fb2ce07232e", "harness": "Claude Code · clak"}
+{"type": "granted", "grant_id": "grant_6fb2ce07232e", "harness": "Claude Code · shopping"}
 ```
 
-An agent may now use the resource. `harness` names the agent, for the user: showing who is
-using the document is good practice.
+An agent may now use the resource. `harness` names it for the user, as the agent and the folder
+it works in: showing who is using the document is good practice.
 
 ### `revoked`
 
 ```json
-{"type": "revoked", "grant_id": "grant_6fb2ce07232e", "reason": "user", "harness": "Claude Code · clak"}
+{"type": "revoked", "grant_id": "grant_6fb2ce07232e", "reason": "user", "harness": "Claude Code · shopping"}
 ```
 
 An agent can no longer use the resource: the user revoked it (`user`) or the agent's
@@ -305,15 +303,14 @@ process ended (`harness_gone`).
   "call_id": "call_83accd680467",
   "tool": "append",
   "arguments": {"line": "milk"},
-  "harness": "Claude Code · clak"
+  "harness": "Claude Code · shopping"
 }
 ```
 
-An agent with a grant calls a command. Answer with exactly one `result` with the same
-`call_id`. `arguments` is always an object. The hub only sends calls for commands that are
-active; still, answer an unknown `tool` with an error result.
-
-Calls can overlap: a second call may arrive before the first is answered.
+An agent with a grant calls a command, or the user does from Clak's panel (`harness` is then
+`You, from Clak's panel`, with no `granted` before). Answer with exactly one `result` with the
+same `call_id`. `arguments` is always an object. The hub only sends calls for commands that
+are active; still, answer an unknown `tool` with an error result. Calls can overlap (section 9).
 
 ### `cancel`
 
@@ -430,18 +427,18 @@ precise `app` name: allowing one plugin of a host doesn't allow another with a d
 
 **Agents.** Every agent needs its own permission for every resource, asked by the hub.
 The one exception is an agent the user launched from Clak with a preset: the user chose
-its programs beforehand, so its grants arrive without a question (still as `granted`, and
-only for the commands the preset lists). Grants end when the agent's process ends, when the
+its programs beforehand, so its grants arrive without a question (still as `granted`), for all
+the program's commands or only those the preset lists. Grants end when the agent's process ends, when the
 user revokes them, or when the connection closes.
 
 **The token.** The hub listens on a loopback port that any local process, and any web
-page, could try. The token, in a file only the user can read, is what keeps them out.
+page, could try. The token, in the user's `daemon.json`, is what keeps them out.
 Never log it, show it or send it anywhere but `register`.
 
 ## 9. Timing
 
-- The user may take time to answer a consent question: don't put a short timeout on
-  `register`.
+- The user has up to 120 seconds to answer a consent question: don't put a shorter timeout
+  on `register`.
 - The hub waits up to one hour for a result. Agents usually wait less (110 seconds unless
   they ask for more): when they give up, `cancel` arrives.
 - Calls may overlap. Run long commands without blocking the reading of messages, so that
@@ -453,9 +450,6 @@ Never log it, show it or send it anywhere but `register`.
 
 `protocol` is an integer, currently `1`. It changes only when a change would break an
 extension written for the previous version. Adding optional fields or new message types is
-not such a change, which is why extensions must ignore what they don't know.
-
-- The hub writes the version it speaks in `daemon.json` and in `registered`.
-- The extension declares the version it speaks in `register`.
-- A hub that doesn't speak the declared version answers with an `error` that carries its
-  own `protocol`, and closes the connection.
+not such a change, which is why extensions must ignore what they don't know. Where the
+versions are exchanged: `daemon.json`, `register`, `registered`, and the `error` of a hub that
+doesn't speak the extension's.
