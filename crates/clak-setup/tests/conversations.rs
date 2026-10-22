@@ -1,5 +1,5 @@
 //! Claude Code's past conversations: listed with their title and folder, renamed by adding a
-//! line, resumed in the folder where they took place.
+//! line, resumed in the folder where they took place, deleted with what is kept beside them.
 
 mod common;
 
@@ -171,4 +171,40 @@ fn its_own_title_wins_over_the_one_of_the_conversation_it_continues() {
     std::fs::write(&path, text).unwrap();
     let all = conversations::list(&sandbox.places, "claude-code").unwrap();
     assert_eq!(all[0].title, "Mine");
+}
+
+#[test]
+fn a_deleted_conversation_takes_its_folders_and_leaves_the_others() {
+    let sandbox = Sandbox::new();
+    conversation(&sandbox, "aaa-1", "/work/app", "Fix the login page");
+    conversation(&sandbox, "bbb-2", "/work/app", "Write the tests");
+    sandbox.write(&format!("{PROJECT}/aaa-1/tool-results/one.txt"), "out");
+    sandbox.write("home/.claude/file-history/aaa-1/one", "before");
+    sandbox.write("home/.claude/session-env/aaa-1/env", "x");
+    sandbox.write("home/.claude/file-history/bbb-2/one", "before");
+    conversations::delete(&sandbox.places, "claude-code", "aaa-1").unwrap();
+    let all = conversations::list(&sandbox.places, "claude-code").unwrap();
+    assert_eq!(
+        all.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+        ["bbb-2"]
+    );
+    assert!(!sandbox.path(&format!("{PROJECT}/aaa-1")).exists());
+    assert!(!sandbox.path("home/.claude/file-history/aaa-1").exists());
+    assert!(!sandbox.path("home/.claude/session-env/aaa-1").exists());
+    assert!(sandbox.path("home/.claude/file-history/bbb-2/one").exists());
+}
+
+#[test]
+fn deleting_an_unknown_or_invalid_id_is_refused() {
+    let sandbox = Sandbox::new();
+    conversation(&sandbox, "aaa-1", "/work/app", "Fix the login page");
+    assert!(conversations::delete(&sandbox.places, "claude-code", "zzz-9").is_err());
+    assert!(conversations::delete(&sandbox.places, "claude-code", "../aaa-1").is_err());
+    assert!(conversations::delete(&sandbox.places, "codex", "aaa-1").is_err());
+    assert_eq!(
+        conversations::list(&sandbox.places, "claude-code")
+            .unwrap()
+            .len(),
+        1
+    );
 }

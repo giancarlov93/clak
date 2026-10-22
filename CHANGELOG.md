@@ -15,8 +15,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 ### Added
 
 - Conversations, in the Agents tab: the past Claude Code conversations, the latest first, with
-  their folder, filtered by words. Each one resumes in a terminal in the folder where it took
-  place, authorized like a launch from Clak, or gets a name of its own, as `/rename` gives it.
+  their folder, filtered by words, or grouped under their folder with a switch. Each one resumes
+  in a terminal in the folder where it took place, authorized like a launch from Clak, gets a
+  name of its own, as `/rename` gives it, or is deleted, after a confirmation.
 - Launch, in the Agents tab: the agents installed on this computer (Claude Code, Codex, Gemini
   CLI, OpenCode, Claude Desktop, VS Code, Cursor, Windsurf), launched from Clak and authorized
   without a question. A command-line agent opens in a terminal in the folder you pick, with a
