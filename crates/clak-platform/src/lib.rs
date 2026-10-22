@@ -413,6 +413,9 @@ mod tests {
     #[test]
     fn the_agent_of_this_process() {
         let me = std::process::id();
+        // PowerShell, which says that the tests aren't signed, may be slow to start: waited for.
+        #[cfg(windows)]
+        win::settled_signature(&process_exe(me).unwrap());
         // Already authorized, the process itself is the agent: the chain is just itself.
         let mine: HashSet<String> = [format!("{me}:{}", process_start_time(me).unwrap())].into();
         let agent = agent_of(Some(me), &mine).unwrap();
@@ -446,6 +449,8 @@ mod tests {
         let client = std::net::TcpStream::connect(("127.0.0.1", hub)).unwrap();
         let program = client.local_addr().unwrap().port();
         let _accepted = listener.accept().unwrap();
+        #[cfg(windows)]
+        win::settled_signature(&process_exe(std::process::id()).unwrap());
         let origin = attest_loopback(program, hub);
         assert_eq!(origin["pid"], serde_json::json!(std::process::id()));
         assert_eq!(
