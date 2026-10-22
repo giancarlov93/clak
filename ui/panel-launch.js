@@ -1,6 +1,6 @@
 // The Agents tab: the agents installed on this computer, launched from here and authorized
-// without a question, with their global instructions and their past conversations, resumed
-// or renamed; and the presets — an agent, a folder, the programs it may use and how it starts. Finding, launching and the presets live in
+// without a question, with their global instructions and their past conversations, resumed,
+// renamed or deleted; and the presets — an agent, a folder, the programs it may use and how it starts. Finding, launching and the presets live in
 // launcher.rs and presets.rs (clak-setup), the instructions files in instructions.rs, the
 // authorization in the hub (clak-hub/src/launch.rs): here only the rows, the buttons and the
 // editors.
@@ -21,11 +21,16 @@ const Launch = (() => {
   /// Per row: what happened, "Launched…" or the error as it is.
   const notes = {};
   const busy = new Set();
-  /// An agent's past conversations, when that page is open: { agent, all, error, renaming }.
-  /// `renaming` keeps its field from one drawing to the next: what is typed stays.
+  /// An agent's past conversations, when that page is open: { agent, all, error, renaming,
+  /// deleting, top, body }. `renaming` is { id, value }: what is typed stays from one drawing
+  /// to the next. `top` (the title, the filter, the switch) is drawn once: only `body` is
+  /// redrawn, so the filter keeps the focus while it is typed in.
   let talks = null;
   const filter = el("input", { type: "search", placeholder: "Filter", "aria-label": "Filter conversations", spellcheck: "false" });
   filter.addEventListener("input", () => draw());
+  /// Grouped by folder or not: remembered on this computer, for the next time.
+  const BY_FOLDER = "clak.conversations.byFolder";
+  let byFolder = (() => { try { return localStorage.getItem(BY_FOLDER) === "1"; } catch { return false; } })();
 
   const refresh = async () => {
     try {
@@ -96,7 +101,8 @@ const Launch = (() => {
   const openTalks = async (a) => {
     closeEditor();
     filter.value = "";
-    talks = { agent: a, all: null, error: null, renaming: null };
+    talks = { agent: a, all: null, error: null, renaming: null, deleting: null, top: el("div"), body: el("div") };
+    Kit.replace(talks.top, ...talksHeader(`${a.name} conversations`));
     draw();
     list.scrollIntoView({ block: "start" });
     await loadTalks();
@@ -120,21 +126,25 @@ const Launch = (() => {
     draw();
   };
 
+  /// One question at a time under the rows: renaming one closes the delete of another.
   const startRename = (c) => {
-    const field = el("input", { type: "text", value: c.title, "aria-label": "Name", maxlength: "120", spellcheck: "false" });
-    field.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") saveRename(c);
-      if (e.key === "Escape") { talks.renaming = null; draw(); }
-    });
-    talks.renaming = { id: c.id, field };
+    talks.renaming = { id: c.id, value: c.title };
+    talks.deleting = null;
     draw();
-    field.focus();
-    field.select();
+    const field = talks.body.querySelector(".talk-name input");
+    field?.focus();
+    field?.select();
+  };
+
+  const cancel = () => {
+    talks.renaming = null;
+    talks.deleting = null;
+    draw();
   };
 
   const saveRename = async (c) => {
     const row = `talk:${c.id}`;
-    const title = talks.renaming?.field.value || "";
+    const title = talks.renaming?.value || "";
     delete notes[row];
     try {
       await Clak.invoke("conversations_rename", { agent: talks.agent.id, id: c.id, title });
@@ -146,59 +156,139 @@ const Launch = (() => {
     }
   };
 
-  const talkRow = (c, now) => {
+  const askDelete = (c) => {
+    talks.deleting = c.id;
+    talks.renaming = null;
+    draw();
+  };
+
+  const deleteTalk = async (c) => {
+    const row = `talk:${c.id}`;
+    delete notes[row];
+    busy.add(row);
+    draw();
+    try {
+      await Clak.invoke("conversations_delete", { agent: talks.agent.id, id: c.id });
+      talks.deleting = null;
+      talks.all = talks.all.filter((t) => t.id !== c.id);
+    } catch (e) {
+      notes[row] = String(e);
+    }
+    busy.delete(row);
+    await loadTalks();
+  };
+
+  /// The name being typed: a new field at every drawing, which takes over the focus and
+  /// the selection of the one it replaces.
+  const nameField = () => {
+    const field = el("input", { type: "text", "aria-label": "Name", maxlength: "120", spellcheck: "false" });
+    field.value = talks.renaming.value;
+    field.addEventListener("input", () => { if (talks?.renaming) talks.renaming.value = field.value; });
+    return field;
+  };
+
+  const talkRow = (c, now, grouped) => {
     const row = `talk:${c.id}`;
     const renaming = talks.renaming?.id === c.id;
+    const deleting = talks.deleting === c.id;
     const where = c.folder ? home(c.folder) : "No folder";
+    const when = D.ago(c.updated / 1000, now);
+    let field = null;
+    if (renaming) {
+      field = nameField();
+      field.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") saveRename(c);
+        if (e.key === "Escape") cancel();
+      });
+    }
+    const buttons = renaming
+      ? [el("button", { onclick: cancel }, "Cancel"),
+        el("button", { class: "accent", onclick: () => saveRename(c) }, "Save")]
+      : deleting
+        ? [el("button", { disabled: busy.has(row), onclick: cancel }, "Cancel"),
+          el("button", { class: "danger", disabled: busy.has(row), onclick: () => deleteTalk(c) }, "Delete")]
+        : [Kit.iconButton("trash", "Delete", () => askDelete(c)),
+          el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename"),
+          el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Resumes it in a terminal, in ${where}`,
+            onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume")];
     return el("div", { class: Clak.mac ? "row setup talk" : "card setup talk", "data-id": row },
       el("div", { class: "lines" },
         renaming
-          ? el("div", { class: "ed-dialog talk-name" }, talks.renaming.field)
+          ? el("div", { class: "ed-dialog talk-name" }, field)
           : el("div", { class: "name" }, el("strong", { class: "ellipsis", title: c.title }, c.title)),
-        el("div", { class: "quiet ellipsis", title: c.folder || "" }, el("span", { class: "mono" }, where), ` · ${D.ago(c.updated / 1000, now)}`),
+        deleting
+          ? el("div", { class: "quiet" }, "Delete it for good? Claude Code won't find it either.")
+          : grouped
+            ? el("div", { class: "quiet" }, when)
+            : el("div", { class: "quiet ellipsis", title: c.folder || "" }, el("span", { class: "mono" }, where), ` · ${when}`),
         note(row)),
-      el("div", { class: "actions" }, spinner(row),
-        renaming
-          ? [el("button", { onclick: () => { talks.renaming = null; draw(); } }, "Cancel"),
-            el("button", { class: "accent", onclick: () => saveRename(c) }, "Save")]
-          : [el("button", { disabled: busy.has(row), title: "Gives it a name of your own", onclick: () => startRename(c) }, "Rename"),
-            el("button", { class: Clak.mac ? "" : "accent", disabled: busy.has(row), title: `Resumes it in a terminal, in ${where}`,
-              onclick: () => launch(row, { agent: talks.agent.id, resume: c.id }) }, "Resume")]));
+      el("div", { class: "actions" }, spinner(row), buttons));
   };
 
   /// The way back to the agents: on the Mac a back button over the title, on Windows the
-  /// breadcrumbs.
+  /// breadcrumbs. On the right the filter and the switch that groups by folder.
   const talksHeader = (title) => {
     const search = el("label", { class: "search" }, Kit.icon("search"), filter);
+    const grouping = el("div", { class: "talk-group", title: "The conversations under the folder where they took place" },
+      el("span", null, "By folder"),
+      Kit.toggle(byFolder, "Group by folder", (on) => {
+        byFolder = on;
+        try { localStorage.setItem(BY_FOLDER, on ? "1" : "0"); } catch { /* only for the next time */ }
+        draw();
+      }));
     if (Clak.mac) {
-      return [el("button", { class: "back", onclick: closeTalks }, Kit.icon("back"), el("span", null, "Agents")), Kit.title(title, search)];
+      return [el("button", { class: "back", onclick: closeTalks }, Kit.icon("back"), el("span", null, "Agents")), Kit.title(title, grouping, search)];
     }
     return [el("header", { class: "title crumbs" },
       el("button", { class: "crumb", onclick: closeTalks, title: "Agents" }, "Agents"), Kit.icon("chevron", "sep"),
-      el("h1", null, title), el("div", { class: "actions" }, search))];
+      el("h1", null, title), el("div", { class: "actions" }, grouping, search))];
   };
 
   /// At most this many rows: the filter finds the others.
   const SHOWN = 200;
 
+  /// The rows under their folder: the folders in the order of their latest conversation.
+  const byFolders = (shown, now) => {
+    const folders = new Map();
+    for (const c of shown) {
+      const key = c.folder || "";
+      if (!folders.has(key)) folders.set(key, []);
+      folders.get(key).push(c);
+    }
+    return [...folders].map(([folder, all]) => [
+      el("div", { class: "section talk-folder", title: folder },
+        el("h2", { class: "mono ellipsis" }, folder ? home(folder) : "No folder"),
+        el("span", { class: "count" }, String(all.length))),
+      group(all.map((c) => talkRow(c, now, true))),
+    ]);
+  };
+
   const drawTalks = () => {
     const a = talks.agent;
+    if (list.firstChild !== talks.top || list.childNodes.length !== 2) list.replaceChildren(talks.top, talks.body);
     const words = filter.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const matches = (talks.all || []).filter((c) => {
       const text = `${c.title} ${c.folder || ""}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });
     const now = Date.now();
-    Kit.replace(list,
-      ...talksHeader(`${a.name} conversations`),
+    const shown = matches.slice(0, SHOWN);
+    // The name being typed: its field is new, the focus and the selection go over to it.
+    const typing = document.activeElement?.closest?.(".talk-name") ? document.activeElement : null;
+    const changed = Kit.replace(talks.body,
       talks.error ? Kit.bar("err", talks.error) : null,
       talks.all === null
         ? el("div", { class: "quiet" }, "Reading the conversations…")
-        : matches.length
-          ? group(matches.slice(0, SHOWN).map((c) => talkRow(c, now)))
+        : shown.length
+          ? byFolder ? byFolders(shown, now) : group(shown.map((c) => talkRow(c, now, false)))
           : Kit.empty("chat", words.length ? "No match" : "No conversations", words.length ? "Nothing with these words in the title or the folder" : `The conversations with ${a.name} show up here`),
       matches.length > SHOWN ? el("div", { class: "quiet hint" }, `The latest ${SHOWN} of ${matches.length}: the filter finds the others.`) : null,
       el("div", { class: "quiet hint" }, `A conversation resumes in a terminal, in the folder where it took place, authorized like a launch from here.`));
+    const field = talks.body.querySelector(".talk-name input");
+    if (changed && typing && field) {
+      field.focus();
+      field.setSelectionRange(typing.selectionStart, typing.selectionEnd);
+    }
   };
 
   // --- an agent's global instructions ----------------------------------------------

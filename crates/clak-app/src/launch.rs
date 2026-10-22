@@ -240,6 +240,16 @@ pub async fn conversations_rename(agent: String, id: String, title: String) -> R
     .map_err(|e| e.to_string())?
 }
 
+/// Deletes one of the agent's past conversations, for good.
+#[tauri::command]
+pub async fn conversations_delete(agent: String, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        conversations::delete(&Places::real(), &agent, &id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The folder an agent works in, chosen by the user.
 #[tauri::command]
 pub async fn launch_choose_folder(window: WebviewWindow) -> Option<String> {

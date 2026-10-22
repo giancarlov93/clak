@@ -1,10 +1,11 @@
 //! The past conversations of a command-line agent, from the Agents tab: listed, resumed in
-//! the folder where they took place, renamed.
+//! the folder where they took place, renamed, deleted.
 //!
 //! They are the agent's files, not Clak's. Claude Code keeps one per conversation,
 //! `<config>/projects/<folder>/<id>.jsonl`, one JSON object per line, and only ever adds
-//! lines to it: renaming adds one more line, as its own `/rename` does. Nothing else is
-//! written.
+//! lines to it: renaming adds one more line, as its own `/rename` does. Deleting removes
+//! that file and the folders named after the conversation, as nothing in Claude Code does:
+//! nothing else is written.
 
 use crate::{Places, Result, SetupError};
 use serde_json::{Value, json};
@@ -100,6 +101,29 @@ pub fn rename(places: &Places, agent: &str, id: &str, title: &str) -> Result<()>
         .map_err(|e| SetupError(format!("Can't write {}: {e}", path.display())))
 }
 
+/// Deletes the conversation: its file, and what Claude Code keeps beside it under its id
+/// (the subagents and the long tool results, the files' earlier versions, the environment).
+/// The prompts in the shared `history.jsonl` stay: that file is every conversation's.
+pub fn delete(places: &Places, agent: &str, id: &str) -> Result<()> {
+    if !supported(agent) {
+        return Err(unsupported(agent));
+    }
+    let path = claude_file(places, id)?;
+    std::fs::remove_file(&path)
+        .map_err(|e| SetupError(format!("Can't delete {}: {e}", path.display())))?;
+    let config = claude_config(places);
+    for dir in [
+        path.with_extension(""),
+        config.join("file-history").join(id),
+        config.join("session-env").join(id),
+    ] {
+        if dir.is_dir() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    Ok(())
+}
+
 /// What to add to the agent's command line to resume the conversation, and the folder to
 /// start it in.
 pub fn resume(places: &Places, agent: &str, id: &str) -> Result<(Vec<String>, Option<PathBuf>)> {
@@ -125,13 +149,16 @@ fn unsupported(agent: &str) -> SetupError {
     ))
 }
 
-/// `$CLAUDE_CONFIG_DIR/projects`, or `~/.claude/projects`.
-fn claude_projects(places: &Places) -> PathBuf {
+/// `$CLAUDE_CONFIG_DIR`, or `~/.claude`.
+fn claude_config(places: &Places) -> PathBuf {
     match places.var("CLAUDE_CONFIG_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => places.home.join(".claude"),
     }
-    .join("projects")
+}
+
+fn claude_projects(places: &Places) -> PathBuf {
+    claude_config(places).join("projects")
 }
 
 /// The file of a conversation, by its id: found in whichever folder it took place.
