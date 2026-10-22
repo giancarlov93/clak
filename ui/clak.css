@@ -81,6 +81,15 @@ html.mac[data-theme="dark"] {
   --accent-text: #fff;
 }
 
+/* Motion: WinUI's durations and its curve, that decelerates into place; on the Mac a little
+   quicker, as AppKit. None when the system asks for less (on Windows, "Animation effects"
+   off). What arrives on screen is moved from the scripts: Clak.enter in clak.js. */
+:root { --fast: 83ms; --normal: 167ms; --ease: cubic-bezier(0, 0, 0, 1); }
+html.mac { --fast: 100ms; --normal: 150ms; }
+@media (prefers-reduced-motion: reduce) {
+  :root, html.mac { --fast: 0s; --normal: 0s; }
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -128,6 +137,16 @@ button {
 html.mac button { min-height: 24px; padding: 2px 12px 3px; box-shadow: 0 0.5px 1px rgba(0,0,0,.15); border-bottom-color: var(--stroke); }
 button:hover:not(:disabled) { background: var(--control-hover); }
 button:disabled { opacity: .45; }
+/* Under the pointer and back, the color fades; pressed, it answers at once. */
+button {
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+button:active:not(:disabled) { transition-duration: 0s; }
+/* Pressed, as in WinUI: the text recedes, the accent pales. On the Mac a little darker. */
+html.win button:active:not(:disabled) { color: var(--quiet); }
+html.win button.accent:active:not(:disabled) { background: color-mix(in srgb, var(--fill) 80%, transparent); color: color-mix(in srgb, var(--accent-text) 80%, transparent); }
+html.mac button:active:not(:disabled) { filter: brightness(.92); }
 /* The fill is a variable so that a variant (the caution one in panel.css) keeps its hover. */
 button.accent { --fill: var(--accent); background: var(--fill); color: var(--accent-text); border-color: transparent; }
 /* Lighter under the pointer: the plain button's hover above would otherwise grey it out. */

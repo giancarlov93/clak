@@ -194,9 +194,23 @@ const Kit = (() => {
     draft.append(...nodes.flat(Infinity).filter((n) => n != null && n !== false));
     if (draft.innerHTML === container.innerHTML) return false;
     const was = focusIn(container);
+    const before = new Set([...container.querySelectorAll("[data-id]")].map((n) => n.dataset.id));
+    const drawn = container.childNodes.length > 0;
     container.replaceChildren(...draft.childNodes);
     if (was && !container.contains(document.activeElement)) refocus(container, was);
+    if (drawn) arrive(container, before);
     return true;
+  };
+
+  /// The rows new in a list already on screen (an agent that connects, a program allowed)
+  /// arrive one after the other. Many at once is another list (a filter, another page): it
+  /// is just there, as is a list drawn for the first time.
+  const arrive = (container, before) => {
+    if (Clak.arriving(container)) return;
+    const fresh = [...container.querySelectorAll("[data-id]")].filter((n) => !before.has(n.dataset.id));
+    const outer = fresh.filter((n) => !fresh.some((m) => m !== n && m.contains(n)));
+    if (outer.length > 3) return;
+    outer.forEach((n, i) => Clak.enter(n, { rise: 6, delay: i * 40 }));
   };
 
   /// Copies to the clipboard.

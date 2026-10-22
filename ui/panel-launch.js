@@ -152,6 +152,7 @@ const Launch = (() => {
     delete notes.cleanup;
     talks = { agent: a, all: null, error: null, renaming: null, deleting: null, found: null, cleanup: null, top: el("div"), body: el("div") };
     Kit.replace(talks.top, ...talksHeader(`${a.name} conversations`));
+    Clak.enter(list, { rise: Clak.mac ? 6 : 12 });
     draw();
     list.scrollIntoView({ block: "start" });
     await loadTalks();
@@ -172,6 +173,7 @@ const Launch = (() => {
 
   const closeTalks = () => {
     talks = null;
+    Clak.enter(list, { rise: Clak.mac ? 6 : 12 });
     draw();
   };
 

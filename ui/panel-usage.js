@@ -29,6 +29,12 @@
     choice[k] = v;
     try { localStorage.setItem(`costs.${k}`, v); } catch { /* not kept */ }
     draw();
+    if (k !== "rows") grow();
+  };
+  /// The bars rise from the axis: when the chart shows something else, not when it refreshes.
+  const grow = () => {
+    const svg = body?.querySelector(".cost-chart svg");
+    if (svg) Clak.animate(svg, [{ clipPath: "inset(100% 0 0 0)" }, { clipPath: "inset(0 0 0 0)" }], { duration: 450 });
   };
   /// The kinds of token, each at its own price: their colors after the harnesses'.
   const KINDS = [["input", "Input", 5], ["output", "Output", 6], ["cache_write", "Cache write", 7], ["cache_read", "Cache read", 8]];
@@ -363,6 +369,7 @@
   const load = async (refresh) => {
     if (busy) return;
     busy = true;
+    const first = !report;
     try {
       report = await Clak.invoke("costs_report", { refresh: !!refresh });
       failed = null;
@@ -372,6 +379,7 @@
       busy = false;
     }
     draw();
+    if (first) grow();
   };
 
   const visible = () => page && !page.classList.contains("hidden") && document.visibilityState === "visible";
