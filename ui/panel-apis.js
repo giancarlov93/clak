@@ -16,6 +16,12 @@
 
   const run = (cmd, args) => invoke(cmd, args).catch((e) => console.warn(cmd, E.message(e)));
 
+  /// How it has been answering the agents: in the warning color if the last command failed.
+  const healthLine = (resourceId, now) => {
+    const h = D.health(state, resourceId, now);
+    return h ? el("div", { class: "quiet-text ed-state" + (h.failed ? " caution" : ""), title: "Since the agents' permissions began" }, h.text) : null;
+  };
+
   const card = (a, manage) => {
     const oauth = a.auth === "oauth" || a.auth === "oauth-app";
     // The OAuth sign-in must be redone: the tab says so, and the button redoes it.
@@ -25,6 +31,7 @@
       ? el("div", { class: "ed-actions" },
         Kit.toggle(a.enabled, "Enabled", (on) => run("api_enable", { id: a.id, on })),
         E.moreButton(() => [
+          ...(a.resource_id ? [{ label: "Commands…", run: () => Panel.show(`status:program:${a.resource_id}`) }] : []),
           { label: "Edit…", run: () => run("api_open", { id: a.id, signIn: false }) },
           ...(oauth ? [{ label: "Sign in…", run: () => run("api_open", { id: a.id, signIn: true }) }] : []),
           { label: a.enabled ? "Turn off" : "Turn on", run: () => run("api_enable", { id: a.id, on: !a.enabled }) },
@@ -56,6 +63,7 @@
             Kit.tag(`clak ${a.cli || a.command || E.cliFrom(a.name)}`, { mono: true, accent: Clak.mac, help: "What agents type" })),
           el("div", { class: "mono quiet ellipsis selectable", title: a.base_url }, a.base_url),
           el("div", { class: "quiet-text ed-state" }, D.apiState(a)),
+          healthLine(a.resource_id, Date.now()),
           users ? el("div", { class: "users" }, Kit.icon("people"), el("span", null, users)) : null),
         actions),
       bars.length ? el("div", { class: "indent ed-bars" }, bars) : null);

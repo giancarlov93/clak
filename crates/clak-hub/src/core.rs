@@ -378,6 +378,7 @@ impl Core {
                 "status": a.status,
                 "since": float(a.since),
                 "tools": a.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+                "health": self.health(&a.conn_id),
             })).collect::<Vec<_>>(),
             "grants": self.grants.values().filter_map(|g| {
                 let app = self.apps.get(&g.app_id)?;
@@ -1116,6 +1117,79 @@ impl Core {
         }
     }
 
+    /// How a program has been answering, from its permissions' calls since they began: how
+    /// many, how many failed, how long they took on average, the last one. Nothing if it
+    /// hasn't run a command yet.
+    fn health(&self, conn_id: &str) -> Value {
+        let grants: Vec<&GrantEntry> = self
+            .grants
+            .values()
+            .filter(|g| g.app_id == conn_id)
+            .collect();
+        let (calls, errors, seconds) = grants
+            .iter()
+            .flat_map(|g| g.stats.values())
+            .fold((0, 0, 0.0), |(c, e, s), t| {
+                (c + t.calls, e + t.errors, s + t.seconds)
+            });
+        let last = grants
+            .iter()
+            .filter_map(|g| g.history.back())
+            .max_by(|a, b| a.at.total_cmp(&b.at));
+        match last {
+            Some(last) if calls > 0 => json!({
+                "calls": calls,
+                "errors": errors,
+                "average": round3(seconds / calls as f64),
+                "last_at": float(last.at),
+                "last_outcome": last.outcome,
+            }),
+            _ => Value::Null,
+        }
+    }
+
+    /// A command run by the user from the panel, not by an agent: no permission to check,
+    /// the user is the one who gives them. Counted in no agent's usage.
+    pub fn begin_user_call(
+        &mut self,
+        conn_id: &str,
+        tool: &str,
+        arguments: Map<String, Value>,
+    ) -> Option<(String, oneshot::Receiver<Value>)> {
+        let app = self.apps.get(conn_id)?;
+        let tool = app.tools.iter().find(|t| t.name == tool)?.clone();
+        let routed = new_id("call");
+        let (answer, receiver) = oneshot::channel();
+        let arguments = Value::Object(arguments);
+        let kept = slim(&arguments);
+        app.send(json!({
+            "type": "call",
+            "call_id": routed,
+            "tool": tool.name,
+            "arguments": arguments,
+            "harness": "You, from Clak's panel",
+        }));
+        let program = app.name.clone();
+        self.log(format!("{program} {}: tried from the panel", tool.name));
+        self.calls.insert(
+            routed.clone(),
+            PendingCall {
+                answer,
+                conn_id: conn_id.to_owned(),
+                session_key: String::new(),
+                grant_id: None,
+                tool: tool.name.clone(),
+                agent: String::new(),
+                program,
+                arguments: kept,
+                started: now(),
+                progress: Progress::default(),
+            },
+        );
+        self.touch();
+        Some((routed, receiver))
+    }
+
     /// How much the agents used the programs, for the panel.
     pub fn panel_usage(&self) -> Value {
         self.usage.panel()
@@ -1227,8 +1301,9 @@ impl Core {
         let Some(call) = self.calls.remove(routed) else {
             return;
         };
-        // What ran, also if it failed: the program was used. An agent gone halfway, not.
-        if outcome != outcome::INTERRUPTED {
+        // What ran, also if it failed: the program was used. An agent gone halfway, not, and
+        // nor the user trying a command from the panel.
+        if outcome != outcome::INTERRUPTED && !call.agent.is_empty() {
             self.usage.count(call.started, &call.agent, &call.program);
         }
         if let Some(grant) = call
@@ -1502,6 +1577,39 @@ impl Broker {
                 Err(Gone)
             }
         }
+    }
+
+    /// Runs a command for the user, from the panel (see [`Core::begin_user_call`]): what came
+    /// back and how long it took, or why it couldn't run. Waits as long as an agent's command.
+    pub async fn try_command(
+        &self,
+        conn_id: &str,
+        tool: &str,
+        arguments: Map<String, Value>,
+    ) -> Value {
+        let started = Instant::now();
+        let Some((routed, answer)) = self.run(|c| c.begin_user_call(conn_id, tool, arguments))
+        else {
+            return json!({ "ok": false, "message": "The program or the command is no longer there." });
+        };
+        let limit = self.options().call_timeout;
+        let result = match tokio::time::timeout(limit, answer).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => failure("the program was closed during the command"),
+            Err(_) => {
+                self.run(|c| c.abandon(&routed, "timed out", outcome::TIMEOUT));
+                return json!({
+                    "ok": false,
+                    "message": format!("No answer within {} s.", limit.as_secs()),
+                });
+            }
+        };
+        json!({
+            "ok": true,
+            "is_error": json::truthy(result.get("is_error")),
+            "content": result.get("content").cloned().unwrap_or(Value::Null),
+            "seconds": round3(started.elapsed().as_secs_f64()),
+        })
     }
 
     fn spawn_prompt(&self, key: String, request: ConsentRequest, cancel: CancellationToken) {

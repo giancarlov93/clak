@@ -21,6 +21,12 @@
 
   const run = (cmd, args) => invoke(cmd, args).catch((e) => console.warn(cmd, E.message(e)));
 
+  /// How it has been answering the agents: in the warning color if the last command failed.
+  const healthLine = (resourceId, now) => {
+    const h = D.health(state, resourceId, now);
+    return h ? el("div", { class: "quiet-text ed-state" + (h.failed ? " caution" : ""), title: "Since the agents' permissions began" }, h.text) : null;
+  };
+
   /// The state in one word, for the pill: the detail is in the row below.
   const word = (c) => (!c.enabled ? "Off" : c.state ? c.state[0].toUpperCase() + c.state.slice(1) : "");
 
@@ -34,6 +40,7 @@
       ? el("div", { class: "ed-actions" },
         Kit.toggle(c.enabled, "Enabled", (on) => run("connector_enable", { id: c.id, on })),
         E.moreButton(() => [
+          ...(c.resource_id ? [{ label: "Commands…", run: () => Panel.show(`status:program:${c.resource_id}`) }] : []),
           { label: "Edit…", run: () => run("connector_open", { id: c.id, signIn: false }) },
           { label: c.enabled ? "Turn off" : "Turn on", run: () => run("connector_enable", { id: c.id, on: !c.enabled }) },
           "-",
@@ -69,6 +76,7 @@
             Kit.tag(`clak ${c.cli || c.command || E.cliFrom(c.name)}`, { mono: true, accent: Clak.mac, help: "What agents type" })),
           el("div", { class: "mono quiet ellipsis selectable", title: where }, where),
           el("div", { class: "quiet-text ed-state" }, D.connectorState(c, now)),
+          healthLine(c.resource_id, now),
           users ? el("div", { class: "users" }, Kit.icon("people"), el("span", null, users)) : null),
         actions),
       bars.length ? el("div", { class: "indent ed-bars" }, bars) : null);

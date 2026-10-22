@@ -147,6 +147,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::hub_hello,
             commands::hub_send,
+            commands::program_try,
             commands::consent_request,
             commands::consent_answer,
             commands::consent_resize,

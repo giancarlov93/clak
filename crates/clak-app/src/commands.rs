@@ -33,6 +33,25 @@ pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
     }
 }
 
+/// Runs a program's command as the user, from the Status tab: only from the panel, and only
+/// with the hub in here (the control channel never offers it: any process could ask).
+#[tauri::command]
+pub async fn program_try(
+    app: AppHandle,
+    window: WebviewWindow,
+    resource_id: String,
+    tool: String,
+    arguments: Map<String, Value>,
+) -> Result<Value, String> {
+    if window.label() != "panel" {
+        return Err("Only from the panel.".into());
+    }
+    let broker = bridge::of(&app)
+        .broker()
+        .ok_or("The hub runs in another process: commands can be tried only where it runs.")?;
+    Ok(broker.try_command(&resource_id, &tool, arguments).await)
+}
+
 /// The question a consent window shows.
 #[tauri::command]
 pub fn consent_request(app: AppHandle, id: String) -> Option<Value> {

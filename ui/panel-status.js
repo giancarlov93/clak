@@ -1,5 +1,6 @@
 // The Status tab: the hub, the agents and the connected programs. A click on a permission opens
-// its history, one on a program its commands, one on a command its detail.
+// its history, one on a program its commands, one on a command its detail, where the user can
+// also try it: run it as themselves, with the hub in the app (see program_try).
 // Descriptions, parameters and history are asked of the hub only there (`describe`, `history`):
 // the snapshot, which arrives on every change, only has the names.
 //
@@ -198,6 +199,111 @@
       p.choices.length ? el("div", { class: "quiet" }, "values  ", el("span", { class: "mono" }, p.choices.join(", "))) : null,
       p.default ? el("div", { class: "quiet" }, "if omitted  ", el("span", { class: "mono" }, p.default)) : null);
 
+  /// Per command, what is typed in its form and what came back: { values, result, busy }.
+  const trials = {};
+
+  /// A parameter's field, as its type asks: a list for the choices and for yes/no, a number,
+  /// JSON for objects and lists, text otherwise. What is typed stays from one drawing to the
+  /// next, without drawing again.
+  const tryField = (trial, p) => {
+    const set = (value) => { trial.values[p.name] = value; };
+    const value = trial.values[p.name] ?? "";
+    let field;
+    if (p.choices.length || p.type === "boolean") {
+      const options = p.choices.length ? p.choices : ["true", "false"];
+      field = el("select", { "aria-label": p.name }, el("option", { value: "" }, p.required ? "Choose…" : "Not given"),
+        options.map((o) => el("option", { value: o }, o)));
+      field.value = value;
+      field.addEventListener("change", () => set(field.value));
+    } else if (p.type === "object" || p.type === "array") {
+      field = el("textarea", { class: "mono", rows: "3", spellcheck: "false", "aria-label": p.name, placeholder: p.type === "array" ? "[ … ]" : "{ … }" });
+      field.value = value;
+      field.addEventListener("input", () => set(field.value));
+    } else {
+      field = el("input", { type: p.type === "integer" || p.type === "number" ? "number" : "text", spellcheck: "false", "aria-label": p.name, placeholder: p.default || "" });
+      field.value = value;
+      field.addEventListener("input", () => set(field.value));
+    }
+    return el("label", { class: "try-field", "data-id": `try:${p.name}` },
+      el("span", { class: "mono" }, p.name, p.required ? el("span", { class: "danger" }, " *") : null), field);
+  };
+
+  /// The arguments as the command wants them: the empty ones left out, numbers, yes/no and
+  /// JSON read. A field that can't be read says so instead.
+  const tryArguments = (t, values) => {
+    const args = {};
+    for (const p of t.parameters) {
+      const raw = String(values[p.name] ?? "").trim();
+      if (!raw) {
+        if (p.required) throw new Error(`${p.name} is required.`);
+        continue;
+      }
+      if (p.type === "integer" || p.type === "number") {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) throw new Error(`${p.name} isn't a number.`);
+        args[p.name] = n;
+      } else if (p.type === "boolean") {
+        args[p.name] = raw === "true";
+      } else if (p.type === "object" || p.type === "array" || (p.choices.length && /^[\[{0-9tfn-]/.test(raw) && p.type !== "string")) {
+        try { args[p.name] = JSON.parse(raw); } catch { throw new Error(`${p.name} isn't valid JSON.`); }
+      } else {
+        args[p.name] = raw;
+      }
+    }
+    return args;
+  };
+
+  const runTrial = async (r, t, trial) => {
+    let args;
+    try {
+      args = tryArguments(t, trial.values);
+    } catch (e) {
+      trial.result = { ok: false, message: e.message };
+      return draw();
+    }
+    trial.busy = true;
+    trial.result = null;
+    draw();
+    try {
+      trial.result = await Clak.invoke("program_try", { resourceId: r.id, tool: t.name, arguments: args });
+    } catch (e) {
+      trial.result = { ok: false, message: String(e) };
+    }
+    trial.busy = false;
+    draw();
+  };
+
+  /// What came back: the texts as they are, anything else as JSON.
+  const trialOutput = (content) =>
+    (Array.isArray(content) ? content : content == null ? [] : [content])
+      .map((c) => (c && c.type === "text" ? c.text : JSON.stringify(c, null, 2)))
+      .join("\n\n");
+
+  const trySection = (r, t) => {
+    if (ctx.readonly) {
+      return [Kit.section("Try it"), el("div", { class: "quiet" }, "Commands can be tried in the app where the hub runs.")];
+    }
+    const key = `${r.id}/${t.name}`;
+    const trial = (trials[key] ||= { values: {}, result: null, busy: false });
+    const result = trial.result;
+    return [
+      Kit.section("Try it", { help: "Runs the command as you, now: what it changes stays changed" }),
+      el("div", { class: "card try" },
+        t.parameters.length ? el("div", { class: "try-fields" }, t.parameters.map((p) => tryField(trial, p))) : null,
+        el("div", { class: "try-run" },
+          el("span", { class: "quiet" }, "It really runs: what it changes stays changed."),
+          trial.busy ? el("span", { class: "spinner", "aria-label": "Running" }) : null,
+          el("button", { class: "accent", disabled: trial.busy, onclick: () => runTrial(r, t, trial) }, "Run")),
+        result
+          ? el("div", { class: "try-result" },
+            result.ok
+              ? Kit.bar(result.is_error ? "err" : "ok", result.is_error ? `It answered with an error, in ${D.duration(result.seconds)}` : `Done in ${D.duration(result.seconds)}`)
+              : Kit.bar("err", result.message),
+            result.ok ? el("pre", { class: "mono selectable" }, trialOutput(result.content) || "(nothing)") : null)
+          : null),
+    ];
+  };
+
   const command = () => {
     const r = D.resourceOf(state, view.id);
     const t = tools?.resourceId === view.id ? tools.tools.find((x) => x.name === view.name) : null;
@@ -222,6 +328,7 @@
       Kit.section("Parameters", { count: t.parameters.length }),
       t.parameters.length ? el("div", { class: "card group" }, t.parameters.map(parameter)) : Kit.empty(null, "No parameters"),
       t.schema ? el("details", { class: "expander" }, el("summary", null, "JSON schema"), el("pre", { class: "mono selectable" }, t.schema)) : null,
+      ...trySection(r, t),
     ];
   };
 

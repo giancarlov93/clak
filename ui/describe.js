@@ -282,6 +282,20 @@ const Describe = (() => {
     return parts.join(" · ");
   };
 
+  /// How a connected program has been answering the agents, in one line: "15 commands · 2
+  /// failed · 0.4 s on average · last 3 min ago", and whether the last one failed. Null if it
+  /// hasn't run a command yet, or isn't connected.
+  const health = (state, resourceId, now) => {
+    const h = (state?.resources || []).find((r) => r.id === resourceId)?.health;
+    if (!h) return null;
+    const parts = [plural(h.calls, "command", "commands")];
+    if (h.errors) parts.push(`${h.errors} failed`);
+    parts.push(`${duration(h.average)} on average`);
+    const failed = h.last_outcome === "error" || h.last_outcome === "timeout" || h.last_outcome === "closed";
+    parts.push(`last ${ago(h.last_at, now)}${failed ? `, ${outcome(h.last_outcome)}` : ""}`);
+    return { text: parts.join(" · "), failed };
+  };
+
   /// An API in one line: how many endpoints, how it signs in, and whether the secret is there.
   const apiState = (a) => {
     if (!a.enabled) return "off: agents don't see it";
@@ -323,6 +337,6 @@ const Describe = (() => {
     grantBrief, recent, grantDetail, allowedAppDetail, users, headline,
     history, usageLine, failureLine, outcome,
     tool, tools, usage, parameterType,
-    connectorKind, connectorState, apiState, unencrypted, logKind,
+    connectorKind, connectorState, apiState, health, unencrypted, logKind,
   };
 })();

@@ -350,6 +350,59 @@ async fn always_allow_makes_a_standing_rule_for_that_agent_and_program() {
 }
 
 #[tokio::test]
+async fn the_user_tries_a_command_and_each_program_says_how_it_has_been_answering() {
+    let hub = TestHub::start().await;
+    let _app = hub.register().await;
+    hub.prompt.set_allow_all(true);
+    hub.call("claude", "test-notepad", "get_text", None, None)
+        .await;
+    hub.call(
+        "claude",
+        "test-notepad",
+        "append_text",
+        Some(json!({"text": "bread"})),
+        None,
+    )
+    .await;
+
+    let snapshot = hub.snapshot().await;
+    let resource = snapshot["resources"][0].clone();
+    assert_eq!(resource["health"]["calls"], 2);
+    assert_eq!(resource["health"]["errors"], 0);
+    assert_eq!(resource["health"]["last_outcome"], "ok");
+    let conn_id = resource["id"].as_str().unwrap().to_owned();
+
+    // From the panel, as the user: no agent, no question, the answer as it came.
+    let tried = hub
+        .hub()
+        .broker()
+        .try_command(&conn_id, "get_text", serde_json::Map::new())
+        .await;
+    assert_eq!(tried["ok"], true);
+    assert_eq!(tried["is_error"], false);
+    assert!(clak_wire::json::text(&tried["content"]).contains("milk"));
+    let missing = hub
+        .hub()
+        .broker()
+        .try_command(&conn_id, "no_such_command", serde_json::Map::new())
+        .await;
+    assert_eq!(missing["ok"], false);
+    hub.prompt.quiet(50).await;
+
+    // Not an agent's: neither in the usage nor in the program's health.
+    let usage = hub.panel(&[json!({"type": "usage"})], "usage").await;
+    let calls: u64 = usage["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["calls"].as_u64().unwrap())
+        .sum();
+    assert_eq!(calls, 2);
+    assert_eq!(hub.snapshot().await["resources"][0]["health"]["calls"], 2);
+    hub.stop().await;
+}
+
+#[tokio::test]
 async fn a_no_holds_for_a_while_without_asking_again() {
     let hub = TestHub::start().await;
     let (first, _) = tokio::join!(hub.ask("claude", "list", None), async {
