@@ -13,7 +13,7 @@ const Kit = (() => {
     people: "", folder: "", chevron: "", back: "", copy: "", skill: "",
     client: "", file: "", refresh: "", search: "", trash: "", power: "",
     bell: "", speaker: "", options: "", calls: "", warn: "", stopwatch: "",
-    costs: "\uE9D2", shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", pin: "", play: "\uE768",
+    costs: "\uE9D2", shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", pin: "", play: "\uE768", edit: "\uE70F",
   };
 
   // On the Mac: 16 px strokes, like SF symbols at regular weight.
@@ -59,6 +59,7 @@ const Kit = (() => {
     plus: '<path d="M8 2.5v11M2.5 8h11"/>',
     pin: '<path d="M9.8 1.8l4.4 4.4M11.1 3.1L8.4 5.8 5.2 5.3 4 6.5l5.5 5.5 1.2-1.2-.5-3.2 2.7-2.7M6.8 9.2L2.2 13.8"/>',
     play: '<path d="M5 3.3v9.4L12.5 8z"/>',
+    edit: '<path d="M10.5 2.5l3 3L6 13H3v-3z M9 4l3 3"/>',
   };
 
   const svg = (name) =>

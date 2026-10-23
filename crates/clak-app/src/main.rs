@@ -150,6 +150,7 @@ fn main() {
             commands::hub_hello,
             commands::hub_send,
             commands::program_try,
+            commands::program_suffix,
             config_file::config_export,
             config_file::config_import,
             config_file::config_secrets_in_commands,

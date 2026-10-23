@@ -140,6 +140,68 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
 }
 
 #[tokio::test]
+async fn the_user_gives_one_opening_a_suffix_of_their_own() {
+    let hub = TestHub::start().await;
+    let _first = hub.register().await;
+    let _second = hub.register_as("Test Notepad", "other.txt").await;
+    let id = |state: &serde_json::Map<String, Value>, name: &str| {
+        state["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == name)
+            .map(|r| r["id"].as_str().unwrap().to_owned())
+    };
+    let state = hub.snapshot().await;
+    let (first, second) = (
+        id(&state, "test-notepad").unwrap(),
+        id(&state, "test-notepad-2").unwrap(),
+    );
+    let broker = hub.hub().broker();
+
+    // «test-notepad-work» instead of «-2»: the agents use it at once.
+    assert_eq!(
+        broker.run(|c| c.set_suffix(&second, Some(" work "))),
+        Ok("test-notepad-work".into())
+    );
+    let state = hub.snapshot().await;
+    assert_eq!(id(&state, "test-notepad-work"), Some(second.clone()));
+    assert_eq!(
+        state["resources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == second.as_str())
+            .unwrap()["suffix"],
+        "work"
+    );
+    hub.prompt.set_allow_all(true);
+    assert!(ok(&hub
+        .call("claude", "test-notepad-work", "get_text", None, None)
+        .await));
+
+    // Taken, or not a command: refused, nothing changes.
+    assert!(broker.run(|c| c.set_suffix(&first, Some("work"))).is_err());
+    assert!(broker.run(|c| c.set_suffix(&first, Some("Work!"))).is_err());
+
+    // The application's command changes: the suffix stays.
+    let key = state["apps"][0]["key"].as_str().unwrap().to_owned();
+    broker
+        .run(|c| c.edit_app(&key, None, Some("notes")))
+        .unwrap();
+    let state = hub.snapshot().await;
+    assert_eq!(id(&state, "notes-work"), Some(second.clone()));
+    assert_eq!(id(&state, "notes"), Some(first));
+
+    // Empty: back to the automatic one.
+    assert_eq!(
+        broker.run(|c| c.set_suffix(&second, Some(""))),
+        Ok("notes-2".into())
+    );
+    hub.stop().await;
+}
+
+#[tokio::test]
 async fn the_protocol_version_is_in_the_lockfile_and_the_reply() {
     let hub = TestHub::start().await;
     hub.prompt.set_allow_all(true);
