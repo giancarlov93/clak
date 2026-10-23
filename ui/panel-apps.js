@@ -1,8 +1,8 @@
 // The Applications tab: the programs the user allowed once and that the hub
-// remembers, by executable. "Edit" gives one a name and a command of the user's own, or
-// the place it has moved to; "Forget" makes it ask again on the next connection. Below,
-// the standing permissions made with "Always allow" in a consent window: "Remove" makes
-// the agent ask again.
+// remembers, by executable. Open (play) starts one; Edit gives it a name and a command of
+// the user's own, or the place it has moved to; Forget (the bin) makes it ask again on the
+// next connection. Below, the standing permissions made with "Always allow" in a consent
+// window: "Remove" makes the agent ask again.
 "use strict";
 
 (() => {
@@ -16,12 +16,13 @@
   /// The application being edited: { key, name, label, command, exe, was, error }.
   let draft = null;
 
-  /// Starts the application; if it can't, the button says so for a moment, with the reason on hover.
+  /// Starts the application; if it can't, the button shows a warning for a moment, with the
+  /// reason on hover.
   const launch = (app, button) =>
     Clak.invoke("app_launch", { key: app.key }).catch((e) => {
-      button.textContent = "Couldn't open";
-      button.title = String(e);
-      setTimeout(() => { button.textContent = "Open"; button.title = `Starts ${shown(app)}`; }, 3000);
+      button.replaceChildren(Kit.icon("warn"));
+      button.title = `Couldn't open: ${e}`;
+      setTimeout(() => { button.replaceChildren(Kit.icon("play")); button.title = `Open ${shown(app)}`; }, 3000);
     });
 
   /// The command the hub derives from a name (see cli_names::from in the hub).
@@ -104,9 +105,9 @@
         el("div", { class: "mono quiet ellipsis selectable", title: app.exe }, app.exe),
         el("div", { class: "quiet" }, [app.label ? `Its own name: ${app.name}` : null, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`].filter(Boolean).join(" · "))),
       el("div", { class: "actions" },
-        el("button", { title: `Starts ${shown(app)}`, onclick: (e) => launch(app, e.currentTarget) }, "Open"),
+        Kit.iconButton("play", `Open ${shown(app)}`, (e) => launch(app, e.currentTarget)),
         ctx.readonly ? null : Kit.iconButton("options", "Edit: name, command, location", () => edit(app)),
-        el("button", { title: "It will ask again the next time it connects", onclick: () => Panel.send({ type: "forget_app", key: app.key }) }, "Forget")));
+        Kit.iconButton("trash", "Forget: it will ask again the next time it connects", () => Panel.send({ type: "forget_app", key: app.key }))));
   };
 
   const ruleRow = (r, now) =>
