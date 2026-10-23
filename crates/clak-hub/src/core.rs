@@ -78,8 +78,12 @@ impl Progress {
 pub struct AppConn {
     pub conn_id: String,
     /// The name agents call it by: the hub decides it, not the program. It changes only when
-    /// the user renames a connector ([`Core::rename`]).
+    /// the user renames it ([`Core::rename`], [`Core::set_suffix`]).
     pub name: String,
+    /// What the name starts from: the program's command, before «-2» or the user's suffix.
+    pub base: String,
+    /// The suffix the user chose for this opening («revit-test»), instead of «-2».
+    pub suffix: Option<String>,
     pub resource: ResourceDef,
     /// Read from the operating system, not declared by the program.
     pub origin: Value,
@@ -379,6 +383,8 @@ impl Core {
             "resources": self.apps.values().map(|a| json!({
                 "id": a.conn_id,
                 "name": a.name,
+                "base": a.base,
+                "suffix": a.suffix,
                 "resource": a.resource.to_json(),
                 "origin": a.origin,
                 "key": a.key,
@@ -488,8 +494,24 @@ impl Core {
     // Programs
     // =====================================================================
 
-    /// The command-line name: the one chosen by the user for a connector, or the one derived
-    /// from the program's name. Two documents of the same program become «word» and
+    /// The command a program's names start from: the one chosen by the user, or the one
+    /// derived from the program's name.
+    fn base_for(resource: &ResourceDef, preferred: Option<&str>) -> String {
+        match preferred {
+            Some(p) if !p.is_empty() && cli_names::problem(Some(p)).is_none() => p.to_owned(),
+            _ => cli_names::from(&resource.app),
+        }
+    }
+
+    /// Whether another program already has this name.
+    fn taken(&self, name: &str, own: Option<&str>) -> bool {
+        self.apps
+            .values()
+            .any(|a| Some(a.conn_id.as_str()) != own && a.name == name)
+    }
+
+    /// The command-line name: the base and, for this opening, the suffix the user chose, if
+    /// it is still free. Otherwise two documents of the same program become «word» and
     /// «word-2».
     fn name_for(
         &self,
@@ -497,17 +519,19 @@ impl Core {
         preferred: Option<&str>,
         own: Option<&str>,
     ) -> String {
-        let slug = match preferred {
-            Some(p) if !p.is_empty() && cli_names::problem(Some(p)).is_none() => p.to_owned(),
-            _ => cli_names::from(&resource.app),
-        };
+        let slug = Self::base_for(resource, preferred);
+        if let Some(suffix) = own
+            .and_then(|id| self.apps.get(id))
+            .and_then(|a| a.suffix.as_deref())
+        {
+            let chosen = format!("{slug}-{suffix}");
+            if cli_names::problem(Some(&chosen)).is_none() && !self.taken(&chosen, own) {
+                return chosen;
+            }
+        }
         let mut name = slug.clone();
         let mut n = 2;
-        while self
-            .apps
-            .values()
-            .any(|a| Some(a.conn_id.as_str()) != own && a.name == name)
-        {
+        while self.taken(&name, own) {
             name = format!("{slug}-{n}");
             n += 1;
         }
@@ -531,11 +555,18 @@ impl Core {
         } else {
             self.name_for(&resource, preferred, None)
         };
+        let base = if name == cli_names::SETTINGS {
+            name.clone()
+        } else {
+            Self::base_for(&resource, preferred)
+        };
         let conn_id = new_id("app");
         let count = tools.len();
         let app = AppConn {
             conn_id: conn_id.clone(),
             name,
+            base,
+            suffix: None,
             resource,
             origin,
             tools,
@@ -656,6 +687,7 @@ impl Core {
         }
         let name = self.name_for(&resource, preferred, Some(conn_id));
         let app = self.apps.get_mut(conn_id).expect("checked above");
+        app.base = Self::base_for(&resource, preferred);
         let before = std::mem::replace(&mut app.name, name);
         app.resource = resource;
         let line = if before == app.name {
@@ -669,6 +701,52 @@ impl Core {
         };
         self.log(line);
         self.touch();
+    }
+
+    /// The user gave one opening of a program a suffix of their own, to tell it apart when
+    /// talking to an agent: «revit-test» instead of «revit-2». `None` goes back to the
+    /// automatic one. Its permissions stay; an agent still using the old name is told that
+    /// program is not there, and rereads the list. The new name.
+    pub fn set_suffix(&mut self, conn_id: &str, suffix: Option<&str>) -> Result<String, String> {
+        let Some(app) = self.apps.get(conn_id) else {
+            return Err("The program is no longer connected.".into());
+        };
+        if app.is_hub() {
+            return Err("Clak's own settings keep their name.".into());
+        }
+        let suffix = suffix
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
+        let (resource, base) = (app.resource.clone(), app.base.clone());
+        let name = match &suffix {
+            Some(suffix) => {
+                let name = format!("{base}-{suffix}");
+                if let Some(problem) = cli_names::problem(Some(&name)) {
+                    return Err(problem);
+                }
+                if self.taken(&name, Some(conn_id)) {
+                    return Err(format!("“{name}” is already another program's name."));
+                }
+                name
+            }
+            None => {
+                self.apps.get_mut(conn_id).expect("checked above").suffix = None;
+                self.name_for(&resource, Some(&base), Some(conn_id))
+            }
+        };
+        let app = self.apps.get_mut(conn_id).expect("checked above");
+        app.suffix = suffix;
+        let before = std::mem::replace(&mut app.name, name.clone());
+        if before != name {
+            let line = format!(
+                "program renamed: {before} → {name} = {}",
+                app.resource.label()
+            );
+            self.log(line);
+        }
+        self.touch();
+        Ok(name)
     }
 
     /// The program's connection has ended: its permissions end with it.
