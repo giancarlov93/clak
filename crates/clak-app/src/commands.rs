@@ -155,6 +155,18 @@ fn shown_name(broker: &clak_hub::Broker, key: &str) -> Result<String, String> {
         .ok_or_else(|| "This application is no longer among the allowed ones.".into())
 }
 
+/// Gives one opening of a program, from Status, a suffix of the user's own («revit-test»
+/// instead of «revit-2»); empty, the automatic one. Its new name.
+#[tauri::command]
+pub fn program_suffix(
+    app: AppHandle,
+    window: WebviewWindow,
+    resource_id: String,
+    suffix: String,
+) -> Result<String, String> {
+    panel_broker(&app, &window)?.run(|c| c.set_suffix(&resource_id, Some(&suffix)))
+}
+
 /// Gives an allowed application a name and a command of its own (empty: its own ones) and,
 /// with `exe`, the place it has moved to. The presets that name it follow.
 #[tauri::command]

@@ -189,7 +189,8 @@ html.mac .empty { border: none; background: var(--inset); border-radius: var(--r
 .tag.accent { background: var(--accent-bg); color: var(--accent); }
 .tag.caution { background: var(--caution-bg); color: var(--caution); }
 .tag.ok { background: var(--ok-bg); color: var(--ok); }
-.tags { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 8px 0 4px; }
+.tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 8px 0 4px; }
+.tags > .icon-button, html.mac .tags > .icon-button { min-height: 22px; min-width: 22px; margin-left: -2px; }
 
 .bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 4px; border-radius: 6px; border: 1px solid var(--stroke); background: var(--card); }
 .bar > .glyph { align-self: flex-start; margin-top: 2px; }
@@ -465,8 +466,11 @@ table.calls td:last-child { width: 1px; }
 .launch .folder-line .glyph { font-size: 12px; }
 .launch .folder-line .glyph svg { width: 12px; height: 12px; }
 .launch .folder-line button.link { padding: 1px 6px; font-size: 12px; }
-.app-editor .command-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.app-editor .command-line input { flex: 1; min-width: 0; }
+.command-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.command-line input { flex: 1; min-width: 0; }
+/* A program's name for the agents, edited in its page (Status): under its tags. */
+.naming { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.naming .hint { font-size: 12px; }
 .app-editor .folder-line .ellipsis { flex: 1; min-width: 0; }
 /* The application being edited: its row and, right under it, the editor, as one. */
 .allowed.editing, .card.group > .app-editor { background: var(--subtle); }

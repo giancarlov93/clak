@@ -18,6 +18,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   (`clak <command>`) and pointed to where it has moved. Its open documents, its "Always
   allow" rules and the presets that name it follow; at the new place it is remembered by
   that file, as when it was allowed. Only from the panel of the app that runs the hub.
+- Status: in a connected program's page, its name for the agents can be given a suffix of
+  your own (`revit-test` instead of `revit-2`), to tell it apart when you talk to an agent.
+  It lasts while the program stays connected, and stays if the application's command
+  changes. Only from the panel of the app that runs the hub.
 - Usage, a tab of its own above Settings: what the agents' tokens would cost at the API's
   prices, from the agents' own files (Claude Code and Claude Desktop's Code tab, Codex,
   Gemini CLI, OpenCode). Today, the last 7 days, the month and all time; Claude's five-hour

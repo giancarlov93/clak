@@ -169,8 +169,48 @@
     Panel.send({ type: "describe", resource_id: r.id });
   };
 
+  /// The name agents call one opening by, when the user is giving it a suffix: { id, value,
+  /// error }. What is typed is kept as an attribute too, so a redraw leaves the field alone.
+  let naming = null;
+
+  const startNaming = (r) => {
+    naming = { id: r.id, value: r.suffix || "", error: null };
+    draw();
+    const field = page.querySelector(".naming input");
+    field?.focus();
+    field?.select();
+  };
+
+  const saveNaming = async () => {
+    try {
+      await Clak.invoke("program_suffix", { resourceId: naming.id, suffix: naming.value });
+      naming = null;
+    } catch (e) {
+      naming.error = String(e);
+    }
+    draw();
+  };
+
+  /// «clak revit-» and the suffix: to tell this opening apart when talking to an agent.
+  const nameEditor = (r) => {
+    const field = el("input", { type: "text", class: "mono", value: naming.value, "aria-label": "Suffix", placeholder: "test", maxlength: "24", spellcheck: "false" });
+    field.addEventListener("input", () => { naming.value = field.value; field.setAttribute("value", field.value); });
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") saveNaming();
+      if (e.key === "Escape") { naming = null; draw(); }
+    });
+    return el("div", { class: "naming" },
+      el("div", { class: "command-line" }, el("span", { class: "mono quiet" }, `clak ${r.base}-`), field,
+        el("button", { onclick: () => { naming = null; draw(); } }, "Cancel"),
+        el("button", { class: "accent", onclick: saveNaming }, "Save")),
+      el("div", { class: "quiet hint" }, "To tell this one apart when you talk to an agent. Empty: automatic. It lasts while the program stays connected."),
+      naming.error ? Kit.bar("err", naming.error) : null);
+  };
+
   const program = (now) => {
     const r = D.resourceOf(state, view.id);
+    if (naming && naming.id !== r?.id) naming = null;
+    const renamable = r && hosting() && r.origin?.kind !== "hub" && r.base;
     if (!r) return [...crumbs([["Status", toOverview]], view.title || "Program"), el("div", { class: "quiet" }, "Disconnected")];
     askTools(r);
     view.title = D.resourceTitle(r);
@@ -179,8 +219,11 @@
       ...crumbs([["Status", toOverview]], view.title),
       el("div", { class: "card hero" }, Kit.tile(glyphOf(r), 48, null, exeOf(r)),
         el("div", null, el("div", { class: "selectable" }, D.origin(r.origin, r.resource?.publisher)),
-          el("div", { class: "tags" }, Kit.tag(`clak ${r.name}`, { accent: Clak.mac, mono: true }), Kit.tag(D.plural((r.tools || []).length, "command", "commands")),
+          el("div", { class: "tags" }, Kit.tag(`clak ${r.name}`, { accent: Clak.mac, mono: true }),
+            renamable && !naming ? Kit.iconButton("edit", "Name it for the agents: a suffix of your own instead of -2", () => startNaming(r)) : null,
+            Kit.tag(D.plural((r.tools || []).length, "command", "commands")),
             Kit.tag(`connected ${D.ago(r.since, now)}`)),
+          naming ? nameEditor(r) : null,
           el("div", { class: "users" }, Kit.icon("people"), el("span", null, users(r.id)))),
         D.showable(r) ? el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "resource", r.id) }, "Show") : null),
       r.status ? Kit.bar("warn", r.status) : null,
