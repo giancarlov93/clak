@@ -340,7 +340,7 @@ html.mac .row { padding: 10px 14px; gap: 12px; }
 .setup .name .tag, .setup .name .badge { white-space: normal; }
 .allowed .name, .setup .name { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .allowed > button { flex: none; margin-left: 12px; }
-.allowed .actions { display: flex; align-items: center; gap: 8px; flex: none; margin-left: 12px; }
+.allowed .actions { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 12px; }
 .setup .actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .setup .actions > .icon-button { margin-left: -4px; }
 html.mac .setup { align-items: flex-start; }
