@@ -124,10 +124,11 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
     assert_eq!(state["apps"].as_array().unwrap().len(), 1);
     assert_eq!(state["apps"][0]["exe"], moved.display().to_string());
     assert_ne!(state["apps"][0]["key"], key.as_str());
-    let saved = std::fs::read_to_string(hub.home.join("rules.json")).unwrap();
-    assert!(!saved.contains(&key), "{saved}");
-    assert!(
-        saved.contains(state["apps"][0]["key"].as_str().unwrap()),
+    // Read as JSON: on Windows the keys hold backslashes, escaped in the file.
+    let saved: Value =
+        serde_json::from_slice(&std::fs::read(hub.home.join("rules.json")).unwrap()).unwrap();
+    assert_eq!(
+        saved["rules"][0]["program"]["app"], state["apps"][0]["key"],
         "{saved}"
     );
     // The old place is another executable now: it asks again.
