@@ -156,7 +156,8 @@ const Describe = (() => {
   const headline = (state) =>
     [
       plural((state.sessions || []).length, "agent", "agents"),
-      plural((state.resources || []).length, "program", "programs"),
+      // As the panel's Status: Clak's own settings are always there, they don't count.
+      plural((state.resources || []).filter((r) => r.origin?.kind !== "hub").length, "program", "programs"),
       plural((state.grants || []).length, "permission", "permissions"),
     ].join(" · ");
 

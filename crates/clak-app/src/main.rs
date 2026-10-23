@@ -159,6 +159,8 @@ fn main() {
             commands::flyout_resize,
             commands::open_panel,
             commands::app_launch,
+            commands::app_edit,
+            commands::app_choose,
             commands::bring_to_front,
             commands::quit,
             commands::prefs_get,

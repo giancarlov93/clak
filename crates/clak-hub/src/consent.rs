@@ -184,6 +184,13 @@ pub trait Platform: Send + Sync + 'static {
     /// The sha256 of an executable, to remember an unsigned program.
     fn executable_hash(&self, path: &str) -> Option<String>;
 
+    /// A program's origin read from its file instead of from its process (`exe`, `signed`,
+    /// `signer`): where the user points an application that has moved. Slow: never under
+    /// the lock.
+    fn origin_of(&self, exe: &str) -> Value {
+        json!({ "exe": exe })
+    }
+
     /// The names of the processes above `pid`, nearest first, as the walk names them
     /// ("Visual Studio Code"): an agent launched inside an app runs below it. Slow: never
     /// under the lock. Nothing where they can't be read.

@@ -64,7 +64,7 @@ html.mac .ed-menu { padding: 5px; border-radius: 6px; box-shadow: 0 6px 20px rgb
   text-align: left; background: none; border: none; box-shadow: none; border-radius: 4px;
   min-height: 32px; padding: 0 12px;
 }
-.ed-item:hover, .ed-item:focus-visible { background: var(--control-hover); outline: none; }
+.ed-item:hover, .ed-item:focus-visible { background: var(--subtle-hover); outline: none; }
 html.mac .ed-item { min-height: 22px; padding: 0 10px; }
 html.mac .ed-item:hover, html.mac .ed-item:focus-visible { background: var(--accent); color: #fff; }
 .ed-sep { height: 1px; background: var(--stroke); margin: 4px 0; }
@@ -179,7 +179,7 @@ button.ed-icon {
   width: 32px; height: 32px; min-height: 0; padding: 0; display: inline-grid; place-items: center;
   background: transparent; border-color: transparent; box-shadow: none;
 }
-button.ed-icon:hover:not(:disabled) { background: var(--control-hover); border-color: var(--stroke); }
+button.ed-icon:hover:not(:disabled) { background: var(--subtle-hover); border-color: var(--stroke); }
 html.mac button.ed-icon { width: 24px; height: 24px; border-radius: 12px; }
 
 /* "clak" in front of the command. */
@@ -213,11 +213,8 @@ details.ed-expander > div { padding: 4px 12px 12px; border-top: 1px solid var(--
 .ed-api > .ed-divider { background: var(--stroke); }
 .ed-api > .ed-left { overflow-y: auto; padding-right: 8px; margin-right: -8px; min-height: 0; }
 .ed-api > .ed-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.ed-segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 16px; }
-.ed-segmented button.on { background: var(--accent); color: var(--accent-text); border-color: transparent; }
-html.mac .ed-segmented { gap: 0; background: var(--control); border-radius: 6px; padding: 1px; border: 0.5px solid var(--stroke); }
-html.mac .ed-segmented button { border: none; box-shadow: none; background: transparent; }
-html.mac .ed-segmented button.on { background: var(--ed-field-focus); color: var(--text); box-shadow: 0 0.5px 1.5px rgba(0,0,0,.2); }
+/* The look is the shared .segmented (clak.css): here only the place, the whole width. */
+.ed-segmented { display: grid; grid-template-columns: 1fr 1fr; margin-top: 16px; }
 .ed-source { display: flex; gap: 6px; }
 .ed-source button { flex: none; }
 .ed-source .ed-browse { width: 34px; padding: 0; }

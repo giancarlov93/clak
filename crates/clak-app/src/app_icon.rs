@@ -229,22 +229,35 @@ pub fn bundle_of(path: &Path) -> Option<std::path::PathBuf> {
     None
 }
 
+/// A value of an app bundle's `Info.plist`, read by `plutil`.
+#[cfg(target_os = "macos")]
+fn plist_value(bundle: &Path, name: &str) -> Option<String> {
+    let out = std::process::Command::new("/usr/bin/plutil")
+        .args(["-extract", name, "raw", "-o", "-"])
+        .arg(bundle.join("Contents").join("Info.plist"))
+        .output()
+        .ok()?;
+    let value = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+    (out.status.success() && !value.is_empty()).then_some(value)
+}
+
+/// The executable an app bundle starts: what the hub sees connect.
+#[cfg(target_os = "macos")]
+pub fn executable_in(bundle: &Path) -> Option<std::path::PathBuf> {
+    let exe = bundle
+        .join("Contents")
+        .join("MacOS")
+        .join(plist_value(bundle, "CFBundleExecutable")?);
+    exe.is_file().then_some(exe)
+}
+
 #[cfg(target_os = "macos")]
 fn png_of(path: &Path, size: u32) -> Option<Vec<u8>> {
     use std::process::Command;
 
     let bundle = bundle_of(path)?;
     let contents = bundle.join("Contents");
-    let plist = contents.join("Info.plist");
-    let key = |name: &str| -> Option<String> {
-        let out = Command::new("/usr/bin/plutil")
-            .args(["-extract", name, "raw", "-o", "-"])
-            .arg(&plist)
-            .output()
-            .ok()?;
-        let value = String::from_utf8(out.stdout).ok()?.trim().to_owned();
-        (out.status.success() && !value.is_empty()).then_some(value)
-    };
+    let key = |name: &str| plist_value(&bundle, name);
     // An app without an icon of its own would get the generic one: better the symbol.
     let name = key("CFBundleIconFile").or_else(|| key("CFBundleIconName"))?;
     let file = if name.ends_with(".icns") {
@@ -297,5 +310,20 @@ mod tests {
         // Cargo has no icons of its own.
         assert_eq!(png_of(Path::new(env!("CARGO")), 32), None);
         assert_eq!(read(Path::new("relative.exe"), 32), None);
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use super::*;
+
+    #[test]
+    fn an_app_starts_the_executable_its_info_names() {
+        let calculator = Path::new("/System/Applications/Calculator.app");
+        assert_eq!(
+            executable_in(calculator),
+            Some(calculator.join("Contents/MacOS/Calculator"))
+        );
+        assert_eq!(executable_in(Path::new("/nowhere.app")), None);
     }
 }

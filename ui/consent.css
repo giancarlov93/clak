@@ -2,7 +2,7 @@
    On the Mac the glass is only a hint: the page lays an almost opaque sheet over it, or the
    windows behind would make the text hard to read. */
 
-:root { --sheet: rgba(246, 246, 246, 0.80); --subtle: rgba(127, 127, 127, 0.10); }
+:root { --sheet: rgba(246, 246, 246, 0.80); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { --sheet: rgba(40, 40, 42, 0.78); }
 }

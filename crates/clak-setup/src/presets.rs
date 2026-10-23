@@ -85,6 +85,29 @@ pub fn remove(home: &Path, id: &str) -> Result<()> {
     Ok(())
 }
 
+/// The user renamed an allowed application, or pointed it to where it has moved: the
+/// presets that name it follow it, under its new key and name.
+pub fn follow(home: &Path, key: &str, to: &str, label: &str) -> Result<()> {
+    let mut list = all(home);
+    let mut changed = false;
+    for program in list
+        .iter_mut()
+        .filter_map(|p| p.get_mut("programs"))
+        .filter_map(Value::as_array_mut)
+        .flatten()
+        .filter_map(Value::as_object_mut)
+        .filter(|p| p.get("app").and_then(Value::as_str) == Some(key))
+    {
+        program.insert("app".into(), json!(to));
+        program.insert("label".into(), json!(label));
+        changed = true;
+    }
+    if changed {
+        write(home, &list)?;
+    }
+    Ok(())
+}
+
 /// Where a preset keeps the files of its launch: an id made by `save`, never a path.
 fn folder(home: &Path, id: &str) -> PathBuf {
     home.join("presets").join(id)
@@ -236,6 +259,38 @@ mod tests {
 
     fn object(value: Value) -> Map<String, Value> {
         value.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn the_presets_follow_a_renamed_or_moved_application() {
+        let home = temp();
+        save(
+            &home,
+            object(json!({
+                "name": "Shopping", "agent": "claude-code",
+                "programs": [
+                    { "app": "old|Word|firma:Microsoft", "label": "Word" },
+                    { "name": "notion", "label": "Notion" },
+                ],
+            })),
+        )
+        .unwrap();
+        follow(
+            &home,
+            "old|Word|firma:Microsoft",
+            "new|Word|firma:Microsoft",
+            "Writer",
+        )
+        .unwrap();
+        let programs = all(&home)[0]["programs"].clone();
+        assert_eq!(
+            programs,
+            json!([
+                { "app": "new|Word|firma:Microsoft", "label": "Writer" },
+                { "name": "notion", "label": "Notion" },
+            ])
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

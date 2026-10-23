@@ -14,6 +14,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- Applications: an allowed application can be renamed, given a command of its own
+  (`clak <command>`) and pointed to where it has moved. Its open documents, its "Always
+  allow" rules and the presets that name it follow; at the new place it is remembered by
+  that file, as when it was allowed. Only from the panel of the app that runs the hub.
 - Usage, a tab of its own above Settings: what the agents' tokens would cost at the API's
   prices, from the agents' own files (Claude Code and Claude Desktop's Code tab, Codex,
   Gemini CLI, OpenCode). Today, the last 7 days, the month and all time; Claude's five-hour
@@ -119,6 +123,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- One look across the windows: every card starts its content at the same place (on the Mac
+  groups of rows had a double margin), one segmented control for the Usage spans and the
+  MCP and API editors, and in the light theme a hover that shows on icons, links, rows,
+  the sidebar and the tabs. The flyout counts programs as Status does.
 - Motion, as Windows and the Mac move: a tab or a page rises into place, a new agent or
   program arrives in its list, the bars of Usage rise from the axis, an expander's content
   drops in, a question arrives in its window; buttons and rows fade under the pointer, the

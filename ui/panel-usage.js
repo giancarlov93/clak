@@ -322,7 +322,7 @@
   // --- the page ------------------------------------------------------------------------
 
   /// Buttons of which one is on: `choice[k]` among `options` ([value, label]).
-  const picker = (k, options, label) => el("div", { class: "usage-span", role: "group", "aria-label": label }, options.map(([id, text]) =>
+  const picker = (k, options, label) => el("div", { class: "segmented usage-span", role: "group", "aria-label": label }, options.map(([id, text]) =>
     el("button", { class: "small" + (choice[k] === id ? " selected" : ""), "aria-pressed": String(choice[k] === id),
       onclick: () => choose(k, id) }, text)));
 
