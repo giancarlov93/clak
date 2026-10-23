@@ -212,8 +212,11 @@ html.mac button.accent.caution { --fill: #ff9500; color: #fff; }
 html.mac .icon-button { min-height: 24px; min-width: 24px; }
 .icon-button .glyph { font-size: 14px; }
 .icon-button .glyph svg { width: 14px; height: 14px; }
+.icon-button:hover:not(:disabled) { background: var(--subtle-hover); }
+.icon-button:active:not(:disabled) { background: var(--subtle-pressed); }
 button.link { display: inline-flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius); }
-button.link:hover:not(:disabled) { background: var(--control-hover); }
+button.link:hover:not(:disabled) { background: var(--subtle-hover); }
+button.link:active:not(:disabled) { background: var(--subtle-pressed); }
 button.link .glyph { font-size: 13px; }
 button.link .glyph svg { width: 13px; height: 13px; }
 
