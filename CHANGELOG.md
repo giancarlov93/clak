@@ -123,6 +123,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- One look across the windows: every card starts its content at the same place (on the Mac
+  groups of rows had a double margin), one segmented control for the Usage spans and the
+  MCP and API editors, and in the light theme a hover that shows on icons, links, rows,
+  the sidebar and the tabs. The flyout counts programs as Status does.
 - Motion, as Windows and the Mac move: a tab or a page rises into place, a new agent or
   program arrives in its list, the bars of Usage rise from the axis, an expander's content
   drops in, a question arrives in its window; buttons and rows fade under the pointer, the
