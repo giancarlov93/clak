@@ -18,6 +18,10 @@
      subtle fills; pressed, lighter. */
   --subtle-hover: rgba(0, 0, 0, 0.0373);
   --subtle-pressed: rgba(0, 0, 0, 0.0241);
+  /* A neutral grey that reads on any background: tracks, tiles, highlighted rows. */
+  --subtle: rgba(127, 127, 127, 0.10);
+  /* The chosen segment of a segmented control, raised on its track. */
+  --segment-on: rgba(255, 255, 255, 0.95);
   --solid: #f3f3f3;
   --caution: #9d5d00;
   --caution-bg: rgba(255, 244, 206, 0.9);
@@ -43,6 +47,7 @@
     --control-hover: rgba(255, 255, 255, 0.09);
     --subtle-hover: rgba(255, 255, 255, 0.0605);
     --subtle-pressed: rgba(255, 255, 255, 0.0419);
+    --segment-on: rgba(255, 255, 255, 0.16);
     --solid: #202020;
     --caution: #fce100;
     --caution-bg: rgba(67, 53, 25, 0.9);
@@ -64,6 +69,7 @@
   --control-hover: rgba(255, 255, 255, 0.09);
   --subtle-hover: rgba(255, 255, 255, 0.0605);
   --subtle-pressed: rgba(255, 255, 255, 0.0419);
+  --segment-on: rgba(255, 255, 255, 0.16);
   --solid: #202020;
 }
 
@@ -167,6 +173,15 @@ button.accent { --fill: var(--accent); background: var(--fill); color: var(--acc
 /* Lighter under the pointer: the plain button's hover above would otherwise grey it out. */
 button.accent:hover:not(:disabled) { background: color-mix(in srgb, var(--fill) 78%, #fff); }
 button.link { background: none; border: none; color: var(--accent); padding: 0; min-height: 0; box-shadow: none; }
+
+/* A choice among a few, side by side (a span of time, a kind of server): one look in every
+   window, the Mac's segmented control. The chosen button has `selected` or `on`. */
+.segmented { display: inline-flex; padding: 2px; border-radius: calc(var(--radius) + 2px); background: var(--subtle); }
+.segmented button, html.mac .segmented button { border: none; box-shadow: none; background: none; min-height: 24px; padding: 0 12px; border-radius: var(--radius); color: var(--quiet); }
+.segmented button:hover:not(:disabled) { background: var(--subtle-hover); color: var(--text); }
+.segmented button:is(.on, .selected), html.mac .segmented button:is(.on, .selected), .segmented button:is(.on, .selected):hover:not(:disabled) {
+  background: var(--segment-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .15);
+}
 button.danger { color: var(--danger); }
 
 .warning {

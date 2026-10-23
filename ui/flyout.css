@@ -1,7 +1,6 @@
 /* The icon's box: like the Windows 11 tray flyouts, like a popover on the Mac. Each agent is
    a card; the programs it may use sit indented under it, on a line that ties them to it. */
 
-:root { --subtle: rgba(127, 127, 127, 0.10); }
 
 /* As tall as the content, up to the window: the window takes the height the page says
    (flyout.js), and past its limit the sections scroll. */
@@ -51,7 +50,7 @@ html button.hit {
   background: none; border: none; box-shadow: none; border-radius: 6px;
   padding: 6px 8px; min-height: 0; cursor: default;
 }
-html button.hit:hover:not(:disabled) { background: var(--control-hover); }
+html button.hit:hover:not(:disabled) { background: var(--subtle-hover); }
 html.mac button.hit:hover { background: var(--subtle); }
 .program, .agent-row { transition: background-color var(--fast) var(--ease); }
 html button.hit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -71,7 +70,7 @@ html.mac .agent { border: none; box-shadow: 0 0 0 0.5px var(--stroke), 0 1px 2px
 .program .hit { flex: 1; gap: 9px; padding: 5px 6px; }
 /* The whole row lights up, Revoke and the eye included, not only the part that opens. */
 .program, .agent-row { border-radius: 6px; }
-html .program:hover, html .agent-row:hover { background: var(--control-hover); }
+html .program:hover, html .agent-row:hover { background: var(--subtle-hover); }
 html.mac .program:hover, html.mac .agent-row:hover { background: var(--subtle); }
 html .program > button.hit:hover:not(:disabled), html .agent-row > button.hit:hover:not(:disabled) { background: none; }
 
@@ -83,7 +82,7 @@ html button.show {
   background: none; border: none; box-shadow: none; border-radius: 6px; color: var(--quiet);
 }
 .agent-row > button.show { margin-right: 4px; }
-html button.show:hover:not(:disabled) { color: var(--text); background: var(--control-hover); }
+html button.show:hover:not(:disabled) { color: var(--text); background: var(--subtle-hover); }
 html button.show .glyph { font-size: 13px; }
 html button.show .glyph svg { width: 14px; height: 14px; }
 html button.show.failed { color: var(--danger); }

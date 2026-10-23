@@ -107,8 +107,12 @@ const Setup = (() => {
     const shimLine = el("div", { class: "mono quiet ellipsis selectable shim", title: data.shim || "" },
       data.shim ? `Shim: ${data.shim}` : `Shim not found (${data.shim_name})`);
     const copySkill = skills.length || (!Clak.mac && data.cli)
-      ? Kit.link("Copy the instructions", Clak.mac ? null : "copy", () => copy(skills[0]?.id || "skill:", "Copied"),
-        "For agents without skills: paste it into their instructions file")
+      ? Clak.mac
+        // As the other headers' buttons on the Mac ("Check again", "New preset").
+        ? el("button", { class: "small", title: "For agents without skills: paste it into their instructions file", onclick: () => copy(skills[0]?.id || "skill:", "Copied") },
+          Kit.icon("copy"), el("span", null, "Copy the instructions"))
+        : Kit.link("Copy the instructions", "copy", () => copy(skills[0]?.id || "skill:", "Copied"),
+          "For agents without skills: paste it into their instructions file")
       : null;
     const clientsRight = Clak.mac
       ? [el("button", { class: "small", onclick: refresh }, Kit.icon("refresh"), el("span", null, "Check again"))]
