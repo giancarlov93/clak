@@ -217,7 +217,14 @@ async fn handle(
         };
         let instructions = instructions(message);
         let conn_id = broker.run(|c| {
-            let id = c.register(outbox.clone(), resource, tools, origin, None);
+            // An application the user named, or gave a command of their own.
+            let mut resource = resource;
+            let entry = key.as_deref().and_then(|k| c.permissions().get(k));
+            if let Some(label) = entry.and_then(|e| e.label.clone()) {
+                resource.app = label;
+            }
+            let command = entry.and_then(|e| e.command.clone());
+            let id = c.register(outbox.clone(), resource, tools, origin, command.as_deref());
             c.set_instructions(&id, instructions);
             c.set_key(&id, key);
             id

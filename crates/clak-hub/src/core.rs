@@ -300,6 +300,10 @@ struct PendingCall {
 
 const BACKLOG: usize = 200;
 
+/// The longest name the user can give an application.
+const MAX_APP_LABEL: usize = 64;
+const GONE_APP: &str = "This application is no longer among the allowed ones.";
+
 /// The hub's state. Touched only inside [`Broker::run`].
 pub struct Core {
     control: String,
@@ -405,6 +409,7 @@ impl Core {
             })).collect::<Vec<_>>(),
             "apps": self.permissions.all().iter().map(|e| json!({
                 "key": e.key, "exe": e.exe, "name": e.name, "signer": e.signer, "since": float(e.since),
+                "label": e.label, "command": e.command,
             })).collect::<Vec<_>>(),
             "connectors": self.connectors,
             "apis": self.apis,
@@ -701,6 +706,91 @@ impl Core {
             self.log("program removed from the allowed ones");
         }
         self.touch();
+    }
+
+    /// The user gave an allowed application a name or a command of their own (`None`: the
+    /// program's own). Its open documents follow at once, as a renamed connector does, and so
+    /// do its "Always allow" rules.
+    pub fn edit_app(
+        &mut self,
+        key: &str,
+        label: Option<&str>,
+        command: Option<&str>,
+    ) -> Result<(), String> {
+        let Some(entry) = self.permissions.get(key) else {
+            return Err(GONE_APP.into());
+        };
+        let declared = entry.name.clone();
+        let label = label
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && *l != declared)
+            .map(str::to_owned);
+        if label
+            .as_ref()
+            .is_some_and(|l| l.chars().count() > MAX_APP_LABEL)
+        {
+            return Err(format!(
+                "The name is too long ({MAX_APP_LABEL} characters at most)."
+            ));
+        }
+        let command = command
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_owned);
+        if let Some(problem) = cli_names::problem(command.as_deref()) {
+            return Err(problem);
+        }
+        if let Some(taken) = &command
+            && self
+                .permissions
+                .all()
+                .iter()
+                .any(|e| e.key != key && e.command.as_ref() == Some(taken))
+        {
+            return Err(format!(
+                "“{taken}” is already the command of another application."
+            ));
+        }
+        self.permissions.edit(key, label.clone(), command.clone());
+        let shown = label.unwrap_or(declared);
+        self.rules.follow(key, key, &shown);
+        let open: Vec<(String, ResourceDef)> = self
+            .apps
+            .values()
+            .filter(|a| a.key.as_deref() == Some(key))
+            .map(|a| {
+                let mut resource = a.resource.clone();
+                resource.app = shown.clone();
+                (a.conn_id.clone(), resource)
+            })
+            .collect();
+        if open.is_empty() {
+            self.log(format!("application changed: {shown}"));
+        }
+        for (conn_id, resource) in open {
+            self.rename(&conn_id, resource, command.as_deref());
+        }
+        self.touch();
+        Ok(())
+    }
+
+    /// An allowed application has moved (see [`Broker::move_app`]): remembered at its new
+    /// place under its new key, with its rules. Whoever is connected from the old place
+    /// stays as it is.
+    pub fn move_app(&mut self, key: &str, to: &str, origin: &Value) -> Result<(), String> {
+        let Some(entry) = self.permissions.get(key) else {
+            return Err(GONE_APP.into());
+        };
+        if to != key && self.permissions.get(to).is_some() {
+            return Err("That program is already among the allowed applications.".into());
+        }
+        let shown = entry.label.clone().unwrap_or_else(|| entry.name.clone());
+        self.permissions.moved(key, to, origin);
+        self.rules.follow(key, to, &shown);
+        let exe = origin.get("exe").and_then(Value::as_str).unwrap_or("");
+        self.log(format!("application moved: {shown} → {exe}"));
+        self.touch();
+        Ok(())
     }
 
     pub fn permissions(&self) -> &AppPermissions {
@@ -1494,6 +1584,29 @@ impl Broker {
 
     pub fn options(&self) -> &HubOptions {
         &self.0.options
+    }
+
+    /// The user points an allowed application to where it has moved: its key is made again
+    /// from that file, as when the program connects (the path, and the signer or the content).
+    /// Its new key.
+    pub async fn move_app(&self, key: &str, exe: String) -> Result<String, String> {
+        let name = self
+            .run(|c| c.permissions().get(key).map(|e| e.name.clone()))
+            .ok_or(GONE_APP)?;
+        let platform = self.options().platform.clone();
+        let (origin, to) = tokio::task::spawn_blocking(move || {
+            if !std::path::Path::new(&exe).is_file() {
+                return Err("There is no program at that path.".to_owned());
+            }
+            let origin = platform.origin_of(&exe);
+            let to = AppPermissions::key_for(platform.as_ref(), &origin, &name)
+                .ok_or("That file can't be read.")?;
+            Ok((origin, to))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        self.run(|c| c.move_app(key, &to, &origin))?;
+        Ok(to)
     }
 
     /// Cancelled when the hub stops.

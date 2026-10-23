@@ -133,6 +133,103 @@ pub fn app_launch(app: AppHandle, key: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// The hub, for what only the user may do from the panel: never from the control channel,
+/// where any process could ask.
+fn panel_broker(app: &AppHandle, window: &WebviewWindow) -> Result<clak_hub::Broker, String> {
+    if window.label() != "panel" {
+        return Err("Only from the panel.".into());
+    }
+    bridge::of(app)
+        .broker()
+        .ok_or_else(|| "The hub runs in another process: change it where it runs.".into())
+}
+
+/// The name an allowed application is shown by: the user's, or its own.
+fn shown_name(broker: &clak_hub::Broker, key: &str) -> Result<String, String> {
+    broker
+        .run(|c| {
+            c.permissions()
+                .get(key)
+                .map(|e| e.label.clone().unwrap_or_else(|| e.name.clone()))
+        })
+        .ok_or_else(|| "This application is no longer among the allowed ones.".into())
+}
+
+/// Gives an allowed application a name and a command of its own (empty: its own ones) and,
+/// with `exe`, the place it has moved to. The presets that name it follow.
+#[tauri::command]
+pub async fn app_edit(
+    app: AppHandle,
+    window: WebviewWindow,
+    key: String,
+    label: String,
+    command: String,
+    exe: Option<String>,
+) -> Result<(), String> {
+    let broker = panel_broker(&app, &window)?;
+    broker.run(|c| c.edit_app(&key, Some(&label), Some(&command)))?;
+    let current = broker.run(|c| c.permissions().get(&key).map(|e| e.exe.clone()));
+    let to = match exe.filter(|e| current.as_ref() != Some(e)) {
+        Some(exe) => broker.move_app(&key, exe).await?,
+        None => key.clone(),
+    };
+    let shown = shown_name(&broker, &to)?;
+    let home = bridge::of(&app).home().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        clak_setup::presets::follow(&home, &key, &to, &shown)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Where an allowed application is now, from the system picker, starting next to where it
+/// was: the executable (on the Mac the user picks the app, and this is the one inside it),
+/// or nothing if the user closed the picker.
+#[tauri::command]
+pub async fn app_choose(window: WebviewWindow, exe: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    #[cfg(target_os = "macos")]
+    let was = crate::app_icon::bundle_of(std::path::Path::new(&exe))
+        .unwrap_or_else(|| std::path::PathBuf::from(&exe));
+    #[cfg(not(target_os = "macos"))]
+    let was = std::path::PathBuf::from(&exe);
+    let mut picker = window
+        .dialog()
+        .file()
+        .set_title("Where the application is now");
+    #[cfg(target_os = "macos")]
+    {
+        picker = picker.add_filter("Applications", &["app"]);
+    }
+    #[cfg(windows)]
+    {
+        picker = picker.add_filter("Programs (*.exe)", &["exe"]);
+    }
+    if let Some(folder) = was.parent().filter(|f| f.is_dir()) {
+        picker = picker.set_directory(folder);
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    picker.set_parent(&window).pick_file(move |path| {
+        let _ = sender.send(path);
+    });
+    let Some(path) = receiver
+        .await
+        .ok()
+        .flatten()
+        .and_then(|p| p.into_path().ok())
+    else {
+        return Ok(None);
+    };
+    #[cfg(target_os = "macos")]
+    let path = if path.extension().is_some_and(|e| e == "app") {
+        crate::app_icon::executable_in(&path).ok_or("That app has no program to start.")?
+    } else {
+        path
+    };
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     crate::windows::hide_flyout(&app);

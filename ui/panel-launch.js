@@ -642,7 +642,7 @@ const Launch = (() => {
     const toolsOf = (target) => [...new Set(resourcesOf(target, state).flatMap((r) => r.tools || []))].sort();
     const cli = (c) => c.cli || c.command || Editors.cliFrom(c.name);
     return [
-      ...(state.apps || []).map((a) => ({ id: `app:${a.key}`, target: { app: a.key }, label: a.name, kind: "Application" })),
+      ...(state.apps || []).map((a) => ({ id: `app:${a.key}`, target: { app: a.key }, label: a.label || a.name, kind: "Application" })),
       ...(state.connectors || []).map((c) => ({ id: `name:${cli(c)}`, target: { name: cli(c) }, label: c.name, kind: "MCP" })),
       ...(state.apis || []).map((a) => ({ id: `name:${cli(a)}`, target: { name: cli(a) }, label: a.name, kind: "API" })),
     ].map((c) => ({ ...c, tools: toolsOf(c.target) }));

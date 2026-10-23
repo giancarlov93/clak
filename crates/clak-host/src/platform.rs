@@ -58,6 +58,11 @@ impl Platform for SystemPlatform {
         clak_platform::executable_hash(path)
     }
 
+    fn origin_of(&self, exe: &str) -> Value {
+        let signature = clak_platform::signature_of(exe);
+        serde_json::json!({ "exe": exe, "signed": signature.signed, "signer": signature.signer })
+    }
+
     fn above(&self, pid: u32) -> Vec<String> {
         clak_platform::process_lineage(pid)
             .into_iter()

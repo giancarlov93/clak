@@ -154,6 +154,22 @@ impl Rules {
         self.list.last().expect("just pushed")
     }
 
+    /// The user renamed an application, or pointed it to where it has moved: its rules follow
+    /// it, under its new key and name.
+    pub fn follow(&mut self, key: &str, to: &str, label: &str) {
+        let mut changed = false;
+        for rule in &mut self.list {
+            if rule.program.target == Target::App(key.to_owned()) {
+                rule.program.target = Target::App(to.to_owned());
+                rule.label = label.to_owned();
+                changed = true;
+            }
+        }
+        if changed {
+            self.save();
+        }
+    }
+
     pub fn remove(&mut self, id: &str) -> Option<Rule> {
         let at = self.list.iter().position(|r| r.id == id)?;
         let rule = self.list.remove(at);

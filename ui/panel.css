@@ -458,6 +458,9 @@ table.calls td:last-child { width: 1px; }
 .launch .folder-line .glyph { font-size: 12px; }
 .launch .folder-line .glyph svg { width: 12px; height: 12px; }
 .launch .folder-line button.link { padding: 1px 6px; font-size: 12px; }
+.app-editor .command-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.app-editor .command-line input { flex: 1; min-width: 0; }
+.app-editor .folder-line .ellipsis { flex: 1; min-width: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 1px 8px 2px; border-radius: 10px; background: var(--subtle); white-space: nowrap; }
 .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }

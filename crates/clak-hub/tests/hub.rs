@@ -47,6 +47,98 @@ async fn a_program_joins_only_with_consent_and_the_hub_remembers_it() {
 }
 
 #[tokio::test]
+async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it() {
+    let hub = TestHub::start().await;
+    let app = hub.register().await;
+    let (_, _) = tokio::join!(
+        hub.call("claude", "test-notepad", "get_text", None, None),
+        async {
+            hub.prompt.next(ConsentKind::Use).await.allow_always();
+        }
+    );
+    let key = hub.snapshot().await["apps"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let broker = hub.hub().broker();
+
+    // A command clak uses for itself, or not a command at all: refused.
+    assert!(
+        broker
+            .run(|c| c.edit_app(&key, None, Some("list")))
+            .is_err()
+    );
+    assert!(
+        broker
+            .run(|c| c.edit_app(&key, None, Some("Shop")))
+            .is_err()
+    );
+
+    // The open document follows at once: its name for the agents, and the rule's program.
+    broker
+        .run(|c| c.edit_app(&key, Some(" Shopping "), Some("shop")))
+        .unwrap();
+    let state = hub.snapshot().await;
+    assert_eq!(state["apps"][0]["label"], "Shopping");
+    assert_eq!(state["apps"][0]["command"], "shop");
+    assert_eq!(state["apps"][0]["name"], "Test Notepad");
+    assert_eq!(state["resources"][0]["name"], "shop");
+    assert_eq!(state["resources"][0]["resource"]["app"], "Shopping");
+    assert_eq!(state["rules"][0]["program"], "Shopping");
+    assert!(ok(&hub
+        .call("claude", "shop", "get_text", None, None)
+        .await));
+
+    // Connected again: no question, with the name and command the user chose.
+    app.resource.close("resource_closed").await;
+    let asked = hub.prompt.count();
+    let again = hub.new_app("Test Notepad", "shopping.txt");
+    again.resource.connect().await.unwrap();
+    assert_eq!(again.first(&["waiting", "registered"]).await, "registered");
+    assert_eq!(again.resource.name().as_deref(), Some("shop"));
+    assert_eq!(hub.prompt.count(), asked);
+
+    // Back to its own: an empty name and command, or the declared name.
+    broker
+        .run(|c| c.edit_app(&key, Some("Test Notepad"), Some("")))
+        .unwrap();
+    let state = hub.snapshot().await;
+    assert_eq!(state["apps"][0]["label"], Value::Null);
+    assert_eq!(state["apps"][0]["command"], Value::Null);
+    assert_eq!(state["resources"][0]["name"], "test-notepad");
+
+    // Moved: remembered by the new file, with the rule; nowhere is refused.
+    assert!(
+        broker
+            .move_app(&key, hub.home.join("nothing.exe").display().to_string())
+            .await
+            .is_err()
+    );
+    let moved = hub.home.join("notepad.exe");
+    std::fs::write(&moved, b"MZ").unwrap();
+    broker
+        .move_app(&key, moved.display().to_string())
+        .await
+        .unwrap();
+    let state = hub.snapshot().await;
+    assert_eq!(state["apps"].as_array().unwrap().len(), 1);
+    assert_eq!(state["apps"][0]["exe"], moved.display().to_string());
+    assert_ne!(state["apps"][0]["key"], key.as_str());
+    let saved = std::fs::read_to_string(hub.home.join("rules.json")).unwrap();
+    assert!(!saved.contains(&key), "{saved}");
+    assert!(
+        saved.contains(state["apps"][0]["key"].as_str().unwrap()),
+        "{saved}"
+    );
+    // The old place is another executable now: it asks again.
+    let old = hub.new_app("Test Notepad", "other.txt");
+    old.resource.connect().await.unwrap();
+    assert_eq!(old.first(&["waiting", "registered"]).await, "waiting");
+    hub.prompt.next(ConsentKind::App).await.deny();
+    hub.stop().await;
+}
+
+#[tokio::test]
 async fn the_protocol_version_is_in_the_lockfile_and_the_reply() {
     let hub = TestHub::start().await;
     hub.prompt.set_allow_all(true);
