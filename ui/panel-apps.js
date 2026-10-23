@@ -10,10 +10,10 @@
   const D = Describe;
   let page = null;
   let list = null;
-  let host = null;
   let state = Panel.state();
   let ctx = Panel.ctx();
-  /// The application being edited: { key, name, label, command, exe, was, error }.
+  /// The application being edited, right under its row: { key, name, label, command, exe,
+  /// was, error }.
   let draft = null;
 
   /// Starts the application; if it can't, the button shows a warning for a moment, with the
@@ -38,22 +38,23 @@
 
   const edit = (app) => {
     draft = { key: app.key, name: app.name, label: app.label || "", command: app.command || "", exe: app.exe, was: app.exe, error: null };
-    drawEditor();
-    host.scrollIntoView({ block: "nearest" });
-    host.querySelector("input")?.focus();
+    draw();
+    const editor = [...list.querySelectorAll(".app-editor")].find((n) => n.dataset.id === `edit:${app.key}`);
+    editor?.scrollIntoView({ block: "nearest" });
+    editor?.querySelector("input")?.focus();
   };
 
   const closeEditor = () => {
     draft = null;
-    host.replaceChildren();
+    draw();
   };
 
   const choose = async () => {
     try {
       const exe = await Clak.invoke("app_choose", { exe: draft.exe });
-      if (exe && draft) { draft.exe = exe; draft.error = null; drawEditor(); }
+      if (exe && draft) { draft.exe = exe; draft.error = null; draw(); }
     } catch (e) {
-      if (draft) { draft.error = String(e); drawEditor(); }
+      if (draft) { draft.error = String(e); draw(); }
     }
   };
 
@@ -62,40 +63,48 @@
       await Clak.invoke("app_edit", { key: draft.key, label: draft.label, command: draft.command, exe: draft.exe === draft.was ? null : draft.exe });
       closeEditor();
     } catch (e) {
-      if (draft) { draft.error = String(e); drawEditor(); }
+      if (draft) { draft.error = String(e); draw(); }
     }
   };
 
-  const drawEditor = () => {
-    if (!draft) return;
+  /// The editor, under the row it edits. What is typed is kept as an attribute too, so that a
+  /// redraw of the list (a program connecting) finds it unchanged and leaves it alone.
+  const editor = () => {
     const name = el("input", { type: "text", placeholder: draft.name, "aria-label": "Name", value: draft.label, maxlength: "64" });
     const command = el("input", { type: "text", class: "mono", placeholder: slug(draft.label.trim() || draft.name), "aria-label": "Command", value: draft.command, maxlength: "24", spellcheck: "false" });
-    name.addEventListener("input", () => { draft.label = name.value; command.placeholder = slug(name.value.trim() || draft.name); });
-    command.addEventListener("input", () => { draft.command = command.value; });
+    name.addEventListener("input", () => {
+      draft.label = name.value;
+      name.setAttribute("value", name.value);
+      command.setAttribute("placeholder", slug(name.value.trim() || draft.name));
+    });
+    command.addEventListener("input", () => {
+      draft.command = command.value;
+      command.setAttribute("value", command.value);
+    });
     const moved = draft.exe !== draft.was;
-    Kit.replace(host, el("div", { class: "card ed-dialog preset-editor app-editor" },
-      el("div", { class: "editor-title" }, el("strong", null, `Edit “${draft.label.trim() || draft.name}”`)),
+    return el("div", { class: (Clak.mac ? "" : "card ") + "preset-editor app-editor", "data-id": `edit:${draft.key}` },
       el("label", { class: "field" }, el("span", null, "Name"), name),
       el("label", { class: "field" }, el("span", null, "Command"), el("div", { class: "command-line" }, el("span", { class: "mono quiet" }, "clak"), command)),
       el("div", { class: "field" }, el("span", null, "Location"),
         el("div", { class: "folder-line" },
           el("span", { class: "mono ellipsis selectable", title: draft.exe }, draft.exe),
           Kit.link("Choose…", null, choose),
-          moved ? Kit.link("Undo", null, () => { draft.exe = draft.was; drawEditor(); }) : null)),
+          moved ? Kit.link("Undo", null, () => { draft.exe = draft.was; draw(); }) : null)),
       el("div", { class: "quiet hint" }, moved
         ? "Remembered by the file at the new location, its developer or, if unsigned, its content. Its copy at the old location will ask again."
         : "Agents see the name and use the application with the command; a second open document gets -2. Empty: its own."),
       draft.error ? Kit.bar("err", draft.error) : null,
       el("div", { class: "buttons" },
         el("button", { onclick: closeEditor }, "Cancel"),
-        el("button", { class: "accent", onclick: save }, "Save"))));
+        el("button", { class: "accent", onclick: save }, "Save")));
   };
 
   const row = (app, now) => {
     const signed = !!app.signer;
     // A program that runs in Java or Python: the signature is the runtime's.
     const runtime = Clak.runtime(app.exe);
-    return el("div", { class: Clak.mac ? "row allowed" : "card allowed", "data-id": app.key },
+    const editing = draft?.key === app.key;
+    return el("div", { class: (Clak.mac ? "row allowed" : "card allowed") + (editing ? " editing" : ""), "data-id": app.key },
       Kit.tile("apps", 36, "#007aff", app.exe),
       el("div", { class: "lines" },
         el("div", { class: "name" }, el("strong", null, shown(app)),
@@ -106,7 +115,7 @@
         el("div", { class: "quiet" }, [app.label ? `Its own name: ${app.name}` : null, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`].filter(Boolean).join(" · "))),
       el("div", { class: "actions" },
         Kit.iconButton("play", `Open ${shown(app)}`, (e) => launch(app, e.currentTarget)),
-        ctx.readonly ? null : Kit.iconButton("options", "Edit: name, command, location", () => edit(app)),
+        ctx.readonly ? null : Kit.iconButton("options", "Edit: name, command, location", () => (editing ? closeEditor() : edit(app))),
         Kit.iconButton("trash", "Forget: it will ask again the next time it connects", () => Panel.send({ type: "forget_app", key: app.key }))));
   };
 
@@ -124,7 +133,7 @@
     if (!page) return;
     const now = Date.now();
     const apps = [...(state.apps || [])].sort((a, b) => a.since - b.since);
-    const rows = apps.map((a) => row(a, now));
+    const rows = apps.flatMap((a) => (draft?.key === a.key ? [row(a, now), editor()] : [row(a, now)]));
     const rules = [...(state.rules || [])].sort((a, b) => a.since - b.since);
     const ruleRows = rules.map((r) => ruleRow(r, now));
     const group = (items) => (Clak.mac ? el("div", { class: "card group rows" }, items) : items);
@@ -146,15 +155,14 @@
     mount(section) {
       page = section;
       list = el("div");
-      host = el("div");
-      page.append(Kit.title("Applications"), list, host);
+      page.append(Kit.title("Applications"), list);
       setInterval(() => !page.classList.contains("hidden") && draw(), 30000);
     },
     render(s, c) {
       state = s;
       ctx = c;
       // Forgotten meanwhile, or the hub is now elsewhere: nothing left to edit.
-      if (draft && (ctx.readonly || !(s.apps || []).some((a) => a.key === draft.key))) closeEditor();
+      if (draft && (ctx.readonly || !(s.apps || []).some((a) => a.key === draft.key))) draft = null;
       draw();
     },
   });

@@ -461,6 +461,10 @@ table.calls td:last-child { width: 1px; }
 .app-editor .command-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .app-editor .command-line input { flex: 1; min-width: 0; }
 .app-editor .folder-line .ellipsis { flex: 1; min-width: 0; }
+/* The application being edited: its row and, right under it, the editor, as one. */
+.allowed.editing, .card.group > .app-editor { background: var(--subtle); }
+html.mac .card.group > .app-editor { margin: 0; padding: 2px 14px 14px 62px; }
+html.mac .card.group > .app-editor::before { display: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 1px 8px 2px; border-radius: 10px; background: var(--subtle); white-space: nowrap; }
 .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
