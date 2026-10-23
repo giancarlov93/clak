@@ -16,6 +16,7 @@ concurrency:
 permissions:
   contents: read
 
+# The same in caches.yml: these are part of the caches' keys.
 env:
   CARGO_TERM_COLOR: always
   # No debug info in these builds: a failing test still says its file and line, coverage
@@ -26,9 +27,8 @@ jobs:
   # On main: whether the files of this commit are those of a pull request whose checks passed.
   # With a rebase the commits change but, if main hadn't moved, the files (the tree) don't.
   # A direct push, a pull request not found or a doubt: everything runs.
-  # Only main saves the caches (the pull requests restore them): a push that changes what
-  # goes in them (Cargo.lock, a Cargo.toml, the toolchain, this workflow) runs everything too,
-  # or every pull request after it would start from older caches.
+  # Only main saves the caches the pull requests start from: when this skips, caches.yml
+  # builds them after it, if the push changed what goes in them.
   needed:
     runs-on: ubuntu-latest
     permissions:
@@ -43,18 +43,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
-          BEFORE: ${{ github.event.before }}
         run: |
           run=true
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             tree() { gh api "repos/$REPO/git/commits/$1" --jq .tree.sha || true; }
-            changed=$(gh api "repos/$REPO/compare/$BEFORE...$SHA" --jq '(.files // [])[].filename' || echo '?')
             pulls="repos/$REPO/commits/$SHA/pulls"
             head=$(gh api "$pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
             mine=$(tree "$SHA")
-            if printf '%s\n' "$changed" | grep -qE '^\?$|(^|/)Cargo\.(toml|lock)$|^rust-toolchain\.toml$|^\.github/workflows/checks\.yml$'; then
-              echo "This push changes what the caches hold: everything runs, and saves them." >> "$GITHUB_STEP_SUMMARY"
-            elif [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
+            if [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
               runs="repos/$REPO/actions/workflows/checks.yml/runs?head_sha=$head&event=pull_request&status=success"
               passed=$(gh api "$runs" --jq .total_count || echo 0)
               if [ "${passed:-0}" -gt 0 ]; then
