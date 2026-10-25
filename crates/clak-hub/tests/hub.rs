@@ -91,6 +91,14 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
 
     // Connected again: no question, with the name and command the user chose.
     app.resource.close("resource_closed").await;
+    // Until the hub has let the old connection go, a new one would be «shop-2».
+    wait_until(|| async {
+        hub.snapshot().await["resources"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    })
+    .await;
     let asked = hub.prompt.count();
     let again = hub.new_app("Test Notepad", "shopping.txt");
     again.resource.connect().await.unwrap();
