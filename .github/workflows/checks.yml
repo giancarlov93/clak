@@ -72,9 +72,9 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --all --check
 
-  # clippy and the tests on both systems: much of the code is #[cfg(windows)] or macOS only.
-  # The whole workspace, the Tauri app included. Here Windows; the Mac is the coverage job,
-  # whose tests are the Mac's tests.
+  # clippy and the tests on every system: much of the code is #[cfg(windows)], macOS or Linux
+  # only. The whole workspace, the Tauri app included. Here Windows; the Mac is the coverage
+  # job, whose tests are the Mac's tests; Linux has a job of its own, without the app.
   clippy-test:
     name: clippy-test (windows-latest)
     needs: needed
@@ -103,6 +103,34 @@ jobs:
       - name: cargo test
         shell: bash
         run: cargo test --workspace --locked
+
+  # Linux: what ships there, the command line and the hub without an interface (clak-daemon),
+  # and what they are made of. Everything but the Tauri app, which isn't built for Linux.
+  linux:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Only the Rust of rust-toolchain.toml, as on Windows.
+      - name: Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo clippy
+        shell: bash
+        run: cargo clippy --workspace --exclude clak-app --all-targets --locked -- -D warnings
+      - name: cargo test
+        shell: bash
+        run: cargo test --workspace --exclude clak-app --locked
 
   # The Mac: clippy, then the tests with coverage (the share of lines they run through: below
   # the floor the check fails), so they are built and run once, not once plain and once for

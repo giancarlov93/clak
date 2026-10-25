@@ -275,6 +275,15 @@ impl GrantEntry {
 
 pub type Allow = Box<dyn FnOnce(&mut Core) + Send>;
 
+/// What an agent's question came to: the user's answer or, when the questions are on a web
+/// page ([`HubOptions::question_link`]), the link where the user answers it. The agent is
+/// told at once, and asks again once the user has answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Asked {
+    Verdict(Verdict),
+    Link(String),
+}
+
 /// A question to the user in progress. Whoever asks the same thing waits for the same answer.
 struct PendingConsent {
     request: ConsentRequest,
@@ -1735,11 +1744,50 @@ impl Broker {
         remember: Option<Allow>,
         gone: &CancellationToken,
     ) -> Result<Verdict, Gone> {
+        match self
+            .consent_with(key, build, allow, remember, gone, None)
+            .await?
+        {
+            Asked::Verdict(verdict) => Ok(verdict),
+            Asked::Link(_) => unreachable!("without a link the question is waited for"),
+        }
+    }
+
+    /// An agent's question, as [`Broker::consent_remembering`]. With the questions on a web
+    /// page the agent doesn't wait for it: the link comes back at once, the question stays
+    /// open even when the agent has gone, and a yes is applied when it comes. Asking again
+    /// before the answer gives the same question, and the same link.
+    pub async fn agent_consent(
+        &self,
+        key: &str,
+        build: impl FnOnce(String, &Core) -> ConsentRequest,
+        allow: impl FnOnce(&mut Core) + Send + 'static,
+        remember: Option<Allow>,
+        gone: &CancellationToken,
+    ) -> Result<Asked, Gone> {
+        let link = self.0.options.question_link.clone();
+        self.consent_with(key, build, allow, remember, gone, link)
+            .await
+    }
+
+    async fn consent_with(
+        &self,
+        key: &str,
+        build: impl FnOnce(String, &Core) -> ConsentRequest,
+        allow: impl FnOnce(&mut Core) + Send + 'static,
+        remember: Option<Allow>,
+        gone: &CancellationToken,
+        link: Option<crate::consent::QuestionLink>,
+    ) -> Result<Asked, Gone> {
         #[allow(clippy::large_enum_variant)]
         enum Start {
             Now(Verdict),
             Wait {
                 rx: watch::Receiver<Option<Verdict>>,
+                ask: Option<(ConsentRequest, CancellationToken)>,
+                id: String,
+            },
+            Elsewhere {
                 ask: Option<(ConsentRequest, CancellationToken)>,
                 id: String,
             },
@@ -1777,6 +1825,13 @@ impl Broker {
                 c.touch();
             }
             let pending = c.pending.get_mut(key).expect("inserted above");
+            // Nobody waits for it: so nobody's going away withdraws it.
+            if link.is_some() {
+                return Start::Elsewhere {
+                    ask,
+                    id: pending.request.id.clone(),
+                };
+            }
             pending.waiters += 1;
             Start::Wait {
                 rx: pending.done.subscribe(),
@@ -1785,14 +1840,21 @@ impl Broker {
             }
         });
         let (mut rx, ask, id) = match start {
-            Start::Now(verdict) => return Ok(verdict),
+            Start::Now(verdict) => return Ok(Asked::Verdict(verdict)),
+            Start::Elsewhere { ask, id } => {
+                if let Some((request, cancel)) = ask {
+                    self.spawn_prompt(key.to_owned(), request, cancel);
+                }
+                let link = link.expect("only with a link");
+                return Ok(Asked::Link(link(&id)));
+            }
             Start::Wait { rx, ask, id } => (rx, ask, id),
         };
         if let Some((request, cancel)) = ask {
             self.spawn_prompt(key.to_owned(), request, cancel);
         }
         tokio::select! {
-            verdict = rx.wait_for(Option::is_some) => Ok(verdict.ok().and_then(|v| *v).unwrap_or(Verdict::NoAnswer)),
+            verdict = rx.wait_for(Option::is_some) => Ok(Asked::Verdict(verdict.ok().and_then(|v| *v).unwrap_or(Verdict::NoAnswer))),
             _ = gone.cancelled() => {
                 // If nobody is waiting any more, the window is withdrawn.
                 let abandon = self.run(|c| match c.pending.get_mut(key) {
@@ -1926,12 +1988,19 @@ impl Broker {
         let Some((request, progress, is_hub, name)) = started else {
             return Verdict::NoPrompt;
         };
+        let link = self
+            .0
+            .options
+            .question_link
+            .as_ref()
+            .map(|link| link(&request.id));
         progress.tell(
             "consent",
-            &if is_hub {
-                "waiting for the user: Clak is asking them, in its own window, to confirm this change…".to_owned()
-            } else {
-                format!("waiting for the user: “{name}” is asking them to confirm, in a Clak window…")
+            &match (is_hub, link) {
+                (true, None) => "waiting for the user: Clak is asking them, in its own window, to confirm this change…".to_owned(),
+                (false, None) => format!("waiting for the user: “{name}” is asking them to confirm, in a Clak window…"),
+                (true, Some(link)) => format!("waiting for the user: Clak is asking them to confirm this change, at {link}…"),
+                (false, Some(link)) => format!("waiting for the user: “{name}” is asking them to confirm, at {link}…"),
             },
         );
 

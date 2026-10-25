@@ -3,9 +3,9 @@
 //! The hub identifies its caller from the operating system, not from what the caller
 //! says about itself (the *provenance*): which process opened the pipe or the socket,
 //! which agent shows up walking its ancestors, who signed the executable. Everything
-//! that touches the OS to do this lives here, behind a single API: Windows (Win32) and
-//! macOS (libproc, Security.framework) for real, Linux as a minimal fallback (no
-//! recognized agent, no signature, no vault for secrets).
+//! that touches the OS to do this lives here, behind a single API: Windows (Win32),
+//! macOS (libproc, Security.framework) and Linux (`/proc`). Linux has no signatures: every
+//! executable there is unsigned, and is remembered by its content.
 //!
 //! Nothing here returns an error or panics over a process that can't be read: a
 //! provenance that can't be read is an empty object or a `None`, and the consent
@@ -21,13 +21,14 @@
 //! Provenance:
 //! - [`AgentIdentity`] `{ pid, started, exe, name, chain, signed, signer }`, with
 //!   [`AgentIdentity::key`] (`"pid:start"`) and [`AgentIdentity::started_at`]. `started`
-//!   is in the OS unit: FILETIME on Windows, microseconds since the epoch on the Mac.
+//!   is in the OS unit: FILETIME on Windows, microseconds since the epoch on the Mac,
+//!   clock ticks since boot on Linux.
 //! - [`agent_of`]`(pid: Option<u32>, authorized: &HashSet<String>) -> Option<AgentIdentity>`:
 //!   the agent behind the process that opened the control channel.
 //! - [`is_alive`]`(&AgentIdentity) -> bool`: the same process as before (pid and start).
 //! - [`attest_loopback`]`(peer_port: u16, local_port: u16) -> serde_json::Value`:
 //!   the `origin` object of a program connected over loopback TCP. Windows:
-//!   `{pid, exe, signed, signer}`; Mac: `{pid, exe, signed, signer, team}`; only
+//!   and Linux `{pid, exe, signed, signer}`; Mac: `{pid, exe, signed, signer, team}`; only
 //!   `{pid}` if the executable can't be read; `{}` if the process isn't found.
 //! - [`pipe_client_pid`]`(RawHandle) -> Option<u32>` (Windows, named pipe) and
 //!   [`unix_peer_pid`]`(RawFd) -> Option<u32>` (Unix: `LOCAL_PEERPID` on the Mac,
@@ -54,6 +55,7 @@
 //! - [`FileBox`]`<C: BlobCipher>`: the secrets in a file `{id: base64(blob)}`;
 //!   [`DpapiBox`] = `FileBox<Dpapi>` on Windows.
 //! - `KeychainBox` on the Mac (service `dev.clak.connector`, account the id).
+//! - [`PlainBox`] = `FileBox<Plain>` on Linux: the file, readable by the user alone.
 //! - [`MemoryBox`] for tests, [`NoBox`] where there is no vault.
 //! - [`default_box`]`(home: &Path, file: &str) -> Box<dyn SecretBox>`.
 
@@ -65,6 +67,9 @@ pub mod secrets;
 
 #[cfg(target_os = "macos")]
 mod mac;
+// Tested from the Mac too, on a folder of its own: links need no privileges there.
+#[cfg(any(target_os = "linux", all(test, unix)))]
+mod procfs;
 #[cfg(windows)]
 mod win;
 
@@ -72,7 +77,9 @@ pub use hash::executable_hash;
 pub use provenance::{AgentIdentity, Ancestor, ProcessEntry, ProcessLookup, Signature};
 #[cfg(target_os = "macos")]
 pub use secrets::KeychainBox;
-pub use secrets::{BlobCipher, FileBox, MemoryBox, NoBox, SecretBox, SecretError, default_box};
+pub use secrets::{
+    BlobCipher, FileBox, MemoryBox, NoBox, Plain, PlainBox, SecretBox, SecretError, default_box,
+};
 #[cfg(windows)]
 pub use secrets::{Dpapi, DpapiBox};
 
@@ -119,7 +126,20 @@ pub fn agent_of(pid: Option<u32>, authorized: &HashSet<String>) -> Option<AgentI
             .unwrap_or_else(Signature::unknown);
         Some(identity(agent, chain, exe, signature))
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        let processes = procfs::Proc::system();
+        let (agent, chain) = provenance::select(
+            &processes,
+            pid,
+            authorized,
+            &provenance::LINUX,
+            provenance::lineage_linux,
+        )?;
+        let exe = provenance::ProcessLookup::exe(&processes, agent.pid);
+        Some(identity(agent, chain, exe, Signature::unsigned()))
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = (pid, authorized);
         None
@@ -136,7 +156,9 @@ pub fn process_lineage(pid: u32) -> Vec<Ancestor> {
     let line = provenance::lineage_windows(&win::Processes::snapshot(), pid).0;
     #[cfg(target_os = "macos")]
     let line = provenance::lineage_macos(&mac::Processes, pid).0;
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    let line = provenance::lineage_linux(&procfs::Proc::system(), pid).0;
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     let line = Vec::new();
     if line.is_empty() {
         return vec![Ancestor {
@@ -163,7 +185,7 @@ pub fn process_tty(pid: u32) -> Option<String> {
     }
 }
 
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(any(windows, target_os = "macos", target_os = "linux"))]
 fn identity(
     agent: Ancestor,
     chain: Vec<String>,
@@ -196,11 +218,25 @@ pub fn process_start_time(pid: u32) -> Option<i64> {
     {
         mac::bsd_info(pid).map(|info| info.started)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        provenance::ProcessLookup::start_time(&procfs::Proc::system(), pid)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = pid;
         None
     }
+}
+
+/// A Linux start (clock ticks since boot) as an instant: the boot time the kernel reports
+/// now, plus the ticks at the clock's rate.
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_started_at(ticks: i64) -> Option<std::time::SystemTime> {
+    // SAFETY: sysconf only reads a constant of the system.
+    let hertz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    let boot = procfs::Proc::system().boot_time()?;
+    procfs::instant(boot, ticks, u64::try_from(hertz).ok()?)
 }
 
 /// The full path of a process's executable.
@@ -213,11 +249,14 @@ pub fn process_exe(pid: u32) -> Option<String> {
     {
         mac::path_of(pid)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
     {
-        std::fs::read_link(format!("/proc/{pid}/exe"))
-            .ok()
-            .map(|p| p.to_string_lossy().into_owned())
+        provenance::ProcessLookup::exe(&procfs::Proc::system(), pid)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        None
     }
 }
 
@@ -231,20 +270,20 @@ pub fn process_command_line(pid: u32) -> Option<String> {
     {
         mac::command_line(pid)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
     {
-        let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-        let parts: Vec<String> = raw
-            .split(|&b| b == 0)
-            .filter(|p| !p.is_empty())
-            .map(|p| String::from_utf8_lossy(p).into_owned())
-            .collect();
-        Some(parts.join(" "))
+        provenance::ProcessLookup::command_line(&procfs::Proc::system(), pid)
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        None
     }
 }
 
 /// Who signed a file. On Windows the embedded signature or, for system files, the
-/// catalog one (asked of PowerShell); on the Mac the code signature, with the Team ID.
+/// catalog one (asked of PowerShell); on the Mac the code signature, with the Team ID. Linux
+/// has no signatures for executables: unsigned.
 pub fn signature_of(exe: &str) -> Signature {
     #[cfg(windows)]
     {
@@ -259,7 +298,12 @@ pub fn signature_of(exe: &str) -> Signature {
     {
         mac::signature(exe, None)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        let _ = exe;
+        Signature::unsigned()
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = exe;
         Signature::unknown()
@@ -277,7 +321,9 @@ pub fn attest_loopback(peer_port: u16, local_port: u16) -> serde_json::Value {
     let pid = win::tcp_owner(peer_port, local_port);
     #[cfg(target_os = "macos")]
     let pid = mac::tcp_owner(peer_port, local_port);
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    let pid = procfs::Proc::system().tcp_owner(peer_port, local_port);
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     let pid: Option<u32> = {
         let _ = (peer_port, local_port);
         None
@@ -339,7 +385,7 @@ pub fn unix_peer_pid(fd: std::os::fd::RawFd) -> Option<u32> {
 mod tests {
     use super::*;
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     #[test]
     fn this_process_has_a_real_chain() {
         let me = std::process::id();
@@ -368,6 +414,8 @@ mod tests {
         let (line, _) = provenance::lineage_windows(&win::Processes::snapshot(), me);
         #[cfg(target_os = "macos")]
         let (line, _) = provenance::lineage_macos(&mac::Processes, me);
+        #[cfg(target_os = "linux")]
+        let (line, _) = provenance::lineage_linux(&procfs::Proc::system(), me);
         assert_eq!(line.first().map(|a| a.pid), Some(me));
         assert!(line.len() >= 2, "{line:?}");
         // cargo is the parent of the test process.
@@ -378,7 +426,7 @@ mod tests {
         );
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     #[test]
     fn the_lineage_starts_from_the_process_itself() {
         let line = process_lineage(std::process::id());
@@ -441,7 +489,7 @@ mod tests {
         assert_eq!(agent_of(Some(u32::MAX - 3), &HashSet::new()), None);
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(any(windows, target_os = "macos", target_os = "linux"))]
     #[test]
     fn a_real_program_is_recognized_by_its_tcp_ports() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -465,7 +513,7 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        #[cfg(windows)]
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(keys, ["pid", "exe", "signed", "signer"]);
         #[cfg(target_os = "macos")]
         assert_eq!(keys, ["pid", "exe", "signed", "signer", "team"]);

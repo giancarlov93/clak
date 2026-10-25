@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Clak</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Clak</h1>
+    <button id="logout" class="quiet" hidden>Log out</button>
+  </header>
+  <main>
+    <section id="login" hidden>
+      <h2>Log in</h2>
+      <p class="hint">The password chosen with <code>clak-daemon --set-password</code>.</p>
+      <form id="login-form">
+        <input id="password" type="password" autocomplete="current-password" aria-label="Password" placeholder="Password" required>
+        <button type="submit">Log in</button>
+      </form>
+      <p id="login-error" class="error" role="alert"></p>
+    </section>
+    <div id="app" hidden>
+      <p id="notice" class="notice" role="status" hidden></p>
+      <section>
+        <h2>Questions</h2>
+        <div id="questions"></div>
+      </section>
+      <section>
+        <h2>Allowed now</h2>
+        <div id="grants"></div>
+      </section>
+      <section>
+        <h2>Agents connected</h2>
+        <div id="agents"></div>
+      </section>
+      <section>
+        <h2>Always allowed</h2>
+        <div id="rules"></div>
+      </section>
+      <section>
+        <h2>Applications allowed</h2>
+        <div id="apps"></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

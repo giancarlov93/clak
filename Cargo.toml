@@ -56,7 +56,10 @@ getrandom = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "fs", "process"] }
 tokio-tungstenite = "0.27"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
-reqwest = { version = "0.12", default-features = false, features = ["default-tls", "json", "stream", "gzip"] }
+# Without TLS here: clak-connectors and clak-apis choose it per system. The system's own on
+# Windows and the Mac; rustls with the system's certificates on Linux, so the binaries don't
+# depend on the OpenSSL a distribution ships.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "gzip"] }
 url = "2"
 unicode-normalization = "0.1"
 regex = "1"

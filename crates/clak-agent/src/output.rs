@@ -28,7 +28,7 @@ impl Exit {
             Some("bad_request" | "unknown_agent") => Exit::USAGE,
             Some("not_found" | "gone") => Exit::NOT_FOUND,
             Some("app_timeout" | "wait_timeout") => Exit::APP_TIMEOUT,
-            Some("no_answer") => Exit::NO_ANSWER,
+            Some("no_answer" | "consent_pending") => Exit::NO_ANSWER,
             Some("no_prompt") => Exit::UNAVAILABLE,
             _ => Exit::REFUSED,
         }
@@ -245,6 +245,7 @@ mod tests {
     fn every_error_has_the_exit_code_for_what_the_agent_does_next() {
         assert_eq!(Exit::of(Some("denied")), Exit::REFUSED);
         assert_eq!(Exit::of(Some("no_answer")), Exit::NO_ANSWER);
+        assert_eq!(Exit::of(Some("consent_pending")), Exit::NO_ANSWER);
         assert_eq!(Exit::NO_ANSWER, 7);
         assert_eq!(Exit::of(Some("app_timeout")), Exit::APP_TIMEOUT);
         assert_eq!(Exit::of(Some("wait_timeout")), Exit::APP_TIMEOUT);

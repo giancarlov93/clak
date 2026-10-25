@@ -1,10 +1,12 @@
 // The dependency notices: their licenses require them to travel with the binaries.
 //
-//     node scripts/notices.mjs [--target <triple>] [--out <file>]
+//     node scripts/notices.mjs [--target <triple>] [--crates <a,b>] [--out <file>]
 //
-// From `cargo metadata`: the crates that actually end up in ClakApp, clak and clak-shim on
-// that target (neither dev ones nor build-only ones), each with its license and the license
-// files it carries. Each text is written only once, with the list of crates that carry it.
+// From `cargo metadata`: the crates that actually end up in what ships on that target (neither
+// dev ones nor build-only ones), each with its license and the license files it carries. Each
+// text is written only once, with the list of crates that carry it. What ships is, by default,
+// the app with clak and clak-shim (`clak-app,clak-agent`); on Linux, clak, clak-shim and
+// clak-daemon (`clak-agent,clak-daemon`).
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -32,7 +34,9 @@ const procMacro = (p) => p.targets.some((t) => t.kind.includes("proc-macro"));
 
 // From the crates that ship, along normal dependencies only.
 const shipped = new Set();
-const queue = metadata.packages.filter((p) => ["clak-app", "clak-agent"].includes(p.name)).map((p) => p.id);
+const roots = (option("--crates") ?? "clak-app,clak-agent").split(",");
+const queue = metadata.packages.filter((p) => roots.includes(p.name)).map((p) => p.id);
+if (queue.length !== roots.length) throw new Error(`not all crates found: ${roots.join(", ")}`);
 while (queue.length) {
   const id = queue.pop();
   if (shipped.has(id)) continue;

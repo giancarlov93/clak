@@ -1,0 +1,110 @@
+/* Clak's web page: the questions and what is allowed, readable on a phone. */
+:root {
+  --bg: #f6f6f4;
+  --card: #ffffff;
+  --text: #1d1d1b;
+  --muted: #6b6b66;
+  --line: #e2e2dc;
+  --accent: #2f6fde;
+  --accent-text: #ffffff;
+  --deny: #b3261e;
+  --warn-bg: #fff4d6;
+  --warn-text: #6b4e00;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --card: #20201e;
+    --text: #ecece8;
+    --muted: #a0a09a;
+    --line: #34342f;
+    --accent: #6d9cff;
+    --accent-text: #0d1a33;
+    --deny: #ff8a80;
+    --warn-bg: #3a3000;
+    --warn-text: #ffe08a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 15px; margin: 24px 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+
+main { max-width: 720px; margin: 0 auto; padding: 0 16px 48px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+
+.card.focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+
+.title { font-weight: 600; margin: 0 0 6px; }
+.lines { margin: 0 0 8px; display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; font-size: 14px; }
+.lines dt { color: var(--muted); }
+.lines dd { margin: 0; }
+.tools { margin: 0 0 8px; padding-left: 18px; font-size: 14px; }
+.warning { background: var(--warn-bg); color: var(--warn-text); border-radius: 6px; padding: 6px 10px; font-size: 14px; margin: 0 0 8px; }
+.note, .hint, .empty, .meta { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+.question { font-weight: 600; margin: 8px 0; }
+.always { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 0 0 10px; }
+
+.row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.row .meta { margin: 0; }
+.row > div:first-child { min-width: 0; }
+.row > button { flex-shrink: 0; white-space: nowrap; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+button {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  padding: 8px 16px;
+  min-height: 40px;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.deny { color: var(--deny); }
+button.quiet { border-color: transparent; background: transparent; color: var(--muted); }
+button:disabled { opacity: .45; cursor: default; }
+
+form { display: flex; gap: 10px; flex-wrap: wrap; }
+input[type=password] {
+  font: inherit;
+  flex: 1 1 220px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+}
+
+.error { color: var(--deny); min-height: 1.4em; }
+.notice { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+code { font-size: 14px; }

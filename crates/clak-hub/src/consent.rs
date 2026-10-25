@@ -241,7 +241,15 @@ pub struct HubOptions {
     pub sweep_interval: Duration,
     /// The connector timings (shorter in tests).
     pub connector_timing: ConnectorTiming,
+    /// Where the user answers a question, from its id, when the questions are on a web page
+    /// rather than on this screen (`clak-daemon --web`). Then an agent isn't kept waiting:
+    /// it gets the link at once and asks again after the answer, and the question stays open
+    /// until it is answered or its time runs out, whether the agent waits or not.
+    pub question_link: Option<QuestionLink>,
 }
+
+/// See [`HubOptions::question_link`].
+pub type QuestionLink = Arc<dyn Fn(&str) -> String + Send + Sync>;
 
 impl HubOptions {
     pub fn new(platform: Arc<dyn Platform>) -> Self {
@@ -254,6 +262,7 @@ impl HubOptions {
             settings: true,
             sweep_interval: Duration::from_secs(3),
             connector_timing: ConnectorTiming::default(),
+            question_link: None,
         }
     }
 }
