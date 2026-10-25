@@ -7,9 +7,15 @@
 //! generic password in the Keychain, looked up by *name* (the service
 //! `dev.clak.connector` and the id as the account).
 //!
+//! On Linux there is no vault to count on: the Secret Service needs a desktop session,
+//! which a server or a container doesn't have. The secrets live in the same file as on
+//! Windows, not encrypted ([`Plain`]) but readable and writable by the user alone (mode
+//! 0600), as SSH keys and the command lines' tokens are.
+//!
 //! The common contract is the Mac's, by name: [`SecretBox`] reads, checks and writes
-//! a secret given its id. On Windows it's implemented by [`FileBox`], which combines
-//! the secrets file and a blob cipher ([`BlobCipher`]), that is [`Dpapi`].
+//! a secret given its id. On Windows and Linux it's implemented by [`FileBox`], which
+//! combines the secrets file and a blob cipher ([`BlobCipher`]), that is [`Dpapi`] or
+//! [`Plain`].
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -51,7 +57,8 @@ pub trait BlobCipher: Send + Sync {
 }
 
 /// The secrets in a JSON file, `{ "<id>": "<base64 of the encrypted blob>" }`: written
-/// indented, in UTF-8 without BOM, through a `.tmp`.
+/// indented, in UTF-8 without BOM, through a `.tmp`. On Unix the file is the user's alone
+/// (0600) from the moment it is created.
 ///
 /// A missing or unreadable file is an empty box. The lock covers accesses from the
 /// same process; two hubs on the same file can't happen (the lockfile prevents it).
@@ -94,9 +101,32 @@ impl<C: BlobCipher> FileBox<C> {
         let text = serde_json::to_string_pretty(all).map_err(|e| SecretError(e.to_string()))?;
         let mut draft = self.path.clone().into_os_string();
         draft.push(".tmp");
-        std::fs::write(&draft, text).map_err(failed)?;
+        private_write(Path::new(&draft), text.as_bytes()).map_err(failed)?;
         std::fs::rename(&draft, &self.path).map_err(failed)
     }
+}
+
+/// A new file the user alone can read: a `.tmp` left over, perhaps with other rights, is
+/// removed first, so the rights are the ones it is created with.
+#[cfg(unix)]
+fn private_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::OpenOptionsExt as _;
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(bytes)
+}
+
+#[cfg(not(unix))]
+fn private_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::write(path, bytes)
 }
 
 /// A leading BOM is tolerated: some editors add one.
@@ -182,7 +212,7 @@ impl SecretBox for MemoryBox {
     }
 }
 
-/// Where an OS without a vault we know (Linux, for now) keeps secrets: nowhere.
+/// Where an OS without a vault we know keeps secrets: nowhere.
 /// It reads empty, and writing is an error.
 pub struct NoBox;
 
@@ -202,6 +232,35 @@ impl SecretBox for NoBox {
                 "This system has no secret store: tokens can't be saved".into(),
             )),
         }
+    }
+}
+
+// --- Linux: the file alone -----------------------------------------------------------
+
+/// No encryption: the blob is the secret. What protects it is the file's rights.
+///
+/// Protects against another user of the computer, not against a program running as the
+/// user or someone reading the disk.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Plain;
+
+/// The Linux box: a file of secrets the user alone can read.
+pub type PlainBox = FileBox<Plain>;
+
+impl PlainBox {
+    /// The secrets in the file `path` (for example `~/.clak/connectors.secrets`).
+    pub fn open(path: impl Into<PathBuf>) -> Self {
+        FileBox::new(path, Plain)
+    }
+}
+
+impl BlobCipher for Plain {
+    fn protect(&self, plain: &[u8]) -> Result<Vec<u8>, SecretError> {
+        Ok(plain.to_vec())
+    }
+
+    fn unprotect(&self, sealed: &[u8]) -> Result<Vec<u8>, SecretError> {
+        Ok(sealed.to_vec())
     }
 }
 
@@ -274,8 +333,9 @@ impl SecretBox for KeychainBox {
 
 /// The OS box for a store's secrets: on Windows the file `file` in the hub's folder
 /// (`connectors.secrets` for connectors, `apis.secrets` for APIs), encrypted with
-/// DPAPI; on the Mac the Keychain, which is a single one for all (the ids don't
-/// overlap) and doesn't use the file name.
+/// DPAPI; on Linux the same file, not encrypted and the user's alone; on the Mac the
+/// Keychain, which is a single one for all (the ids don't overlap) and doesn't use the
+/// file name.
 pub fn default_box(home: &Path, file: &str) -> Box<dyn SecretBox> {
     #[cfg(windows)]
     {
@@ -286,7 +346,11 @@ pub fn default_box(home: &Path, file: &str) -> Box<dyn SecretBox> {
         let _ = (home, file);
         Box::new(KeychainBox)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(target_os = "linux")]
+    {
+        Box::new(PlainBox::open(home.join(file)))
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = (home, file);
         Box::new(NoBox)
@@ -357,6 +421,34 @@ mod tests {
         assert_eq!(secrets.secret("cn_2"), None);
         secrets.set_secret("api_1", Some("k"), "").unwrap();
         assert_eq!(secrets.secret("api_1").as_deref(), Some("k"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_plain_box_keeps_the_file_to_the_user() {
+        let dir = temp("plainbox");
+        let path = dir.join("apis.secrets");
+        let secrets = PlainBox::open(&path);
+        secrets.set_secret("api_1", Some("k123"), "").unwrap();
+        assert_eq!(secrets.secret("api_1").as_deref(), Some("k123"));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "{\n  \"api_1\": \"azEyMw==\"\n}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode(&path), 0o600);
+            // A file and a leftover .tmp others could read: the next write is the user's alone.
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let draft = dir.join("apis.secrets.tmp");
+            std::fs::write(&draft, "old").unwrap();
+            std::fs::set_permissions(&draft, std::fs::Permissions::from_mode(0o644)).unwrap();
+            secrets.set_secret("api_2", Some("x"), "").unwrap();
+            assert_eq!(mode(&path), 0o600);
+            assert!(!draft.exists());
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

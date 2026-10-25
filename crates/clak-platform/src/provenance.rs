@@ -2,9 +2,9 @@
 //!
 //! Which ancestor of a process is the agent is decided here, with pure functions
 //! that read the processes through [`ProcessLookup`]: the real one comes from the
-//! OS, the test one is a fake table. The Windows and Mac rules differ (which are the
-//! shells, where the walk stops, how an app is recognized) and both live here,
-//! compiled everywhere: so both can be tested from any OS.
+//! OS, the test one is a fake table. The Windows, Mac and Linux rules differ (which are
+//! the shells, where the walk stops, how an app is recognized) and all live here,
+//! compiled everywhere: so all can be tested from any OS.
 
 use std::collections::HashSet;
 
@@ -13,7 +13,9 @@ use std::collections::HashSet;
 /// hands its pid alone to another one.
 ///
 /// `started` is in the OS unit: on Windows a FILETIME (hundreds of nanoseconds since
-/// 1601), on the Mac microseconds since the epoch, as `proc_pidinfo` gives them.
+/// 1601), on the Mac microseconds since the epoch, as `proc_pidinfo` gives them, on Linux
+/// clock ticks since boot, as `/proc/<pid>/stat` gives them (the boot time the kernel
+/// reports moves when the clock is set, the ticks don't).
 /// It's for comparing, not for showing: to show it there's [`AgentIdentity::started_at`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentIdentity {
@@ -49,7 +51,11 @@ impl AgentIdentity {
             }
             Some(std::time::UNIX_EPOCH + std::time::Duration::from_nanos(since as u64 * 100))
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            crate::linux_started_at(self.started)
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             Some(std::time::UNIX_EPOCH + std::time::Duration::from_micros(self.started as u64))
         }
@@ -63,7 +69,8 @@ pub struct Ancestor {
     pub started: i64,
     /// The executable's file name: `bash.exe`, `zsh`, `claude`, `Terminal`.
     pub file: String,
-    /// The name the user recognizes (see [`friendly_name_windows`], [`friendly_name_macos`]).
+    /// The name the user recognizes (see [`friendly_name_windows`], [`friendly_name_macos`],
+    /// [`friendly_name_linux`]).
     pub name: String,
 }
 
@@ -74,7 +81,7 @@ impl Ancestor {
 }
 
 /// A row of the process table: the parent and the executable's short name
-/// (Toolhelp on Windows, `pbi_comm` on the Mac).
+/// (Toolhelp on Windows, `pbi_comm` on the Mac, `comm` on Linux).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcessEntry {
     pub parent: u32,
@@ -108,7 +115,7 @@ pub struct Rules {
     pub roots: &'static [&'static str],
     /// The recognized agents, by name: walking up, the first one stops the walk.
     pub agents: &'static [&'static str],
-    /// On Windows file names are case-insensitive; on the Mac they aren't.
+    /// On Windows file names are case-insensitive; on the Mac and Linux they aren't.
     pub ignore_case: bool,
     pub friendly_name: fn(&str, Option<&str>) -> String,
 }
@@ -141,7 +148,11 @@ impl Rules {
         {
             &MACOS
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            &LINUX
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             &WINDOWS
         }
@@ -234,6 +245,55 @@ pub static MACOS: Rules = Rules {
     ],
     ignore_case: false,
     friendly_name: friendly_name_macos,
+};
+
+/// Over SSH every session starts from sshd; tmux, screen and zellij host many at once, and
+/// mosh-server is a session of its own: they all count as a root. So do systemd and init,
+/// which adopt the orphans (see [`lineage_linux`]). Who runs as another user, as sshd does,
+/// can't have its executable read: it is recognized by its short name, which is why the
+/// names cut to 15 bytes are here too.
+pub static LINUX: Rules = Rules {
+    shells: &[
+        "clak",
+        "clak-shim",
+        "bash",
+        "sh",
+        "dash",
+        "zsh",
+        "fish",
+        "tcsh",
+        "csh",
+        "ksh",
+        "mksh",
+        "nu",
+        "login",
+        "env",
+    ],
+    roots: &[
+        "systemd",
+        "init",
+        "sshd",
+        "sshd-session",
+        "tmux",
+        "tmux: server",
+        "screen",
+        "zellij",
+        "mosh-server",
+        "containerd-shim",
+        "containerd-shim-runc-v2",
+        "kthreadd",
+    ],
+    agents: &[
+        "Claude Code",
+        "Codex",
+        "Gemini CLI",
+        "OpenCode",
+        "Visual Studio Code",
+        "Cursor",
+        "Windsurf",
+    ],
+    ignore_case: false,
+    friendly_name: friendly_name_linux,
 };
 
 /// Which ancestor is the agent: the nearest one already authorized, if it's reached
@@ -398,6 +458,64 @@ pub fn launched_by_launchd(exe: Option<&str>) -> bool {
     .any(|prefix| exe.starts_with(prefix))
 }
 
+/// The ancestors under the Linux rules, up to the session.
+///
+/// As on the Mac, a parent that is missing or started after its child breaks the chain.
+/// A process whose parent dies is adopted by pid 1 or by the nearest *subreaper*, which for
+/// the user's programs is their systemd: so reaching one of them says "intact" only if the
+/// process right below is something they really start (a terminal, a service), not a shell
+/// or a `clak`, which would be an orphan. `login`, under the console's getty, is theirs.
+pub fn lineage_linux(processes: &dyn ProcessLookup, pid: u32) -> (Vec<Ancestor>, bool) {
+    let rules = &LINUX;
+    let mut line: Vec<Ancestor> = Vec::new();
+    let read = |pid: u32| -> Option<(ProcessEntry, i64)> {
+        if pid == 0 {
+            return None;
+        }
+        Some((processes.entry(pid)?, processes.start_time(pid)?))
+    };
+    let Some((mut info, mut started)) = read(pid) else {
+        return (line, true);
+    };
+    let mut current = pid;
+    while line.len() < 32 {
+        let exe = processes.exe(current);
+        let file = exe
+            .as_deref()
+            .map(file_name_unix)
+            .unwrap_or(&info.name)
+            .to_string();
+        if current <= 1 || matches!(file.as_str(), "systemd" | "init") {
+            let orphan = line
+                .last()
+                .is_none_or(|below| below.file != "login" && rules.is_shell(&below.file));
+            return (line, orphan);
+        }
+        if rules.is_root(&file) {
+            return (line, false);
+        }
+        let name = friendly_name_linux(
+            exe.as_deref().unwrap_or(&file),
+            processes.command_line(current).as_deref(),
+        );
+        line.push(Ancestor {
+            pid: current,
+            started,
+            file,
+            name,
+        });
+        match read(info.parent) {
+            Some((parent, parent_started)) if parent_started <= started => {
+                current = info.parent;
+                info = parent;
+                started = parent_started;
+            }
+            _ => return (line, true),
+        }
+    }
+    (line, true)
+}
+
 /// The agent among the ancestors of `pid`, with the chain leading to it. The caller
 /// reads the signature: the disk isn't touched here.
 pub fn select(
@@ -523,6 +641,55 @@ pub fn friendly_name_macos(exe: &str, command_line: Option<&str>) -> String {
         return file_name_unix(&exe[..at]).to_string();
     }
     file.to_string()
+}
+
+/// A name the user recognizes, on Linux. The editors that work on a remote computer run
+/// there as a server of their own, in a folder of the user's (`~/.vscode-server`): its
+/// processes are the editor's.
+pub fn friendly_name_linux(exe: &str, command_line: Option<&str>) -> String {
+    let file = file_name_unix(exe);
+    let command = command_line.unwrap_or("");
+    let runs = |what: &str| contains_ignore_case(command, what);
+    // Claude Code installed with its own installer is an executable named after its version.
+    if exe.contains("/.local/share/claude/versions/") || file == "claude" {
+        return "Claude Code".into();
+    }
+    match file {
+        "codex" => return "Codex".into(),
+        "gemini" => return "Gemini CLI".into(),
+        "opencode" => return "OpenCode".into(),
+        "node" | "bun" | "deno" => {
+            if runs("claude-code") || runs("/claude") {
+                return "Claude Code".into();
+            }
+            if runs("gemini") {
+                return "Gemini CLI".into();
+            }
+            if runs("codex") {
+                return "Codex".into();
+            }
+            if runs("opencode") {
+                return "OpenCode".into();
+            }
+        }
+        _ => {}
+    }
+    for (folder, name) in [
+        ("/.vscode-server/", "Visual Studio Code"),
+        ("/.vscode-server-insiders/", "Visual Studio Code"),
+        ("/.cursor-server/", "Cursor"),
+        ("/.windsurf-server/", "Windsurf"),
+    ] {
+        if exe.contains(folder) {
+            return name.into();
+        }
+    }
+    match file {
+        "code" | "code-insiders" => "Visual Studio Code".into(),
+        "cursor" => "Cursor".into(),
+        "windsurf" => "Windsurf".into(),
+        _ => file.to_string(),
+    }
 }
 
 // --- signatures ------------------------------------------------------------------
@@ -900,6 +1067,86 @@ mod tests {
         assert_eq!(signer_name_macos(Some(""), None), None);
     }
 
+    // --- Linux ---
+
+    #[test]
+    fn an_agent_name_is_recognized_from_the_executable_on_linux() {
+        let cases: &[(&str, Option<&str>, &str)] = &[
+            (
+                "/home/u/.local/share/claude/versions/2.1.300",
+                None,
+                "Claude Code",
+            ),
+            (
+                "/home/u/.vscode-server/extensions/anthropic.claude-code-2.1.0/resources/native-binary/claude",
+                None,
+                "Claude Code",
+            ),
+            (
+                "/usr/bin/node",
+                Some("node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"),
+                "Claude Code",
+            ),
+            (
+                "/usr/bin/node",
+                Some("node /usr/lib/node_modules/@google/gemini-cli/dist/index.js"),
+                "Gemini CLI",
+            ),
+            (
+                "/home/u/.npm/lib/node_modules/@openai/codex/vendor/x86_64-unknown-linux-musl/codex/codex",
+                None,
+                "Codex",
+            ),
+            ("/home/u/.opencode/bin/opencode", None, "OpenCode"),
+            ("/usr/bin/node", Some("node server.js"), "node"),
+            (
+                "/home/u/.vscode-server/cli/servers/Stable-abc/server/node",
+                Some("node /x/out/bootstrap-fork --type=ptyHost"),
+                "Visual Studio Code",
+            ),
+            ("/home/u/.cursor-server/bin/abc/node", None, "Cursor"),
+            ("/usr/share/code/code", None, "Visual Studio Code"),
+            (
+                "/usr/libexec/gnome-terminal-server",
+                None,
+                "gnome-terminal-server",
+            ),
+            // Files are case-sensitive: this is not the editor.
+            ("/opt/x/Code", None, "Code"),
+        ];
+        for (exe, command, expected) in cases {
+            assert_eq!(friendly_name_linux(exe, *command), *expected, "{exe}");
+        }
+    }
+
+    #[test]
+    fn the_agent_is_the_first_recognized_walking_up_on_linux() {
+        let line = |files: &str| -> Vec<Ancestor> {
+            files
+                .split(' ')
+                .filter(|f| !f.is_empty())
+                .enumerate()
+                .map(|(i, file)| Ancestor {
+                    pid: 100 + i as u32,
+                    started: i as i64,
+                    file: file.into(),
+                    name: friendly_name_linux(&format!("/usr/bin/{file}"), None),
+                })
+                .collect()
+        };
+        let cases: &[(&str, Option<usize>)] = &[
+            ("clak bash claude", Some(2)),
+            ("clak timeout bash claude", Some(3)),
+            ("clak-shim codex", Some(1)),
+            ("clak bash gnome-terminal-server", Some(2)),
+            ("clak bash", Some(1)),
+            ("", None),
+        ];
+        for (files, expected) in cases {
+            assert_eq!(chosen(line(files), &LINUX, &[]), *expected, "{files}");
+        }
+    }
+
     // --- the walk, on a fake table ---
 
     /// A row: parent, short name, start, executable.
@@ -1112,5 +1359,97 @@ mod tests {
             .with(30, 10, "zsh", Some(30), Some("/bin/zsh"))
             .with(40, 30, "clak", Some(40), Some("/opt/homebrew/bin/clak"));
         assert!(!lineage_macos(&tmux, 40).1);
+    }
+
+    #[test]
+    fn on_linux_the_walk_ends_at_the_session() {
+        // Over SSH: sshd runs as root, its executable can't be read, its short name can.
+        let ssh = FakeTable::default()
+            .with(1, 0, "systemd", Some(0), None)
+            .with(500, 1, "sshd", Some(5), None)
+            .with(900, 500, "sshd-session", Some(9), None)
+            .with(1000, 900, "bash", Some(10), Some("/usr/bin/bash"))
+            .with(
+                1100,
+                1000,
+                "2.1.300",
+                Some(11),
+                Some("/home/u/.local/share/claude/versions/2.1.300"),
+            )
+            .with(1200, 1100, "bash", Some(12), Some("/usr/bin/bash"))
+            .with(
+                1300,
+                1200,
+                "clak",
+                Some(13),
+                Some("/home/u/.local/bin/clak"),
+            );
+        let (line, broken) = lineage_linux(&ssh, 1300);
+        assert!(!broken);
+        assert_eq!(
+            line.iter().map(|a| a.file.as_str()).collect::<Vec<_>>(),
+            ["clak", "bash", "2.1.300", "bash"]
+        );
+        let (agent, chain) = select(&ssh, 1300, &HashSet::new(), &LINUX, lineage_linux).unwrap();
+        assert_eq!(
+            (agent.pid, agent.started, agent.name.as_str()),
+            (1100, 11, "Claude Code")
+        );
+        assert_eq!(chain, ["clak", "bash", "2.1.300"]);
+
+        // A terminal on the desktop, started by the user's systemd: intact, and the terminal
+        // is the program to ask when there is no agent.
+        let desktop = FakeTable::default()
+            .with(1, 0, "systemd", Some(0), None)
+            .with(800, 1, "systemd", Some(8), Some("/usr/lib/systemd/systemd"))
+            .with(
+                900,
+                800,
+                "gnome-terminal-",
+                Some(9),
+                Some("/usr/libexec/gnome-terminal-server"),
+            )
+            .with(1000, 900, "bash", Some(10), Some("/usr/bin/bash"))
+            .with(1300, 1000, "clak", Some(13), Some("/usr/local/bin/clak"));
+        assert!(!lineage_linux(&desktop, 1300).1);
+        assert_eq!(
+            select(&desktop, 1300, &HashSet::new(), &LINUX, lineage_linux)
+                .unwrap()
+                .0
+                .name,
+            "gnome-terminal-server"
+        );
+
+        // The console: getty became login, under pid 1.
+        let console = FakeTable::default()
+            .with(1, 0, "systemd", Some(0), None)
+            .with(700, 1, "login", Some(7), None)
+            .with(1000, 700, "bash", Some(10), Some("/usr/bin/bash"))
+            .with(1300, 1000, "clak", Some(13), Some("/usr/local/bin/clak"));
+        assert!(!lineage_linux(&console, 1300).1);
+
+        // A shell or clak adopted by systemd, or by pid 1, is an orphan: no agent to ask.
+        for reaper in [1, 800] {
+            let orphan = FakeTable::default()
+                .with(1, 0, "systemd", Some(0), None)
+                .with(800, 1, "systemd", Some(8), Some("/usr/lib/systemd/systemd"))
+                .with(1300, reaper, "clak", Some(13), Some("/usr/local/bin/clak"));
+            assert!(lineage_linux(&orphan, 1300).1, "{reaper}");
+            assert_eq!(
+                select(&orphan, 1300, &HashSet::new(), &LINUX, lineage_linux),
+                None
+            );
+        }
+
+        // tmux counts as a root; a parent born after its child breaks the chain.
+        let tmux = FakeTable::default()
+            .with(10, 1, "tmux: server", Some(10), Some("/usr/bin/tmux"))
+            .with(30, 10, "bash", Some(30), Some("/usr/bin/bash"))
+            .with(40, 30, "clak", Some(40), Some("/usr/local/bin/clak"));
+        assert!(!lineage_linux(&tmux, 40).1);
+        let reused = tmux.with(30, 10, "bash", Some(50), Some("/usr/bin/bash"));
+        assert_eq!(lineage_linux(&reused, 40).0.len(), 1);
+        assert!(lineage_linux(&reused, 40).1);
+        assert_eq!(lineage_linux(&reused, 999), (vec![], true));
     }
 }

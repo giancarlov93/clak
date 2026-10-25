@@ -13,7 +13,7 @@
 //! granted…»), so an agent knows what it is waiting for.
 
 use crate::consent::{AgentIdentity, Verdict};
-use crate::core::{Allow, Broker, Core, Gone, Progress, outcome};
+use crate::core::{Allow, Asked, Broker, Core, Gone, Progress, outcome};
 use crate::wire::{Malformed, ToolDef};
 use crate::{flags, rules, texts};
 use clak_wire::json::{self};
@@ -133,6 +133,24 @@ pub fn error(code: &str, text: &str) -> Map<String, Value> {
     object(json!({ "ok": false, "code": code, "error": text }))
 }
 
+/// The question is on the hub's web page: the agent passes the link on, and asks again.
+fn pending(link: &str, what: &str) -> Map<String, Value> {
+    error(
+        "consent_pending",
+        &format!(
+            "To {what} the user's consent is required. Ask the user to open {link} and answer there, then try again: until they answer, trying again gives this same link."
+        ),
+    )
+}
+
+/// What the agent is told while it waits: nothing, when it doesn't wait (the questions are
+/// on the web page, and the link comes in the response).
+fn waiting(cx: &Context, what: &str) {
+    if cx.broker.options().question_link.is_none() {
+        cx.tell.waiting(what);
+    }
+}
+
 fn refused(verdict: Verdict, what: &str) -> Map<String, Value> {
     match verdict {
         Verdict::Denied => error(
@@ -173,19 +191,24 @@ async fn session(cx: &Context<'_>) -> Result<Result<String, Map<String, Value>>,
     if cx.broker.run(|c| c.session(cx.agent).is_some()) {
         return Ok(Ok(key));
     }
-    cx.tell.waiting("whether this agent may connect");
+    waiting(cx, "whether this agent may connect");
     let (agent, cwd, via) = (cx.agent.clone(), cx.cwd.map(str::to_owned), cx.via);
-    let verdict = cx
+    let verdict = match cx
         .broker
-        .consent(
+        .agent_consent(
             &format!("session:{key}"),
             |id, _| texts::session(id, cx.agent, cx.cwd),
             move |c| {
                 c.authorize(&agent, cwd.as_deref(), via);
             },
+            None,
             cx.gone,
         )
-        .await?;
+        .await?
+    {
+        Asked::Verdict(verdict) => verdict,
+        Asked::Link(link) => return Ok(Err(pending(&link, "connect to Clak"))),
+    };
     if verdict != Verdict::Allowed {
         return Ok(Err(refused(verdict, "connect to Clak")));
     }
@@ -346,11 +369,14 @@ async fn call(
     }
     if grant_id.is_none() {
         let new_session = cx.broker.run(|c| c.session(cx.agent).is_none());
-        cx.tell.waiting(&if new_session {
-            format!("whether this agent may connect and use '{app_name}'")
-        } else {
-            format!("for permission to use '{app_name}'")
-        });
+        waiting(
+            cx,
+            &if new_session {
+                format!("whether this agent may connect and use '{app_name}'")
+            } else {
+                format!("for permission to use '{app_name}'")
+            },
+        );
         waited = true;
         let (agent, cwd, via, target) = (
             cx.agent.clone(),
@@ -389,7 +415,7 @@ async fn call(
         let offer = agent_key.is_some() && (app.key.is_some() || app.is_connector());
         let verdict = cx
             .broker
-            .consent_remembering(
+            .agent_consent(
                 &format!("use:{key}:{conn_id}"),
                 |id, c| {
                     let app = c.app_by_id(&conn_id).unwrap_or(&app);
@@ -409,6 +435,10 @@ async fn call(
                 cx.gone,
             )
             .await?;
+        let verdict = match verdict {
+            Asked::Verdict(verdict) => verdict,
+            Asked::Link(link) => return Ok(Ok(pending(&link, &format!("use '{app_name}'")))),
+        };
         if verdict != Verdict::Allowed {
             return Ok(Ok(refused(verdict, &format!("use '{app_name}'"))));
         }
@@ -445,20 +475,24 @@ async fn call(
         })));
     };
     if !approves {
-        cx.tell.waiting(&if changed {
-            format!(
-                "for permission to use the command '{}', which changed since the last permission",
-                tool.name
-            )
-        } else {
-            format!("for permission to use the command '{}'", tool.name)
-        });
+        waiting(
+            cx,
+            &if changed {
+                format!(
+                    "for permission to use the command '{}', which changed since the last permission",
+                    tool.name
+                )
+            } else {
+                format!("for permission to use the command '{}'", tool.name)
+            },
+        );
         waited = true;
         let (grant_for, name_for, digest_for) =
             (grant_id.clone(), tool.name.clone(), tool.digest.clone());
-        let verdict = cx
+        let what = format!("use the command '{}'", tool.name);
+        let verdict = match cx
             .broker
-            .consent(
+            .agent_consent(
                 &format!("tool:{grant_id}:{}:{}", tool.name, tool.digest),
                 |id, _| texts::tool(id, cx.agent, cx.cwd, &app, &tool, changed),
                 move |c| {
@@ -466,14 +500,16 @@ async fn call(
                         grant.approved.insert(name_for, digest_for);
                     }
                 },
+                None,
                 cx.gone,
             )
-            .await?;
+            .await?
+        {
+            Asked::Verdict(verdict) => verdict,
+            Asked::Link(link) => return Ok(Ok(pending(&link, &what))),
+        };
         if verdict != Verdict::Allowed {
-            return Ok(Ok(refused(
-                verdict,
-                &format!("use the command '{}'", tool.name),
-            )));
+            return Ok(Ok(refused(verdict, &what)));
         }
     }
 

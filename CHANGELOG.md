@@ -124,6 +124,18 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   hub sees them: never the control channel.
 - Applications: an Open button, to start an allowed program.
 - Mac releases are signed with a Developer ID and notarized by Apple.
+- Linux, for servers and containers: each release has an archive for x64 and ARM, linked
+  statically, with `clak`, `clak-shim` and `clak-daemon`, the hub without an interface
+  (`--ask` asks its questions in its terminal). Who is asking is read from `/proc`, up to
+  sshd, tmux or the user's systemd, and the agents are recognized as on the other systems,
+  the editors' remote servers (`~/.vscode-server`) included. Programs connected over loopback
+  are told by their process. Tokens and API secrets are kept in a file only the user can
+  read. No app yet: the skill and the MCP clients are set up by hand.
+- `clak-daemon --web`: the questions on a web page, for servers and containers. It listens on
+  loopback only (reached through SSH or Tailscale) and asks for a password, kept only as its
+  hash. An agent gets the link of its question at once, instead of waiting, and tries again
+  after the answer; the question stays open until it is answered or expires (10 minutes).
+  The page also shows what is allowed now and takes it away.
 
 ### Changed
 
@@ -159,6 +171,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- `clak-daemon --ask`: only a line typed while a question is on screen answers it. A "y"
+  typed before (for a question that had gone, or for none) no longer answers the next one,
+  unseen. A question that goes away unanswered says so, withdrawn or expired, and each one
+  says how many seconds are left to answer.
 - On Windows the icon's box opens at once, as on the Mac: closed, it is now cloaked rather
   than hidden, so it doesn't come back through a redrawn frame, its backdrop applied again
   and its page starting to draw from a stop; and opened in the same place it isn't moved.

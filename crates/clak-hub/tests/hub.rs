@@ -91,6 +91,14 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
 
     // Connected again: no question, with the name and command the user chose.
     app.resource.close("resource_closed").await;
+    // Until the hub has let the old connection go, a new one would be «shop-2».
+    wait_until(|| async {
+        hub.snapshot().await["resources"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    })
+    .await;
     let asked = hub.prompt.count();
     let again = hub.new_app("Test Notepad", "shopping.txt");
     again.resource.connect().await.unwrap();
@@ -358,6 +366,111 @@ async fn an_agent_introduces_itself_once_and_each_agent_has_its_consent() {
         hub.prompt.next(ConsentKind::Session).await.deny();
     });
     assert_eq!(code(&other), Some("denied"));
+    hub.stop().await;
+}
+
+/// With the questions on a web page, an agent isn't kept waiting: it gets the link, the
+/// question outlives its command, and asking again after the answer goes through.
+#[tokio::test]
+async fn with_the_questions_on_a_web_page_the_agent_gets_the_link_and_asks_again() {
+    let hub = TestHub::start_with(Setup {
+        question_link: true,
+        ..Setup::default()
+    })
+    .await;
+    let _app = hub.register().await;
+
+    let first = hub.ask("claude", "list", None).await;
+    assert_eq!(code(&first), Some("consent_pending"));
+    let question = hub.prompt.next(ConsentKind::Session).await;
+    let link = format!("http://web/q/{}", question.request.id);
+    assert!(
+        first["error"].as_str().unwrap().contains(&link),
+        "{first:?}"
+    );
+    // Nothing about a window to look at: the link is in the response.
+    assert!(hub.progress.lock().unwrap().is_empty());
+
+    // Its command is over, the question is still there; asking again gives the same one.
+    let again = hub.ask("claude", "list", None).await;
+    assert!(again["error"].as_str().unwrap().contains(&link));
+    hub.prompt.quiet(100).await;
+    assert!(!question.cancel.is_cancelled());
+    assert_eq!(hub.snapshot().await["pending"].as_array().unwrap().len(), 1);
+
+    question.allow();
+    wait_until(|| async {
+        hub.snapshot().await["pending"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    })
+    .await;
+    assert!(ok(&hub.ask("claude", "list", None).await));
+
+    // A program, then a command of it: each its own link, each applied when allowed.
+    let call = hub
+        .call("claude", "test-notepad", "get_text", None, None)
+        .await;
+    assert_eq!(code(&call), Some("consent_pending"));
+    let question = hub.prompt.next(ConsentKind::Use).await;
+    assert!(
+        call["error"]
+            .as_str()
+            .unwrap()
+            .contains(&question.request.id)
+    );
+    question.allow();
+    wait_until(|| async { hub.snapshot().await["grants"].as_array().unwrap().len() == 1 }).await;
+    assert!(ok(&hub
+        .call("claude", "test-notepad", "get_text", None, None)
+        .await));
+
+    // A no holds as without the page.
+    let other = hub.ask("codex", "list", None).await;
+    assert_eq!(code(&other), Some("consent_pending"));
+    hub.prompt.next(ConsentKind::Session).await.deny();
+    wait_until(|| async {
+        hub.snapshot().await["pending"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    })
+    .await;
+    assert_eq!(code(&hub.ask("codex", "list", None).await), Some("denied"));
+    hub.stop().await;
+}
+
+/// Unanswered, the question goes when its time runs out, not when the agent goes.
+#[tokio::test]
+async fn a_question_on_the_web_page_expires_with_its_time() {
+    let hub = TestHub::start_with(Setup {
+        question_link: true,
+        consent_timeout: Some(Duration::from_millis(300)),
+        ..Setup::default()
+    })
+    .await;
+    assert_eq!(
+        code(&hub.ask("claude", "list", None).await),
+        Some("consent_pending")
+    );
+    let question = hub.prompt.next(ConsentKind::Session).await;
+    tokio::time::timeout(Duration::from_secs(5), question.cancel.cancelled())
+        .await
+        .expect("never expired");
+    wait_until(|| async {
+        hub.snapshot().await["pending"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    })
+    .await;
+    // Expired is not a no: asking again asks again.
+    assert_eq!(
+        code(&hub.ask("claude", "list", None).await),
+        Some("consent_pending")
+    );
+    hub.prompt.next(ConsentKind::Session).await;
     hub.stop().await;
 }
 

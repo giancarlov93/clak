@@ -20,6 +20,12 @@ regex.workspace = true
 base64.workspace = true
 anyhow.workspace = true
 
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+reqwest = { workspace = true, features = ["default-tls"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
+
 [dev-dependencies]
 tokio.workspace = true
 sha2.workspace = true

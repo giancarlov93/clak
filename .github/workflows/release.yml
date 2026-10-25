@@ -1,5 +1,6 @@
 # Once the checks pass on main (checks.yml, which runs the tests): installers for Windows and
-# Mac, and a GitHub release, of the very commit the checks ran on. Red checks, no release.
+# Mac, archives for Linux, and a GitHub release, of the very commit the checks ran on. Red
+# checks, no release.
 #
 # The version is X.Y from the root Cargo.toml plus the run number: 0.3.0 in Cargo.toml
 # gives 0.3.17 on the seventeenth run. To move to 0.4, just change it there.
@@ -169,8 +170,87 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # Linux: clak, clak-shim and the hub without an interface (clak-daemon), for servers and
+  # containers; no app. Linked statically (musl), so one archive runs on any distribution.
+  # Nothing is signed, so no secrets and no environment.
+  linux:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            arch: x64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.SHA }}
+
+      # As in build.
+      - name: Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+          rustup target add "${{ matrix.target }}"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.target }}
+
+      # The C compiler for musl, for what ring (rustls) compiles.
+      - name: musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Version
+        shell: bash
+        run: node scripts/version.mjs "${{ needs.version.outputs.version }}"
+
+      - name: Build
+        shell: bash
+        env:
+          TARGET_CC: musl-gcc
+        run: cargo build --release -p clak-agent -p clak-daemon --target "${{ matrix.target }}"
+
+      # The binaries, Clak's license and the notices of their dependencies, in a folder named
+      # like the archive. That they run, and are static, before they go.
+      - name: Files
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          bin="target/${{ matrix.target }}/release"
+          name="clak_${VERSION}_linux_${{ matrix.arch }}"
+          mkdir -p "stage/$name" dist
+          cp "$bin/clak" "$bin/clak-shim" "$bin/clak-daemon" LICENSE "stage/$name/"
+          node scripts/notices.mjs --target "${{ matrix.target }}" --crates clak-agent,clak-daemon \
+            --out "stage/$name/THIRD-PARTY-NOTICES.txt"
+          test "$("stage/$name/clak" version)" = "clak $VERSION"
+          for file in clak clak-shim clak-daemon; do
+            file "stage/$name/$file" | tee /dev/stderr | grep -qE 'statically linked|static-pie linked'
+          done
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+          ls -l dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: clak-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
   release:
-    needs: [version, build]
+    needs: [version, build, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

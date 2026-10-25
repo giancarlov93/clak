@@ -20,7 +20,8 @@ each of them.
   process, its executable and its signature), not from what a program says about itself.
 - **Each system's own means.** The Windows tray and the Mac menu bar, the system
   notifications, Mica on Windows 11 and glass on the Mac; the hub listens on loopback only,
-  behind a token; secrets are kept with DPAPI on Windows and in the keychain on the Mac.
+  behind a token; secrets are kept with DPAPI on Windows and in the keychain on the Mac. On
+  Linux, for servers and containers, there is the hub without an interface (see below).
 
 The app around the hub shows what is connected and who is using it, asks the consent
 questions, launches agents with programs already allowed (presets), and shows what the agents'
@@ -80,7 +81,8 @@ cargo build -p clak-app
 ```
 
 The checks of CI (`.github/workflows/checks.yml`) are formatting, clippy without warnings, the
-tests on Windows and the Mac, and a coverage floor (`COVERAGE_FLOOR`):
+tests on Windows, the Mac and Linux (there without the app), and a coverage floor
+(`COVERAGE_FLOOR`):
 
 ```bash
 cargo fmt --all
@@ -132,6 +134,51 @@ ClakApp clak://…              a link, to the running copy
 If a hub is already running (another copy, the daemon), the app watches it from the control
 channel, read-only for connectors and APIs, and takes its place as soon as it goes away.
 
+## Linux, without an interface
+
+On a server or in a container there is no app. Each release has an archive for Linux x64 and
+ARM, linked statically so that it runs on any distribution, with `clak`, `clak-shim` and
+`clak-daemon`, the hub on its own. Without an option every new permission is denied; the
+questions can be answered on a web page, or in the daemon's terminal.
+
+```bash
+clak-daemon --web
+```
+
+The page listens on `127.0.0.1:7780` only (`--port` for another one) and asks for a password,
+chosen the first time or with `clak-daemon --set-password`: only its hash is kept, in
+`web.password` in the hub's folder. From another computer it is reached through a tunnel
+(`ssh -L 7780:127.0.0.1:7780 server`) or Tailscale (`tailscale serve 7780`, then
+`--url https://<server>.<tailnet>.ts.net` so the links point there). An agent that needs a
+permission isn't kept waiting: it gets the link of its question at once, gives it to the user,
+and tries again after the answer. The page also lists what is allowed now (permissions, agents,
+"Always allow", applications) and takes it away.
+
+The agents run as the same user and can reach the page too: what keeps them from answering
+their own questions is the password, which they don't know. So it must be long, a phrase rather
+than a PIN, since whoever reads the hash can try passwords one by one; and the daemon reads it
+only when it starts. Against an agent set on getting around Clak (changing its files,
+restarting the hub) only another user, or a container, protects: as on the other systems,
+consent is there so that agents ask, not as a sandbox.
+
+```bash
+clak-daemon --ask
+```
+
+With `--ask` the questions are in the daemon's terminal instead, answered y or n: only a line
+typed while a question is on screen answers it.
+
+The agents reach it with `clak` in the PATH, or with `clak-shim` as an MCP server over stdio
+(`claude mcp add clak -- clak-shim`): the skill and the MCP clients are set up by the app,
+which Linux doesn't have yet.
+
+Who is asking is read from `/proc`: the agent among the ancestors of the process, up to the
+session (sshd, tmux, screen, the user's systemd). Linux has no signatures for executables:
+an agent or a program is remembered by its content, and asked about again when it changes.
+The connectors' tokens and the APIs' secrets are in `connectors.secrets` and `apis.secrets`
+in the hub's folder, which only the user can read (0600), not encrypted: a server has no vault
+to count on.
+
 ## Installer and release
 
 ```bash
@@ -143,7 +190,8 @@ On Windows a per-user NSIS installer, without administrator rights, that calls
 `.dmg`. `clak` and `clak-shim` go next to the app.
 
 Every commit on `main` that passes the checks is released (`.github/workflows/release.yml`):
-installers for Windows x64, Mac ARM and Mac Intel, with notes that start from the
+installers for Windows x64, Mac ARM and Mac Intel, the Linux archives for x64 and ARM, with
+notes that start from the
 **Unreleased** section of `CHANGELOG.md`. The version is `X.Y` from `[workspace.package]` in
 `Cargo.toml` plus the run number; `node scripts/version.mjs 0.4.0` moves to a new `X.Y`.
 
@@ -157,4 +205,5 @@ updater files.
 ## License
 
 MIT: see [LICENSE](LICENSE). The dependencies' notices are written by `scripts/notices.mjs` for
-every installer and go next to the app as `THIRD-PARTY-NOTICES.txt`, with `LICENSE.txt`.
+every installer and go next to the app as `THIRD-PARTY-NOTICES.txt`, with `LICENSE.txt`; in
+the Linux archives, next to the binaries.

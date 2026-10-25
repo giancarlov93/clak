@@ -1,6 +1,6 @@
 [package]
 name = "clak-daemon"
-description = "The hub without windows, for testing"
+description = "The hub without windows: questions on the terminal or on a web page"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,3 +13,12 @@ clak-host.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde_json.workspace = true
+# The web page of `--web`: the server, and the password, kept only as its hash.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+argon2 = "0.5"
+rpassword = "7"
+getrandom.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true

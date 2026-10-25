@@ -27,8 +27,8 @@ pub mod wire;
 
 pub use consent::{
     AgentIdentity, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt, ConsentRequest,
-    ConsentTool, HubOptions, Platform, SettingsChange, Verdict,
+    ConsentTool, HubOptions, Platform, QuestionLink, SettingsChange, Verdict,
 };
-pub use core::{AppConn, Broker, Core, Gone, Outbox, Progress, failure};
+pub use core::{AppConn, Asked, Broker, Core, Gone, Outbox, Progress, failure};
 pub use hub::{Hub, LogSink};
 pub use wire::{Malformed, ResourceDef, ToolDef};

@@ -301,6 +301,8 @@ pub struct Setup {
     pub consent_timeout: Option<Duration>,
     pub call_timeout: Option<Duration>,
     pub denial_memory: Option<Duration>,
+    /// The questions on a web page: `http://web/q/<id>`.
+    pub question_link: bool,
 }
 
 impl TestHub {
@@ -326,6 +328,9 @@ impl TestHub {
         }
         if let Some(t) = setup.denial_memory {
             options.denial_memory = t;
+        }
+        if setup.question_link {
+            options.question_link = Some(Arc::new(|id: &str| format!("http://web/q/{id}")));
         }
         options.sweep_interval = Duration::from_millis(100);
         options.settings = false;

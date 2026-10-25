@@ -83,6 +83,35 @@ jobs:
         shell: bash
         run: cargo test --workspace --locked --no-run
 
+  linux:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Rust
+        shell: bash
+        run: |
+          rustup toolchain install
+          active=$(rustup show active-toolchain | cut -d' ' -f1)
+          rustup default "$active"
+          for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
+            if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
+          done
+      # Already saved for exactly these keys: nothing to build.
+      - id: cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Build for clippy
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo clippy --workspace --exclude clak-app --all-targets --locked
+      - name: Build the tests
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: cargo test --workspace --exclude clak-app --locked --no-run
+
   coverage:
     needs: needed
     if: needs.needed.outputs.run == 'true'
