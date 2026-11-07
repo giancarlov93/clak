@@ -1,0 +1,35 @@
+[package]
+name = "clak-backup"
+description = "Clak's backups: encrypted with a password, written by themselves, restored after a check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+clak-wire.workspace = true
+clak-platform.workspace = true
+clak-hub.workspace = true
+clak-connectors.workspace = true
+clak-apis.workspace = true
+clak-setup.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+sha2.workspace = true
+hex.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# The password opens the key (Argon2id); the key opens the backups (X25519, then
+# XChaCha20-Poly1305): the automatic backups need only the public half.
+argon2 = "0.5"
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+zeroize = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio.workspace = true

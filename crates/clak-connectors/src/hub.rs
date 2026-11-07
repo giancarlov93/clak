@@ -290,6 +290,45 @@ impl ConnectorHub {
         Ok(self.added(entry, how))
     }
 
+    /// A connector from a backup, under a new id: its address or command line, its name and
+    /// command, with its token, sign-in or variables. Turned off, as `entry` says, it isn't
+    /// started: a program whose command line must be changed first doesn't run.
+    pub fn restore(
+        &self,
+        entry: &ConnectorEntry,
+        token: Option<&str>,
+        grant: Option<&OAuthGrant>,
+        env: &BTreeMap<String, String>,
+    ) -> Result<ConnectorEntry, String> {
+        let command = command_of(entry.command.as_deref());
+        let problem = match &entry.launch {
+            Some(_) => connector::problem_stdio(Some(&entry.name), env),
+            None => connector::problem(Some(&entry.name), Some(&entry.url)),
+        };
+        if let Some(problem) = problem.or_else(|| cli_names::problem(command.as_deref())) {
+            return Err(problem);
+        }
+        let name = clean(Some(&entry.name), 40);
+        let command = command.as_deref();
+        let url = entry.url.trim();
+        let mut added = match (&entry.launch, grant) {
+            (Some(launch), _) => self.store.add_stdio(&name, launch, env, command),
+            (None, Some(grant)) => self.store.add_oauth(&name, url, grant, command),
+            (None, None) => self.store.add(&name, url, token, command),
+        }
+        .map_err(|e| e.to_string())?;
+        if !entry.enabled {
+            added.enabled = false;
+            self.store.update(&added).map_err(|e| e.to_string())?;
+        }
+        let how = if entry.enabled {
+            ", from a backup"
+        } else {
+            ", from a backup, turned off"
+        };
+        Ok(self.added(added, how.into()))
+    }
+
     fn added(&self, entry: ConnectorEntry, how: String) -> ConnectorEntry {
         self.lock().entries.push(entry.clone());
         let unencrypted = if !entry.is_stdio() && connector::unencrypted(&entry.url) {
@@ -303,7 +342,11 @@ impl ConnectorHub {
             entry.target()
         );
         self.broker.run(|c| c.log(line));
-        self.launch(entry.clone());
+        if entry.enabled {
+            self.launch(entry.clone());
+        } else {
+            self.push_view();
+        }
         entry
     }
 

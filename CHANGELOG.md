@@ -14,6 +14,19 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- Backup, in Settings › General, off until you turn it on: the MCP servers with their tokens,
+  sign-ins and variables, the APIs with their secrets, the presets, the allowed applications
+  and the "Always allow" rules, in a file locked with a password of yours (Argon2id,
+  X25519, XChaCha20-Poly1305), written by itself into a folder you choose a few seconds after
+  every change; the last 10 are kept, or as many as you say. Clak doesn't keep the password:
+  it keeps a key the backups are locked for, and the password opens it when you restore.
+  Restoring, even on another computer or system, shows each item as it stands there first:
+  an application or a rule comes back only if its program is the same one at the same
+  place (or the one you point to), a server whose program or paths aren't there comes back
+  turned off, a preset whose folder isn't there comes back to be changed. Nothing already
+  there is removed or replaced; a server or an API already there without its token only
+  gets the token. In the new `clak-backup` crate, so that the hub without an interface can
+  have it too.
 - Applications: an allowed application can be renamed, given a command of its own
   (`clak <command>`) and pointed to where it has moved. Its open documents, its "Always
   allow" rules and the presets that name it follow; at the new place it is remembered by

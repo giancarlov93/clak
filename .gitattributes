@@ -1,0 +1,9 @@
+# Text files are stored and checked out with LF, whatever the platform and core.autocrlf.
+# Git keeps detecting binary content on its own (a source with NUL characters stays untouched).
+* text=auto eol=lf
+
+# Binary files: never converted, never diffed as text.
+*.png  binary
+*.ico  binary
+*.icns binary
+*.wav  binary

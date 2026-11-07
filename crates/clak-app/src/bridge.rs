@@ -295,6 +295,8 @@ impl Bridge {
                         }
                     }
                     tray::update(&self.app, &message, mode == Mode::Offline);
+                    // Something may have changed that the backup keeps.
+                    crate::backup::nudge(&self.app);
                     if changes.agent_connected && connections.accept(std::time::Instant::now()) {
                         tray::connected(&self.app, self.prefs.connection_sound());
                     }

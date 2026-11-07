@@ -399,6 +399,8 @@ html.mac .log-row:nth-child(even of :not(.hidden)) { background: var(--inset); }
 .setting > .lead svg { width: 20px; height: 20px; }
 .setting .actions { flex: none; display: flex; align-items: center; gap: 12px; margin-left: 16px; }
 .setting .lines > button.link { align-self: flex-start; margin: 2px 0 0 -8px; }
+/* A long path breaks anywhere rather than run under the buttons. */
+.setting .lines .mono { overflow-wrap: anywhere; }
 .setting > button.link { margin-left: -8px; }
 html.mac .setting { gap: 12px; padding: 10px 14px; min-height: 0; }
 html.mac .card:not(.group) > .setting { padding: 0; }
@@ -534,6 +536,24 @@ html.mac .pivot button.selected::after { display: none; }
 /* Settings › Configuration: the warning before exporting, what an import did. */
 .caution-text { color: var(--caution); font-size: 12px; }
 .transfer-results { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 12px; max-height: 200px; overflow: auto; }
+
+/* Settings › Backup. The form and the restore open above the rows, 8 px apart as the cards
+   of a list; in the restore the link to point to an
+   application sits under its lines, and what happened to each item has its mark where the
+   tick was. */
+.backup > .card.ed-dialog { margin: 0 0 8px; }
+/* The rows' controls in one column, as wide as the widest: the texts wrap on the same line
+   and the buttons and the select start on it; the switch stays on the right. */
+.backup .settings .setting > .actions { width: 136px; justify-content: flex-end; }
+.backup .settings .setting > .actions > button, .backup .settings .setting > .actions > select { width: 100%; }
+html.mac .backup .settings .setting > .actions { width: 120px; }
+.backup .import-row .lines > button.link { align-self: flex-start; margin: 2px 0 0 -8px; padding: 1px 8px; font-size: 12px; }
+.backup .result-row > .glyph { flex: none; width: 18px; margin-top: 2px; font-size: 16px; text-align: center; }
+.backup .result-row > .glyph svg { width: 16px; height: 16px; }
+.backup .result-row > .glyph.done { color: var(--ok); }
+.backup .result-row > .glyph.failed { color: var(--danger); }
+html.mac .backup .result-row > .glyph { width: 14px; font-size: 14px; }
+html.mac .backup .result-row > .glyph svg { width: 14px; height: 14px; }
 
 /* --- Usage ---------------------------------------------------------------------------- */
 

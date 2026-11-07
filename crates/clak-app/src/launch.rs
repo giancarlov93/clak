@@ -184,20 +184,24 @@ fn hub_preset(preset: &Map<String, Value>) -> Preset {
 #[tauri::command]
 pub async fn preset_save(app: AppHandle, preset: Map<String, Value>) -> Result<Value, String> {
     let home = bridge::of(&app).home().clone();
-    tauri::async_runtime::spawn_blocking(move || presets::save(&home, preset))
+    let saved = tauri::async_runtime::spawn_blocking(move || presets::save(&home, preset))
         .await
         .map_err(|e| e.to_string())?
         .map(Value::Object)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    crate::backup::nudge(&app);
+    saved
 }
 
 #[tauri::command]
 pub async fn preset_remove(app: AppHandle, id: String) -> Result<(), String> {
     let home = bridge::of(&app).home().clone();
-    tauri::async_runtime::spawn_blocking(move || presets::remove(&home, &id))
+    let removed = tauri::async_runtime::spawn_blocking(move || presets::remove(&home, &id))
         .await
         .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string());
+    crate::backup::nudge(&app);
+    removed
 }
 
 /// The instructions file of an agent: its global one, or the one in `folder`.

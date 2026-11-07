@@ -1,7 +1,8 @@
 // The Settings tab, in three parts: General (when the app starts, how it notifies, where the
-// hub lives, the configuration exported and imported), Integration (how the agents reach
-// Clak: panel-setup.js) and About (the version and the updates). No setting touches the
-// permissions, which are given only in the consent windows: not even an imported file. It is
+// hub lives, the configuration exported and imported, the backup: panel-backup.js),
+// Integration (how the agents reach Clak: panel-setup.js) and About (the version and the
+// updates). No setting gives a permission, which is given only in the consent windows: not
+// an imported file, and a backup only after a check of each program on this computer. It is
 // re-read on every opening: startup also changes from Task Manager (on the Mac from Login
 // Items).
 "use strict";
@@ -13,6 +14,8 @@
 
   let page = null;
   let pivot = null;
+  /// What General draws here, above the backup (which draws itself, keeping its fields).
+  let general = null;
   /// The parts: General and About drawn here, Integration by Setup.
   const parts = {};
   let part = "general";
@@ -28,6 +31,7 @@
     }
     transfer.secrets = await Clak.invoke("config_secrets_in_commands").catch(() => []);
     draw();
+    Backup.refresh();
   };
 
   const open = (target) => Clak.invoke("settings_open", { target }).catch((e) => {
@@ -255,7 +259,7 @@
 
   const draw = () => {
     if (!page || !data) return;
-    Kit.replace(parts.general,
+    Kit.replace(general,
       Kit.section("Startup"), startup(),
       Kit.section("Alerts"), alerts(),
       Kit.section("Hub"), hub(),
@@ -272,7 +276,10 @@
       page = section;
       pivot = Object.fromEntries(PARTS.map(([id, title]) =>
         [id, el("button", { role: "tab", onclick: () => choose(id) }, title)]));
-      parts.general = el("div", { role: "tabpanel" });
+      general = el("div");
+      parts.general = el("div", { role: "tabpanel" }, general,
+        Kit.section("Backup", { help: "Everything you set up here, tokens and permissions included, in a file locked with your password" }),
+        Backup.node());
       parts.integration = el("div", { role: "tabpanel" }, Setup.mount());
       parts.about = el("div", { role: "tabpanel" });
       page.append(Kit.title("Settings"), el("div", { class: "pivot", role: "tablist" }, Object.values(pivot)),
@@ -305,6 +312,7 @@
     render(s) {
       state = s;
       draw();
+      Backup.draw();
     },
   });
 })();

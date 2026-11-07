@@ -575,9 +575,11 @@ mod tests {
         std::fs::write(bin.join("gemini"), "").unwrap();
         let environment = BTreeMap::from([("PATH".to_owned(), bin.to_string_lossy().into_owned())]);
         let places = Places::new(&home, home.join("data"), home.join("data"), environment);
+        // Only what is in this home: the system's own folders (/usr/local/bin) are searched
+        // too, and the computer running the tests may have an agent there.
         let found: Vec<(String, PathBuf)> = installed(&places)
             .into_iter()
-            .filter(|a| !a.app)
+            .filter(|a| !a.app && a.path.starts_with(&home))
             .map(|a| (a.id, a.path))
             .collect();
         assert_eq!(
