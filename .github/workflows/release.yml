@@ -97,7 +97,10 @@ jobs:
           gh release download "tauri-cli-v$TAURI_CLI" --repo tauri-apps/tauri \
             --pattern "cargo-tauri-$host.zip" --dir "$dir"
           unzip -q -o "$dir/cargo-tauri-$host.zip" -d "$dir"
+          # Where cargo looks for its subcommands. On the Mac's image rustup comes from
+          # Homebrew, and the folder isn't there until something is put in it.
           bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin"
           find "$dir" -type f -name 'cargo-tauri*' ! -name '*.zip' -exec mv -f {} "$bin/" \;
           chmod +x "$bin"/cargo-tauri*
           cargo tauri --version
