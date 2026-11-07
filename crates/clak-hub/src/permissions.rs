@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub key: String,
     pub exe: String,
@@ -180,6 +180,17 @@ impl AppPermissions {
         entry.exe = exe_of(origin);
         entry.signer = signer_of(origin);
         self.entries.insert(to.to_owned(), entry);
+        self.save();
+        true
+    }
+
+    /// An application from a backup, checked on this computer by whoever restores it: false
+    /// if it is already here.
+    pub fn restore(&mut self, entry: Entry) -> bool {
+        if entry.key.is_empty() || self.entries.contains_key(&entry.key) {
+            return false;
+        }
+        self.entries.insert(entry.key.clone(), entry);
         self.save();
         true
     }

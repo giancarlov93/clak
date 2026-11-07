@@ -14,6 +14,7 @@
 
 mod agents;
 mod app_icon;
+mod backup;
 mod bridge;
 #[cfg(windows)]
 mod closing;
@@ -154,6 +155,15 @@ fn main() {
             config_file::config_export,
             config_file::config_import,
             config_file::config_secrets_in_commands,
+            backup::backup_status,
+            backup::backup_configure,
+            backup::backup_now,
+            backup::backup_choose_folder,
+            backup::backup_restore_pick,
+            backup::backup_restore_open,
+            backup::backup_restore_locate,
+            backup::backup_restore_apply,
+            backup::backup_restore_cancel,
             commands::consent_request,
             commands::consent_answer,
             commands::consent_resize,
@@ -251,6 +261,7 @@ fn main() {
             }
             tauri::async_runtime::spawn(bridge.run(own));
             updates::start(handle.clone());
+            backup::start(handle.clone());
             if show {
                 windows::panel(&handle, None);
             }

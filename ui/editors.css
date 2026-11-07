@@ -135,34 +135,36 @@ html.mac .ed-dialog textarea:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .ed-kind { margin: 0 0 16px; }
-.ed-dialog input[type="text"], .ed-dialog input[type="password"], .ed-dialog input[type="url"], .ed-dialog select {
+.ed-dialog input[type="text"], .ed-dialog input[type="password"], .ed-dialog input[type="url"], .ed-dialog select, .setting select {
   font: inherit; color: var(--text); width: 100%; min-width: 0; height: 32px; padding: 0 10px;
   background: var(--ed-field); border: 1px solid var(--stroke); border-bottom-color: var(--ed-field-line);
   border-radius: var(--radius); outline: none; user-select: text; -webkit-user-select: text;
 }
 .ed-dialog input.mono, .ed-dialog select.mono { font-family: var(--mono); font-size: 13px; }
 .ed-dialog input::placeholder { color: var(--faint); opacity: 1; }
-.ed-dialog input:focus, .ed-dialog select:focus {
+.ed-dialog input:focus, .ed-dialog select:focus, .setting select:focus {
   background: var(--ed-field-focus); border-bottom: 2px solid var(--accent); padding-bottom: 0;
 }
 .ed-dialog input[readonly] { color: var(--quiet); }
-.ed-dialog input:disabled, .ed-dialog select:disabled, fieldset:disabled input, fieldset:disabled select { opacity: .5; }
-.ed-dialog select {
+.ed-dialog input:disabled, .ed-dialog select:disabled, .setting select:disabled, fieldset:disabled input, fieldset:disabled select { opacity: .5; }
+.ed-dialog select, .setting select {
   appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: default;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%23888' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center;
 }
-.ed-dialog select:focus { border-bottom: 1px solid var(--ed-field-line); }
-.ed-dialog select option { background: var(--ed-menu); color: var(--text); }
-html.mac .ed-dialog input[type="text"], html.mac .ed-dialog input[type="password"], html.mac .ed-dialog select {
+.ed-dialog select:focus, .setting select:focus { border-bottom: 1px solid var(--ed-field-line); }
+.ed-dialog select option, .setting select option { background: var(--ed-menu); color: var(--text); }
+/* A select in a row of Settings: as in a dialog, as wide as its options. */
+.setting select { width: auto; }
+html.mac .ed-dialog input[type="text"], html.mac .ed-dialog input[type="password"], html.mac .ed-dialog select, html.mac .setting select {
   height: 22px; padding: 0 6px; border-radius: 5px; border: 0.5px solid rgba(0, 0, 0, .25);
   background: var(--ed-field-focus); box-shadow: 0 0.5px 1px rgba(0, 0, 0, .08);
 }
 @media (prefers-color-scheme: dark) {
-  html.mac:not([data-theme="light"]) .ed-dialog input[type="text"], html.mac:not([data-theme="light"]) .ed-dialog input[type="password"], html.mac:not([data-theme="light"]) .ed-dialog select { border-color: rgba(255, 255, 255, .14); }
+  html.mac:not([data-theme="light"]) .ed-dialog input[type="text"], html.mac:not([data-theme="light"]) .ed-dialog input[type="password"], html.mac:not([data-theme="light"]) .ed-dialog select, html.mac:not([data-theme="light"]) .setting select { border-color: rgba(255, 255, 255, .14); }
 }
-html.mac .ed-dialog select { padding-right: 24px; background-position: right 6px center; }
-html.mac .ed-dialog input:focus, html.mac .ed-dialog select:focus {
+html.mac .ed-dialog select, html.mac .setting select { padding-right: 24px; background-position: right 6px center; }
+html.mac .ed-dialog input:focus, html.mac .ed-dialog select:focus, html.mac .setting select:focus {
   border: 0.5px solid var(--accent); padding-bottom: 0;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
 }

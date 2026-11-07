@@ -35,7 +35,8 @@ pub struct Rule {
 }
 
 impl Rule {
-    fn to_json(&self) -> Value {
+    /// As `rules.json` keeps it: also what a backup carries.
+    pub fn to_json(&self) -> Value {
         json!({
             "id": self.id,
             "agent_key": self.agent_key,
@@ -48,7 +49,7 @@ impl Rule {
         })
     }
 
-    fn from_json(value: &Value) -> Option<Rule> {
+    pub fn from_json(value: &Value) -> Option<Rule> {
         let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
         Some(Rule {
             id: text("id")?,
@@ -168,6 +169,22 @@ impl Rules {
         if changed {
             self.save();
         }
+    }
+
+    /// A rule from a backup, as it was: false if the same agent, folder and program already
+    /// have one. It gets an id of its own if its old one is taken.
+    pub fn restore(&mut self, mut rule: Rule) -> bool {
+        if self.list.iter().any(|r| {
+            r.agent_key == rule.agent_key && r.folder == rule.folder && r.program == rule.program
+        }) {
+            return false;
+        }
+        if self.list.iter().any(|r| r.id == rule.id) {
+            rule.id = new_id("rule");
+        }
+        self.list.push(rule);
+        self.save();
+        true
     }
 
     pub fn remove(&mut self, id: &str) -> Option<Rule> {

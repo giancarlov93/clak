@@ -880,6 +880,42 @@ impl Core {
         Ok(())
     }
 
+    /// An allowed application from a backup, its key already checked against the executable
+    /// on this computer. A command another application already has is left out. False if it
+    /// is already here.
+    pub fn restore_app(&mut self, mut entry: crate::permissions::Entry) -> bool {
+        if entry.command.as_ref().is_some_and(|taken| {
+            cli_names::problem(Some(taken)).is_some()
+                || self
+                    .permissions
+                    .all()
+                    .iter()
+                    .any(|e| e.command.as_ref() == Some(taken))
+        }) {
+            entry.command = None;
+        }
+        let shown = entry.label.clone().unwrap_or_else(|| entry.name.clone());
+        let exe = entry.exe.clone();
+        if !self.permissions.restore(entry) {
+            return false;
+        }
+        self.log(format!("application restored: {shown} ({exe})"));
+        self.touch();
+        true
+    }
+
+    /// An "Always allow" rule from a backup, its agent and folder already checked on this
+    /// computer. False if the same one is already here.
+    pub fn restore_rule(&mut self, rule: crate::rules::Rule) -> bool {
+        let line = format!("always allowed again: {} on «{}»", rule.agent, rule.label);
+        if !self.rules.restore(rule) {
+            return false;
+        }
+        self.log(line);
+        self.touch();
+        true
+    }
+
     pub fn permissions(&self) -> &AppPermissions {
         &self.permissions
     }

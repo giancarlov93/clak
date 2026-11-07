@@ -8,7 +8,8 @@
 //!
 //! Nor does a permission: the allowed applications and the "Always allow" rules stay on this
 //! computer. They are given only in the consent windows; a file must not be able to give
-//! one.
+//! one. The backup (`backup.rs`) is what carries the secrets and the permissions: locked with
+//! the user's password, and each permission checked against the program on this computer.
 
 use crate::bridge;
 use clak_apis::{ApiAuth, ApiDraft, ApiEndpoint};

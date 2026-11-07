@@ -9,6 +9,7 @@ members = [
     "crates/clak-settings",
     "crates/clak-host",
     "crates/clak-setup",
+    "crates/clak-backup",
     "crates/clak-agent",
     "crates/clak-daemon",
     "crates/clak-kit",
@@ -23,6 +24,7 @@ default-members = [
     "crates/clak-settings",
     "crates/clak-host",
     "crates/clak-setup",
+    "crates/clak-backup",
     "crates/clak-agent",
     "crates/clak-daemon",
     "crates/clak-kit",
@@ -43,6 +45,7 @@ clak-apis = { path = "crates/clak-apis" }
 clak-settings = { path = "crates/clak-settings" }
 clak-host = { path = "crates/clak-host" }
 clak-setup = { path = "crates/clak-setup" }
+clak-backup = { path = "crates/clak-backup" }
 clak-agent = { path = "crates/clak-agent" }
 clak-kit = { path = "crates/clak-kit" }
 

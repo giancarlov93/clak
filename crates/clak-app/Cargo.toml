@@ -19,6 +19,7 @@ clak-wire.workspace = true
 clak-hub.workspace = true
 clak-host.workspace = true
 clak-setup.workspace = true
+clak-backup.workspace = true
 clak-agent.workspace = true
 clak-connectors.workspace = true
 clak-apis.workspace = true
