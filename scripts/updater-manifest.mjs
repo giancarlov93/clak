@@ -16,7 +16,6 @@ if (!folder || !version || !repo) {
 const PLATFORMS = [
   [/_x64-setup\.exe$/, "windows-x86_64"],
   [/_aarch64\.app\.tar\.gz$/, "darwin-aarch64"],
-  [/_x64\.app\.tar\.gz$/, "darwin-x86_64"],
 ];
 
 const platforms = {};

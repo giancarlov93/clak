@@ -56,12 +56,10 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+          # The Mac with Apple silicon only: the Intel Mac has no build of its own.
           - os: macos-latest
             target: aarch64-apple-darwin
             arch: aarch64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            arch: x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -97,7 +95,10 @@ jobs:
           gh release download "tauri-cli-v$TAURI_CLI" --repo tauri-apps/tauri \
             --pattern "cargo-tauri-$host.zip" --dir "$dir"
           unzip -q -o "$dir/cargo-tauri-$host.zip" -d "$dir"
+          # Where cargo looks for its subcommands. On the Mac's image rustup comes from
+          # Homebrew, and the folder isn't there until something is put in it.
           bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin"
           find "$dir" -type f -name 'cargo-tauri*' ! -name '*.zip' -exec mv -f {} "$bin/" \;
           chmod +x "$bin"/cargo-tauri*
           cargo tauri --version
@@ -144,7 +145,8 @@ jobs:
           echo "Notarization of ${{ matrix.target }} sent to Apple: \`$id\`" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Check it with \`xcrun notarytool info $id\`." >> "$GITHUB_STEP_SUMMARY"
 
-      # The two Mac builds both make Clak.app.tar.gz: named by architecture, like the dmg.
+      # The Mac build makes Clak.app.tar.gz: named by architecture, like the dmg, as the
+      # updater's manifest expects.
       - name: Files
         shell: bash
         env:
