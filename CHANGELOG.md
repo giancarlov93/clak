@@ -14,6 +14,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- MCP and APIs: the servers and the APIs are grouped by the domain of their address, so
+  that the services of one provider stay together (`storage.googleapis.com` and
+  `bigquery.googleapis.com` under `googleapis.com`). The programs on this computer come
+  last, under "On this computer". Each group opens and closes, and stays as you left it; a
+  closed one still says when something in it needs you.
 - Backup, in Settings › General, off until you turn it on: the MCP servers with their tokens,
   sign-ins and variables, the APIs with their secrets, the presets, the allowed applications
   and the "Always allow" rules, in a file locked with a password of yours (Argon2id,
@@ -187,6 +192,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- Agents' conversations by folder, and Usage by folder: one folder is one group, even when the
+  agents wrote it two ways (`C:\…` from a terminal, `c:\…` from VS Code, or with a separator
+  at the end). On Windows the case of a path no longer splits it in two.
 - `clak-daemon --ask`: only a line typed while a question is on screen answers it. A "y"
   typed before (for a question that had gone, or for none) no longer answers the next one,
   unseen. A question that goes away unanswered says so, withdrawn or expired, and each one

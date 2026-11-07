@@ -242,5 +242,40 @@ const Kit = (() => {
     }
   };
 
-  return { icon, navIcon, tile, TINTS, title, section, card, empty, badge, tag, bar, iconButton, link, toggle, clickRow, replace, copy, bringToFront };
+  /// The groups closed by hand, per list (`store`): remembered on this computer, open
+  /// otherwise.
+  const closedGroups = (store) => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(store) || "[]"));
+    } catch {
+      return new Set();
+    }
+  };
+
+  /// Cards in groups that open and close, each under its name and how many: `list` is
+  /// `[{ key, title, help, alert, items }]`, `alert` the ones that need the user (a badge,
+  /// seen even closed). Opening or closing doesn't redraw: the list stays where it is.
+  const groups = (store, list) => list.map((g) => {
+    const open = !closedGroups(store).has(g.key);
+    const body = el("div", { class: "group-body" }, g.items);
+    const head = el("button", { class: "group-head", "aria-expanded": String(open), title: g.help },
+      icon("chevron", "group-chevron"),
+      el("h2", null, g.title),
+      el("span", { class: "count" }, String(g.items.length)),
+      g.alert ? badge(g.alert === 1 ? "1 needs you" : `${g.alert} need you`, "err") : null);
+    const node = el("section", { class: "group" + (open ? "" : " closed"), "data-id": `group:${g.key}` }, head, body);
+    head.addEventListener("click", () => {
+      const closed = closedGroups(store);
+      const opening = closed.has(g.key);
+      if (opening) closed.delete(g.key);
+      else closed.add(g.key);
+      try { localStorage.setItem(store, JSON.stringify([...closed])); } catch { /* only for now */ }
+      node.classList.toggle("closed", !opening);
+      head.setAttribute("aria-expanded", String(opening));
+      if (opening) Clak.enter(body, { rise: -6, duration: 167 });
+    });
+    return node;
+  });
+
+  return { icon, navIcon, tile, TINTS, title, section, card, empty, badge, tag, bar, iconButton, link, toggle, clickRow, groups, replace, copy, bringToFront };
 })();

@@ -332,6 +332,57 @@ const Describe = (() => {
     }
   };
 
+  /// The suffixes under which each name is someone else's, as `co.uk`: the domain is one
+  /// label more. The common ones; a rarer one makes a group a little wider, nothing worse.
+  const TWO_LEVEL = new Set([
+    "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au", "co.nz", "org.nz",
+    "co.jp", "ne.jp", "or.jp", "ac.jp", "co.kr", "or.kr", "com.cn", "net.cn", "org.cn",
+    "com.hk", "com.tw", "com.sg", "co.in", "net.in", "org.in", "co.id", "co.th", "com.my",
+    "com.br", "net.br", "org.br", "com.ar", "com.mx", "com.co", "com.tr", "co.za", "co.il", "com.ua",
+  ]);
+
+  /// The domain an address belongs to, as its owner registered it: `storage.googleapis.com`
+  /// and `bigquery.googleapis.com` are both `googleapis.com`. An IP address or a name
+  /// without dots (`localhost`) is itself. Nothing for what isn't an address.
+  const domain = (url) => {
+    let host;
+    try {
+      host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
+    } catch {
+      return null;
+    }
+    if (!host) return null;
+    if (host.startsWith("[") || /^\d+(\.\d+){3}$/.test(host) || !host.includes(".")) return host.replace(/^\[|\]$/g, "");
+    const labels = host.split(".");
+    const take = labels.length > 2 && TWO_LEVEL.has(labels.slice(-2).join(".")) ? 3 : 2;
+    return labels.slice(-take).join(".");
+  };
+
+  /// `items` by the domain of their address (`urlOf`), in groups `{ key, title, items }`:
+  /// the domains in alphabetical order, each in the order they were added; what has no
+  /// address (a program on this computer) last, under `local`.
+  const byDomain = (items, urlOf, local) => {
+    const groups = new Map();
+    for (const item of [...items].sort((a, b) => a.since - b.since)) {
+      const key = domain(urlOf(item)) ?? "";
+      if (!groups.has(key)) groups.set(key, { key: key || "local", title: key || local, items: [] });
+      groups.get(key).items.push(item);
+    }
+    return [...groups.entries()]
+      .sort(([a], [b]) => (a === "") - (b === "") || a.localeCompare(b))
+      .map(([, g]) => g);
+  };
+
+  /// The key that tells whether two paths are one folder, not to show. On Windows a path
+  /// ignores case, and the agents write the same drive as `C:` or `c:` (VS Code), with
+  /// `\` or `/`; anywhere, a separator at the end changes nothing.
+  const folderKey = (path) => {
+    const p = String(path || "");
+    if (/^[a-z]:[\\/]|^\\\\/i.test(p)) return p.replace(/\//g, "\\").replace(/(.)\\+$/, "$1").toLowerCase();
+    return p.replace(/(.)\/+$/, "$1");
+  };
+
   // --- the log ------------------------------------------------------------------
 
   const BAD = ["denied", "refused", "error", "unreachable", "rejected", "failed"];
@@ -349,6 +400,6 @@ const Describe = (() => {
     grantBrief, recent, grantDetail, allowedAppDetail, users, headline,
     history, usageLine, failureLine, outcome,
     tool, tools, usage, parameterType,
-    connectorKind, connectorState, apiState, health, attention, unencrypted, logKind,
+    connectorKind, connectorState, apiState, health, attention, unencrypted, domain, byDomain, folderKey, logKind,
   };
 })();

@@ -73,7 +73,16 @@
     if (!page) return;
     const manage = !ctx.readonly;
     add.disabled = !manage;
-    const apis = [...(state.apis || [])].sort((a, b) => a.since - b.since);
+    const apis = state.apis || [];
+    // By the domain of their base URL: the APIs of one service together.
+    const needs = new Set(D.attention(state).filter((n) => n.kind === "api").map((n) => n.id));
+    const groups = D.byDomain(apis, (a) => a.base_url, "Other").map((g) => ({
+      key: g.key,
+      title: g.title,
+      help: `The APIs at ${g.title} and its subdomains`,
+      alert: g.items.filter((a) => needs.has(a.id)).length,
+      items: g.items.map((a) => card(a, manage)),
+    }));
     Kit.replace(list,
       Kit.section("REST APIs", {
         count: apis.length,
@@ -81,7 +90,7 @@
           ? "Agents see each API as a program, with a command per endpoint. Keys and tokens stay in your keychain."
           : "Agents see each API as a program, with a command per endpoint. Keys and tokens stay encrypted for your Windows user.",
       }),
-      apis.length === 0 ? Kit.empty("api", "None") : apis.map((a) => card(a, manage)));
+      apis.length === 0 ? Kit.empty("api", "None") : Kit.groups("clak.apis.closed", groups));
   };
 
   Panel.tab({
