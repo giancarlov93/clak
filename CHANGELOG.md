@@ -152,6 +152,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- Releases: the Mac's installer is for Apple silicon only; the Intel Mac no longer has one,
+  nor updates. It can still be built by hand (`node scripts/bundle.mjs --target
+  x86_64-apple-darwin`).
 - One look across the windows: every card starts its content at the same place (on the Mac
   groups of rows had a double margin), one segmented control for the Usage spans and the
   MCP and API editors, and in the light theme a hover that shows on icons, links, rows,

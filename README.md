@@ -192,8 +192,8 @@ On Windows a per-user NSIS installer, without administrator rights, that calls
 `.dmg`. `clak` and `clak-shim` go next to the app.
 
 Every commit on `main` that passes the checks is released (`.github/workflows/release.yml`):
-installers for Windows x64, Mac ARM and Mac Intel, the Linux archives for x64 and ARM, with
-notes that start from the
+installers for Windows x64 and the Mac with Apple silicon, the Linux archives for x64 and
+ARM, with notes that start from the
 **Unreleased** section of `CHANGELOG.md`. The version is `X.Y` from `[workspace.package]` in
 `Cargo.toml` plus the run number; `node scripts/version.mjs 0.4.0` moves to a new `X.Y`.
 
