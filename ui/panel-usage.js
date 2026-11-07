@@ -271,10 +271,11 @@
 
   /// The span's costs by kind of token, a row per harness, model or folder.
   const breakdown = (rows) => {
-    const key = { agent: (r) => r.agent, model: (r) => `${r.agent}\n${r.model}`, folder: (r) => r.folder || "" }[choice.rows];
+    // A folder by its key (`C:\…` and `c:\…` are one), shown as the first row wrote it.
+    const key = { agent: (r) => r.agent, model: (r) => `${r.agent}\n${r.model}`, folder: (r) => Describe.folderKey(r.folder) }[choice.rows];
     const groups = new Map();
     for (const r of rows) {
-      const g = groups.get(key(r)) || { rows: [], sessions: new Set(), models: new Set() };
+      const g = groups.get(key(r)) || { rows: [], sessions: new Set(), models: new Set(), folder: r.folder || "" };
       g.rows.push(r);
       g.sessions.add(`${r.agent}:${r.session}`);
       g.models.add(r.model);
@@ -290,9 +291,10 @@
         const [agent, model] = k.split("\n");
         return [el("span", { class: "ellipsis mono", title: model }, model), el("span", { class: "quiet ellipsis" }, swatch(agent), agentName(agent))];
       }
-      const name = k ? k.split(/[\\/]/).filter(Boolean).pop() || k : "No folder";
-      return [el("span", { class: "ellipsis strong", title: k }, name),
-        el("span", { class: "quiet ellipsis", title: k }, Clak.plural(g.sessions.size, "conversation", "conversations") + (k ? " · " + k : ""))];
+      const f = g.folder;
+      const name = f ? f.split(/[\\/]/).filter(Boolean).pop() || f : "No folder";
+      return [el("span", { class: "ellipsis strong", title: f }, name),
+        el("span", { class: "quiet ellipsis", title: f }, Clak.plural(g.sessions.size, "conversation", "conversations") + (f ? " · " + f : ""))];
     };
     const shown = choice.rows === "folder" ? sorted.slice(0, 15) : sorted;
     return table([{ agent: "Harness", model: "Model", folder: "Folder" }[choice.rows], "Requests", ...KINDS.map(([k, name]) => [name, KIND_HELP[k]]), "Total"],

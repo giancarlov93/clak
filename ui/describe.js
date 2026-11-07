@@ -374,6 +374,15 @@ const Describe = (() => {
       .map(([, g]) => g);
   };
 
+  /// The key that tells whether two paths are one folder, not to show. On Windows a path
+  /// ignores case, and the agents write the same drive as `C:` or `c:` (VS Code), with
+  /// `\` or `/`; anywhere, a separator at the end changes nothing.
+  const folderKey = (path) => {
+    const p = String(path || "");
+    if (/^[a-z]:[\\/]|^\\\\/i.test(p)) return p.replace(/\//g, "\\").replace(/(.)\\+$/, "$1").toLowerCase();
+    return p.replace(/(.)\/+$/, "$1");
+  };
+
   // --- the log ------------------------------------------------------------------
 
   const BAD = ["denied", "refused", "error", "unreachable", "rejected", "failed"];
@@ -391,6 +400,6 @@ const Describe = (() => {
     grantBrief, recent, grantDetail, allowedAppDetail, users, headline,
     history, usageLine, failureLine, outcome,
     tool, tools, usage, parameterType,
-    connectorKind, connectorState, apiState, health, attention, unencrypted, domain, byDomain, logKind,
+    connectorKind, connectorState, apiState, health, attention, unencrypted, domain, byDomain, folderKey, logKind,
   };
 })();

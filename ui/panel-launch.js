@@ -475,15 +475,16 @@ const Launch = (() => {
   /// At most this many rows: the filter finds the others.
   const SHOWN = 200;
 
-  /// The rows under their folder: the folders in the order of their latest conversation.
+  /// The rows under their folder: the folders in the order of their latest conversation,
+  /// each shown as its latest conversation wrote it (`C:\…` and `c:\…` are one folder).
   const byFolders = (shown, now) => {
     const folders = new Map();
     for (const c of shown) {
-      const key = c.folder || "";
-      if (!folders.has(key)) folders.set(key, []);
-      folders.get(key).push(c);
+      const key = Describe.folderKey(c.folder);
+      if (!folders.has(key)) folders.set(key, { folder: c.folder || "", all: [] });
+      folders.get(key).all.push(c);
     }
-    return [...folders].map(([folder, all]) => [
+    return [...folders.values()].map(({ folder, all }) => [
       el("div", { class: "section talk-folder", title: folder },
         el("h2", { class: "mono ellipsis" }, folder ? home(folder) : "No folder"),
         el("span", { class: "count" }, String(all.length))),

@@ -192,6 +192,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- Agents' conversations by folder, and Usage by folder: one folder is one group, even when the
+  agents wrote it two ways (`C:\…` from a terminal, `c:\…` from VS Code, or with a separator
+  at the end). On Windows the case of a path no longer splits it in two.
 - `clak-daemon --ask`: only a line typed while a question is on screen answers it. A "y"
   typed before (for a question that had gone, or for none) no longer answers the next one,
   unseen. A question that goes away unanswered says so, withdrawn or expired, and each one
