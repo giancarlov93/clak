@@ -14,6 +14,11 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Added
 
+- MCP and APIs: the servers and the APIs are grouped by the domain of their address, so
+  that the services of one provider stay together (`storage.googleapis.com` and
+  `bigquery.googleapis.com` under `googleapis.com`). The programs on this computer come
+  last, under "On this computer". Each group opens and closes, and stays as you left it; a
+  closed one still says when something in it needs you.
 - Backup, in Settings › General, off until you turn it on: the MCP servers with their tokens,
   sign-ins and variables, the APIs with their secrets, the presets, the allowed applications
   and the "Always allow" rules, in a file locked with a password of yours (Argon2id,

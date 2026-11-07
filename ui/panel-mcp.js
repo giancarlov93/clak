@@ -186,7 +186,17 @@
     importButton.disabled = !manage;
     if (!manage) importing = null;
     const now = Date.now();
-    const connectors = [...(state.connectors || [])].sort((a, b) => a.since - b.since);
+    const connectors = state.connectors || [];
+    // By the domain of their address: the servers of one service together, and the
+    // programs on this computer last.
+    const needs = new Set(D.attention(state).filter((n) => n.kind === "mcp").map((n) => n.id));
+    const groups = D.byDomain(connectors, (c) => (c.transport === "stdio" ? null : c.url), "On this computer").map((g) => ({
+      key: g.key,
+      title: g.title,
+      help: g.key === "local" ? "Programs started by Clak on this computer" : `The servers at ${g.title} and its subdomains`,
+      alert: g.items.filter((c) => needs.has(c.id)).length,
+      items: g.items.map((c) => card(c, now, manage)),
+    }));
     Kit.replace(list,
       importing ? importCard() : null,
       Kit.section("Servers", {
@@ -195,7 +205,7 @@
           ? "Agents see them as connected programs. Tokens and sign-ins stay in your keychain."
           : "Agents see them as connected programs. Tokens and sign-ins stay encrypted for your Windows user.",
       }),
-      connectors.length === 0 ? Kit.empty("mcp", "None") : connectors.map((c) => card(c, now, manage)));
+      connectors.length === 0 ? Kit.empty("mcp", "None") : Kit.groups("clak.mcp.closed", groups));
   };
 
   Panel.tab({

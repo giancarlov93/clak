@@ -143,6 +143,24 @@ html.mac .tile.plain { background: #8e8e93; }
 .count { font-size: 11px; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px; display: inline-grid; place-items: center; background: var(--subtle); color: var(--quiet); margin-bottom: 1px; }
 html.mac .count { background: none; padding: 0; min-width: 0; height: auto; font-size: 11px; }
 
+/* The MCP servers and the APIs by domain: a header that opens and closes its cards, under
+   the list's own section. The name as written (a domain), not in capitals; the chevron
+   points right when closed, down when open; the header lines up with the cards' edge. */
+.group + .group { margin-top: 10px; }
+.group-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 0; margin: 0 0 6px;
+  padding: 4px 8px 4px 0; border: none; background: none; box-shadow: none; text-align: left;
+}
+.group-head:hover:not(:disabled) { background: var(--subtle-hover); }
+.group-head h2 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; letter-spacing: normal; }
+html.mac .group-head h2 { font-size: 13px; color: var(--text); }
+.group-head .badge { margin-left: auto; }
+.group-chevron { flex: none; width: 14px; font-size: 10px; text-align: center; color: var(--quiet); transform: rotate(90deg); transition: transform var(--normal) var(--ease); }
+.group-chevron svg { width: 10px; height: 10px; }
+.group.closed .group-chevron { transform: none; }
+.group.closed .group-body { display: none; }
+.group.closed .group-head { margin-bottom: 0; }
+
 /* An agent's conversations: the switch that groups them and the cleanup, the folder over
    each group, the pin of the ones at the top, the cleanup's bar. */
 .talk-group { display: flex; align-items: center; gap: 8px; color: var(--quiet); white-space: nowrap; }
