@@ -107,9 +107,11 @@ impl Hub {
         let broker = Broker::new(control.clone(), options, permissions, sink, stop.clone());
         let usage = crate::usage::Usage::load(home.join("usage.json"));
         let rules = crate::rules::Rules::load(home.join("rules.json"));
+        let commands = crate::commands::CommandCache::load(home.join("commands.json"));
         broker.run(|c| {
             c.usage = usage;
             c.rules = rules;
+            c.commands = commands;
         });
 
         let (listener_ws, ws_port) = app_channel::bind().await?;
@@ -253,6 +255,24 @@ async fn sweep(broker: Broker, interval: Duration, stop: CancellationToken) {
         .unwrap_or_default();
         for id in gone {
             broker.run(|c| c.forget_session(Some(&id), "harness_gone"));
+        }
+        // The blocks of agents that never connected end with their process too.
+        let blocks = broker.run(|c| c.loose_blocks());
+        if blocks.is_empty() {
+            continue;
+        }
+        let platform = broker.options().platform.clone();
+        let gone = tokio::task::spawn_blocking(move || {
+            blocks
+                .into_iter()
+                .filter(|(_, agent)| !platform.is_alive(agent))
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        for id in gone {
+            broker.run(|c| c.drop_block(&id));
         }
     }
 }

@@ -30,6 +30,14 @@
   /// The state in one word, for the pill: the detail is in the row below.
   const word = (c) => (!c.enabled ? "Off" : c.state ? c.state[0].toUpperCase() + c.state.slice(1) : "");
 
+  /// Its commands as Clak keeps them, also while it is off: a link to review them.
+  const commandsLink = (key) => {
+    const kept = (state.commands || []).find((p) => p.key === key);
+    if (!kept) return null;
+    const text = `Commands: ${kept.approved} approved` + (kept.to_review ? ` · ${kept.to_review} to review` : "");
+    return el("button", { class: "link small-link", title: "Which commands run without asking", onclick: () => Panel.show(`status:commands:${key}`) }, text);
+  };
+
   const card = (c, now, manage) => {
     const kind = D.connectorKind(c);
     const oauth = c.auth === "oauth";
@@ -77,6 +85,7 @@
           el("div", { class: "mono quiet ellipsis selectable", title: where }, where),
           el("div", { class: "quiet-text ed-state" }, D.connectorState(c, now)),
           healthLine(c.resource_id, now),
+          commandsLink(`mcp:${c.id}`),
           users ? el("div", { class: "users" }, Kit.icon("people"), el("span", null, users)) : null),
         actions),
       bars.length ? el("div", { class: "indent ed-bars" }, bars) : null);

@@ -2,18 +2,21 @@
 //! that connects: here they are cleaned up and shortened, because they end up in a window
 //! that asks for a permission.
 
+use crate::commands::Status;
 use crate::consent::{
-    AgentIdentity, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, SettingsChange,
+    AgentIdentity, Choices, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, Scope,
+    SettingsChange,
 };
-use crate::core::AppConn;
+use crate::core::{AppConn, slim};
 use crate::wire::{ResourceDef, ToolDef, origin_label};
 use chrono::{Local, TimeZone};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use unicode_general_category::{GeneralCategory, get_general_category};
 
 pub fn session(id: String, agent: &AgentIdentity, cwd: Option<&str>) -> ConsentRequest {
     ConsentRequest {
-        always: None,
+        arguments: vec![],
+        choices: None,
         id,
         kind: ConsentKind::Session,
         title: format!("{} wants to connect to Clak", agent.name),
@@ -22,7 +25,7 @@ pub fn session(id: String, agent: &AgentIdentity, cwd: Option<&str>) -> ConsentR
         what: vec![],
         tools: vec![],
         warning: None,
-        note: "Valid while this process stays open. Using a program will need separate consent."
+        note: "Valid while this process stays open. Using a program will ask you on its own."
             .into(),
     }
 }
@@ -33,12 +36,14 @@ fn tools_of(app: &AppConn) -> Vec<ConsentTool> {
         .map(|t| ConsentTool {
             name: t.name.clone(),
             description: clean(Some(&t.description), 400),
-            note: None,
+            ..ConsentTool::default()
         })
         .collect()
 }
 
-pub fn use_app(
+/// An agent wants to use Clak's own settings: once for its session, because every change it
+/// proposes asks again.
+pub fn use_settings(
     id: String,
     agent: &AgentIdentity,
     cwd: Option<&str>,
@@ -50,53 +55,211 @@ pub fn use_app(
     } else {
         ""
     };
-    if app.is_hub() {
-        return ConsentRequest {
-            always: None,
-            id,
-            kind: ConsentKind::Use,
-            title: format!("{} wants to use Clak's settings", agent.name),
-            question: format!(
-                "Allow {} to see the MCP servers and REST APIs of Clak, and to propose changes?",
-                agent.name
-            ),
-            who: who(agent, cwd),
-            what: what(app),
-            tools: tools_of(app),
-            warning: None,
-            note: format!(
-                "Valid for this agent while its process stays open. Every change will ask you again; tokens and passwords are never shown.{also}"
-            ),
-        };
-    }
-    let title = clean(Some(&app.resource.title), 80);
-    let program = clean(Some(&app.resource.app), 80);
     ConsentRequest {
-        always: None,
+        arguments: vec![],
+        choices: None,
         id,
         kind: ConsentKind::Use,
-        title: format!("{} wants to use “{title}”", agent.name),
-        question: format!("Allow {} to use {program} — {title}?", agent.name),
+        title: format!("{} wants to use Clak's settings", agent.name),
+        question: format!(
+            "Allow {} to see the MCP servers and REST APIs of Clak, and to propose changes?",
+            agent.name
+        ),
         who: who(agent, cwd),
         what: what(app),
         tools: tools_of(app),
-        warning: insecure(app),
+        warning: None,
         note: format!(
-            "{}{also}",
-            if app.is_connector() {
-                "Valid for this agent while the connector stays active; you can revoke it from the panel."
-            } else {
-                "Valid for this agent while the document stays open; you can revoke it from the panel."
-            }
+            "Valid for this agent while its process stays open. Every change will ask you again; tokens and passwords are never shown.{also}"
         ),
     }
 }
 
-/// The offer under a question to use a program: make the yes standing, for this agent in
+/// What the question to use a program is about.
+pub struct UseQuestion<'a> {
+    pub agent: &'a AgentIdentity,
+    pub cwd: Option<&'a str>,
+    /// The agent isn't connected yet: a yes connects it too.
+    pub new_session: bool,
+    pub app: &'a AppConn,
+    /// Each command as Clak knows it: approved, or asking.
+    pub statuses: Vec<Status>,
+    /// A yes can become a standing rule: the agent and the program can be recognized next
+    /// time.
+    pub standing: bool,
+}
+
+/// An agent wants to use a program: asked the first time, for its session, even when all
+/// the program's commands are approved. The commands that aren't still ask on their own.
+pub fn use_app(id: String, q: &UseQuestion) -> ConsentRequest {
+    let (agent, app) = (q.agent, q.app);
+    let program = clean(Some(&app.resource.app), 80);
+    let title = clean(Some(&app.resource.title), 80);
+    let approved = q
+        .statuses
+        .iter()
+        .filter(|s| **s == Status::Approved)
+        .count();
+    let off = q.statuses.iter().filter(|s| **s == Status::Off).count();
+    let asking = q.statuses.len() - approved - off;
+    let mut what = what(app);
+    let mut counts = vec![format!("{approved} approved")];
+    if asking > 0 {
+        counts.push(format!("{asking} will ask you"));
+    }
+    if off > 0 {
+        counts.push(format!("{off} turned off"));
+    }
+    what.push(ConsentLine::new("Its commands", counts.join(" · ")));
+    let tools = app
+        .tools
+        .iter()
+        .zip(&q.statuses)
+        .filter(|(_, s)| **s != Status::Off)
+        .map(|(t, s)| ConsentTool {
+            name: t.name.clone(),
+            description: clean(Some(&t.description), 400),
+            note: match s {
+                Status::Approved => None,
+                Status::Changed => Some("changed".into()),
+                Status::New => Some("new".into()),
+                Status::Ask | Status::Off => Some("asks every time".into()),
+            },
+            ..ConsentTool::default()
+        })
+        .collect();
+    let also = if q.new_session {
+        " If you allow, the agent also connects to Clak."
+    } else {
+        ""
+    };
+    let instances = if app.key.is_some() {
+        format!(", for all the instances of {program}")
+    } else {
+        String::new()
+    };
+    ConsentRequest {
+        id,
+        kind: ConsentKind::Use,
+        title: format!("{} wants to use {program}", agent.name),
+        question: format!("Allow {} to use {program} — {title}?", agent.name),
+        who: who(agent, q.cwd),
+        what,
+        tools,
+        warning: insecure(app),
+        note: format!(
+            "Valid while the agent's process stays open{instances}; you can revoke it from the panel. The commands you haven't approved will still ask you.{also}"
+        ),
+        arguments: vec![],
+        choices: Some(Choices {
+            scopes: vec![],
+            always: q.standing.then(|| always(agent, q.cwd, app)),
+            block: Some(format!("Block {program} for {}", agent.name)),
+        }),
+    }
+}
+
+/// What a command's question is about.
+pub struct CallQuestion<'a> {
+    pub agent: &'a AgentIdentity,
+    pub cwd: Option<&'a str>,
+    pub app: &'a AppConn,
+    pub tool: &'a ToolDef,
+    pub arguments: Option<&'a Map<String, Value>>,
+    /// The command as Clak knows it: new, changed since the user approved it, or set to ask
+    /// every time.
+    pub status: Status,
+    /// What changed since it was approved.
+    pub changes: Vec<ConsentLine>,
+    /// Clak keeps the program's commands: approving is offered (not for Clak's settings).
+    pub approvable: bool,
+    /// The agent's preset or rule lists the commands it runs without a question, and not
+    /// this one: it asks, approved or not.
+    pub restricted: bool,
+}
+
+/// An agent wants to run a command the user hasn't approved: the answer says how far a yes
+/// goes — this call, the command for the agent's session, or the command approved in Clak
+/// for every agent allowed to use the program.
+pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
+    let (agent, app, tool) = (q.agent, q.app, q.tool);
+    let program = clean(Some(&app.resource.app), 80);
+    let title = clean(Some(&app.resource.title), 80);
+    let command = clean(Some(&tool.name), 64);
+    let warning = [
+        match q.status {
+            Status::Changed => Some(
+                "The description or parameters of this command changed since you approved it: see what changed.",
+            ),
+            Status::New => Some("A command you haven't approved yet."),
+            _ => None,
+        }
+        .map(str::to_owned),
+        insecure(app),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    ConsentRequest {
+        id,
+        kind: ConsentKind::Call,
+        title: format!("{} wants to run “{command}” in {program}", agent.name),
+        question: format!(
+            "Allow {} to run “{command}” in {program} — {title}?",
+            agent.name
+        ),
+        who: who(agent, q.cwd),
+        what: what(app),
+        tools: vec![ConsentTool {
+            name: command.clone(),
+            description: clean(Some(&tool.description), FULL_TEXT),
+            note: match q.status {
+                Status::Changed => Some("changed".into()),
+                Status::New => Some("new".into()),
+                _ if q.restricted => Some("not in the preset's list".into()),
+                _ => Some("asks every time".into()),
+            },
+            changes: q.changes.clone(),
+            parameters: parameters(tool),
+        }],
+        warning: (!warning.is_empty()).then(|| warning.join(" ")),
+        note: if q.restricted {
+            "The preset or the rule this agent uses lists the commands it runs without asking, and not this one: it asks even when approved. A yes for the session holds while the agent's process stays open."
+                .into()
+        } else {
+            "A yes for the session holds while the agent's process stays open. An approved command runs, as it is, for every agent you let use the program; if it changes, it asks again."
+                .into()
+        },
+        arguments: arguments(q.arguments, tool),
+        choices: Some(Choices {
+            scopes: [
+                Some((Scope::Once, "Only this call".to_owned())),
+                Some((
+                    Scope::Session,
+                    format!("“{command}” for this agent's session"),
+                )),
+                // Approving wouldn't make it run here: the preset or the rule leaves it out.
+                (q.approvable && !q.restricted).then(|| {
+                    (
+                        Scope::Approve,
+                        format!("Approve “{command}”, as it is, for {program}"),
+                    )
+                }),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            always: None,
+            block: Some(format!("Block {program} for {}", agent.name)),
+        }),
+    }
+}
+
+/// The offer under the question to use a program: make the yes standing, for this agent in
 /// this folder (anywhere, if it doesn't say where it works).
-pub fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String {
+fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String {
     let program = if app.key.is_some() {
-        format!("{} (all its documents)", clean(Some(&app.resource.app), 80))
+        format!("{} (all its instances)", clean(Some(&app.resource.app), 80))
     } else {
         app.name.clone()
     };
@@ -107,6 +270,188 @@ pub fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String
             clean(Some(folder), 200)
         ),
         None => format!("Always allow {} to use {program}", agent.name),
+    }
+}
+
+/// How much of a command's description a question shows: all of it, short of a flood. What
+/// is approved is what the user read.
+const FULL_TEXT: usize = 4000;
+
+/// A command's parameters as the user reads them: name, type, required, description.
+pub fn parameters(tool: &ToolDef) -> Vec<ConsentLine> {
+    let schema = tool.schema();
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|r| r.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return vec![];
+    };
+    properties
+        .iter()
+        .map(|(name, p)| {
+            let kind = match p.get("type") {
+                Some(Value::String(t)) => t.clone(),
+                Some(other) => serde_json::to_string(other).unwrap_or_default(),
+                None => "any".into(),
+            };
+            let mut text = kind;
+            if required.contains(&name.as_str()) {
+                text.push_str(", required");
+            }
+            if let Some(values) = p.get("enum") {
+                text.push_str(&format!(
+                    ", one of {}",
+                    serde_json::to_string(values).unwrap_or_default()
+                ));
+            }
+            if let Some(description) = p.get("description").and_then(Value::as_str) {
+                text.push_str(" — ");
+                text.push_str(description);
+            }
+            ConsentLine::new(clean(Some(name), 64), clean(Some(&text), FULL_TEXT))
+        })
+        .collect()
+}
+
+/// How many arguments a question shows with their value; the others are named.
+const MAX_ARGUMENTS: usize = 30;
+/// The longest value shown, in UTF-16 units; a longer one says how long it is.
+const MAX_VALUE: usize = 300;
+
+/// The arguments as the user reads them: one line per argument, its value as text (JSON
+/// when it isn't one), cut short and saying so. Those the command declares come first, in
+/// its order: the agent can't push one out of sight behind others it made up. Past
+/// [`MAX_ARGUMENTS`] the rest are named. A value whose name says it is a secret — a token, a
+/// password, a key — or that looks like one ("Bearer …") is masked, also inside an object:
+/// the question may be on a web page.
+fn arguments(arguments: Option<&Map<String, Value>>, tool: &ToolDef) -> Vec<ConsentLine> {
+    let Some(arguments) = arguments else {
+        return vec![];
+    };
+    let declared: Vec<&String> = tool
+        .schema()
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|p| p.keys().collect())
+        .unwrap_or_default();
+    let mut names: Vec<&String> = declared
+        .iter()
+        .copied()
+        .filter(|n| arguments.contains_key(*n))
+        .collect();
+    names.extend(arguments.keys().filter(|n| !declared.contains(n)));
+    let mut lines: Vec<ConsentLine> = names
+        .iter()
+        .take(MAX_ARGUMENTS)
+        .map(|name| {
+            let value = &arguments[*name];
+            let text = if secret(name) {
+                masked(value)
+            } else {
+                match unveiled(&slim(value)) {
+                    Value::String(text) => text,
+                    other => serde_json::to_string(&other).unwrap_or_default(),
+                }
+            };
+            let units = text.encode_utf16().count();
+            let shown = if units > MAX_VALUE {
+                format!(
+                    "{} [cut: {units} characters in all]",
+                    clean(Some(&text), MAX_VALUE)
+                )
+            } else {
+                clean(Some(&text), MAX_VALUE)
+            };
+            ConsentLine::new(clean(Some(name), 64), shown)
+        })
+        .collect();
+    if names.len() > MAX_ARGUMENTS {
+        let rest: Vec<String> = names[MAX_ARGUMENTS..]
+            .iter()
+            .map(|n| clean(Some(n), 64))
+            .collect();
+        lines.push(ConsentLine::new(
+            "…",
+            format!("{} more: {}", rest.len(), rest.join(", ")),
+        ));
+    }
+    lines
+}
+
+/// A name that says its value is a secret: a token, a password, a key, a credential, a
+/// cookie. "max_tokens" and "keyword" aren't.
+fn secret(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    // "apiKey" and "api_key" alike: the words, and the words run together.
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    const WORDS: [&str; 14] = [
+        "auth",
+        "authorization",
+        "bearer",
+        "cookie",
+        "cookies",
+        "credential",
+        "credentials",
+        "jwt",
+        "passphrase",
+        "passwd",
+        "password",
+        "pwd",
+        "secret",
+        "secrets",
+    ];
+    let counted = ["max", "num", "count", "limit", "total", "used"];
+    words.iter().any(|w| {
+        WORDS.contains(w)
+            || w.ends_with("key")
+            || w.ends_with("token")
+            || w.ends_with("secret")
+            || w.ends_with("password")
+            || (*w == "tokens" && !words.iter().any(|x| counted.contains(x)))
+    }) || ["sessionid", "session_id", "session-id"]
+        .iter()
+        .any(|s| lower.contains(s))
+}
+
+/// A text that carries a credential whatever its name: an HTTP authorization.
+fn looks_secret(text: &str) -> bool {
+    let lower = text.trim_start().to_ascii_lowercase();
+    lower.starts_with("bearer ")
+        || lower.starts_with("basic ")
+        || lower.contains("authorization: ")
+        || lower.starts_with("-----begin")
+}
+
+fn masked(value: &Value) -> String {
+    match value {
+        Value::String(text) => format!("•••• ({} characters)", text.chars().count()),
+        _ => "••••".to_owned(),
+    }
+}
+
+/// The value with the secrets inside it masked.
+fn unveiled(value: &Value) -> Value {
+    match value {
+        Value::String(text) if looks_secret(text) => Value::String(masked(value)),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| {
+                    let v = if secret(k) {
+                        Value::String(masked(v))
+                    } else {
+                        unveiled(v)
+                    };
+                    (k.clone(), v)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(unveiled).collect()),
+        _ => value.clone(),
     }
 }
 
@@ -121,7 +466,8 @@ pub fn confirm(
 ) -> ConsentRequest {
     let text = clean(Some(message), 600);
     ConsentRequest {
-        always: None,
+        arguments: vec![],
+        choices: None,
         id,
         kind: ConsentKind::Confirm,
         title: format!(
@@ -151,7 +497,8 @@ pub fn change(
     change: &SettingsChange,
 ) -> ConsentRequest {
     ConsentRequest {
-        always: None,
+        arguments: vec![],
+        choices: None,
         id,
         kind: ConsentKind::Change,
         title: clean(Some(&change.title), 120),
@@ -172,52 +519,11 @@ pub fn change(
                 name: clean(Some(&t.name), 64),
                 description: clean(Some(&t.description), 400),
                 note: t.note.clone(),
+                ..ConsentTool::default()
             })
             .collect(),
         warning: change.warning.clone(),
         note: "Your answer applies to this change only; you can undo it from the panel.".into(),
-    }
-}
-
-pub fn tool(
-    id: String,
-    agent: &AgentIdentity,
-    cwd: Option<&str>,
-    app: &AppConn,
-    tool: &ToolDef,
-    changed: bool,
-) -> ConsentRequest {
-    let title = clean(Some(&app.resource.title), 80);
-    ConsentRequest {
-        always: None,
-        id,
-        kind: ConsentKind::Tool,
-        title: if changed {
-            format!("“{title}” changed a command")
-        } else {
-            format!("“{title}” has a new command")
-        },
-        question: format!("Allow {} to use “{}”?", agent.name, tool.name),
-        who: who(agent, cwd),
-        what: what(app),
-        tools: vec![ConsentTool {
-            name: tool.name.clone(),
-            description: clean(Some(&tool.description), 400),
-            note: Some(if changed { "changed" } else { "new" }.into()),
-        }],
-        warning: Some(
-            if changed {
-                "The description or parameters changed after you gave consent: review them again."
-            } else {
-                "This command wasn't there when you gave consent."
-            }
-            .into(),
-        ),
-        note: if app.is_connector() {
-            "Valid for this agent while the connector stays active.".into()
-        } else {
-            "Valid for this agent while the document stays open.".into()
-        },
     }
 }
 
@@ -259,8 +565,33 @@ pub fn app(
     };
     let program = clean(Some(&resource.app), 80);
     let title = clean(Some(&resource.title), 80);
+    // Its commands can be approved at once, as they are, only for a program Clak will know
+    // again; never ticked from the start.
+    let full = remembered && !tools.is_empty();
+    let choices = full.then(|| Choices {
+        always: Some(format!(
+            "Also approve its {}, as {}: {} for the agents you let use {program}",
+            if tools.len() == 1 {
+                "command".to_owned()
+            } else {
+                format!("{} commands", tools.len())
+            },
+            if tools.len() == 1 {
+                "it is"
+            } else {
+                "they are"
+            },
+            if tools.len() == 1 {
+                "it will run"
+            } else {
+                "they will run"
+            },
+        )),
+        ..Choices::default()
+    });
     ConsentRequest {
-        always: None,
+        arguments: vec![],
+        choices,
         id,
         kind: ConsentKind::App,
         title: format!("{program} wants to connect to Clak"),
@@ -271,15 +602,17 @@ pub fn app(
             .iter()
             .map(|t| ConsentTool {
                 name: t.name.clone(),
-                description: clean(Some(&t.description), 400),
-                note: None,
+                // Approving them is offered: in full, with what they take.
+                description: clean(Some(&t.description), if full { FULL_TEXT } else { 400 }),
+                parameters: if full { parameters(t) } else { vec![] },
+                ..ConsentTool::default()
             })
             .collect(),
         warning,
         note: if remembered {
-            "Clak will remember this for this executable; you can remove it from the panel. Each agent will still have to ask permission to use it.".into()
+            "Clak will remember this for this executable; you can remove it from the panel. Each agent will still have to ask to use it.".into()
         } else {
-            "Valid this time only. Each agent will still have to ask permission to use it.".into()
+            "Valid this time only. Each agent will still have to ask to use it.".into()
         },
     }
 }
@@ -412,6 +745,44 @@ pub fn clean(text: Option<&str>, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secrets_are_told_by_their_name_or_their_look() {
+        for name in [
+            "api_key",
+            "apiKey",
+            "private_key",
+            "access_key",
+            "ssh_key",
+            "key",
+            "access_token",
+            "refresh_tokens",
+            "credentials",
+            "passphrase",
+            "pwd",
+            "auth",
+            "Authorization",
+            "session_id",
+            "jwt",
+            "client_secret",
+        ] {
+            assert!(secret(name), "{name}");
+        }
+        for name in [
+            "max_tokens",
+            "keyword",
+            "keys",
+            "text",
+            "path",
+            "author",
+            "line",
+        ] {
+            assert!(!secret(name), "{name}");
+        }
+        assert!(looks_secret("Bearer abc"));
+        assert!(looks_secret("Authorization: Basic xyz"));
+        assert!(!looks_secret("milk and bread"));
+    }
 
     #[test]
     fn texts_are_cleaned() {

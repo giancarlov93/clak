@@ -33,8 +33,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   gets the token. In the new `clak-backup` crate, so that the hub without an interface can
   have it too.
 - Applications: an allowed application can be renamed, given a command of its own
-  (`clak <command>`) and pointed to where it has moved. Its open documents, its "Always
-  allow" rules and the presets that name it follow; at the new place it is remembered by
+  (`clak <command>`) and pointed to where it has moved. Its open instances, its "Always
+  allow" rules, its approved commands and the presets that name it follow; at the new place it is remembered by
   that file, as when it was allowed. Only from the panel of the app that runs the hub.
 - Status: in a connected program's page, its name for the agents can be given a suffix of
   your own (`revit-test` instead of `revit-2`), to tell it apart when you talk to an agent.
@@ -84,9 +84,10 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   upgrade`), or the command to type is copied (npm or Homebrew, as it was installed).
 - Usage, in the Agents tab: how many commands each agent ran, today or in the last 7 days, and
   to which programs. Only names and counts, kept for a month in `usage.json`.
-- Presets: an agent, a folder and the programs it may use without asking, all their commands
-  or only some. A known application covers all its documents; the preset opens the ones that
-  aren't running. Other programs and commands still ask.
+- Presets: an agent, a folder and the programs it may use without being asked first; if you
+  choose some of their commands, only those run without a question. A preset doesn't
+  approve commands: those you haven't approved still ask. A known application covers all
+  its instances; the preset opens the ones that aren't running. Other programs still ask.
 - A preset can also start a command-line agent with a model and a system prompt of its own,
   added to the agent's or in its place, as far as each agent allows: Claude Code both, Codex
   and Gemini CLI in its place, OpenCode added. With a folder, it edits the instructions file
@@ -130,8 +131,9 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - The menu bar icon opens a box like the Windows one: each agent with the programs it may
   use under it, a Revoke button on each, and links into the panel. The right click opens it
   too.
-- Always allow, in a consent window: ticked with Allow, that agent may use that program from
-  then on without asking, in the folder it works in (anywhere, if it doesn't say). The agent is
+- Always allow, in the question to use a program: ticked with Allow, that agent may use that
+  program from then on without being asked first, in the folder it works in (anywhere, if it
+  doesn't say); the commands you haven't approved still ask. The agent is
   recognized as programs are in `apps.json` (same executable and signer or, unsigned, same
   content), the program as a preset names it; offered only for applications, MCP servers and
   APIs, never ticked from the start. The rules are listed in Applications, where Remove brings
@@ -157,6 +159,23 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- Clak keeps each program's commands, and what you decided about each: approved (it runs,
+  as it is, for every agent you let use the program), asking at every call, or off. A
+  command that is new, or changed since you approved it, asks you at the call, showing what
+  the agent sends (secrets masked, long values cut and saying so), the command in full with
+  its parameters and, for a changed one, what changed: you allow only this call, the
+  command for the agent's session, or approve it. One window at a time per agent and
+  program. Approving a command doesn't let an agent use the program: each agent still asks the
+  first time it uses each program, even when all its commands are approved ("Always allow"
+  there makes it standing). Both questions can block the program for that agent until its
+  process ends, on every instance of the application; the panel shows the block and lifts
+  it. When a program brings new or changed commands Clak tells you, and you review them in
+  the Status tab (or on `clak-daemon`'s web page): approve, ask each time, turn off, approve
+  all, reset. Allowing a program to connect can approve its commands at once. Presets choose
+  which programs an agent uses, not which commands are approved. The approvals are in the
+  backups, and come back with the applications, servers and APIs a restore adds. Programs
+  you used before start with their commands to review. Clak's own settings ask once per
+  session (or not, under a preset that names them): every change asks anyway.
 - Releases: the Mac's installer is for Apple silicon only; the Intel Mac no longer has one,
   nor updates. It can still be built by hand (`node scripts/bundle.mjs --target
   x86_64-apple-darwin`).
@@ -171,7 +190,8 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 - `clak list` shows the programs the agent can use without asking: permission already given,
   covered by the preset it was launched with, or always allowed by the user, each saying
   which. It ends with how many other programs are connected; `clak list --others` lists them
-  (their first command asks the user), `clak list --all` (`-a`) lists both. The same for MCP
+  (their first use asks the user; those the user blocked are marked), `clak list --all`
+  (`-a`) lists both. The same for MCP
   clients, with `programs {"which": "others" | "all"}`, and in the skill.
 - Settings › Integration no longer confirms under a row what the row already says
   ("Installed · applies to new sessions", "Applies to new sessions"…): only what is left to
@@ -192,6 +212,14 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- `clak settings`: an agent can no longer give a program on this computer a variable that
+  makes it load other code (`PATH`, `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`, npm and
+  git settings…); you still can, on the MCP page. Every change to the variables says so in
+  its confirmation, which shows their values (not those of secrets) and names those that
+  send the program elsewhere (`HOME`, a package registry, a proxy).
+- A preset or an "Always allow" for an MCP server or an API, which names it, covered a
+  program that had connected with that name when its application couldn't be identified.
+  It now covers only the server or the API.
 - Agents' conversations by folder, and Usage by folder: one folder is one group, even when the
   agents wrote it two ways (`C:\…` from a terminal, `c:\…` from VS Code, or with a separator
   at the end). On Windows the case of a path no longer splits it in two.

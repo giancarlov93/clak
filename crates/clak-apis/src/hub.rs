@@ -434,7 +434,12 @@ impl ApiHub {
             self.revoke(grant);
         }
         self.lock().entries.retain(|e| e.id != id);
-        self.broker.run(|c| c.log(format!("API removed: {name}")));
+        self.broker.run(|c| {
+            // Its commands, and what the user decided about them, go with it.
+            c.commands.forget(&format!("api:{id}"));
+            c.log(format!("API removed: {name}"));
+            c.touch();
+        });
         self.push_view();
         removed
     }

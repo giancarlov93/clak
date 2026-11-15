@@ -62,9 +62,24 @@ const lines = (items) =>
   items && items.length ? el("dl", { class: "lines" }, items.map((l) => [el("dt", {}, l.label), el("dd", {}, l.value)])) : null;
 
 const questionCard = (q) => {
-  const always = q.always ? el("input", { type: "checkbox" }) : null;
+  // The scopes of a command's question (this call by default), "always" for the question to
+  // use a program, and the block.
+  const choices = q.choices;
+  const scopeList = choices?.scopes || [];
+  let scope = scopeList[0]?.value || "once";
+  const always = choices?.always ? el("input", { type: "checkbox" }) : null;
+  const alwaysRow = always ? el("label", { class: "always" }, always, choices.always) : null;
+  const option = (choice) => {
+    const input = el("input", { type: "radio", name: `scope-${q.id}`, value: choice.value });
+    input.checked = choice.value === scope;
+    input.addEventListener("change", () => { scope = choice.value; });
+    return el("label", { class: "scope" }, input, choice.label);
+  };
+  const scopes = scopeList.length ? el("div", { class: "scopes" }, scopeList.map(option)) : null;
   const allow = el("button", { class: "primary", disabled: true }, "Allow");
   const deny = el("button", { class: "deny", disabled: true }, "Deny");
+  // Apart from Allow and Deny, as a link: a tap meant for Deny doesn't close the program.
+  const block = choices?.block ? el("button", { class: "link-danger", disabled: true }, choices.block) : null;
   const left = el("p", { class: "meta" });
   const card = el(
     "div",
@@ -73,26 +88,40 @@ const questionCard = (q) => {
     lines(q.who),
     lines(q.what),
     q.tools && q.tools.length
-      ? el("ul", { class: "tools" }, q.tools.map((t) => el("li", {}, t.note ? `${t.name} (${t.note})` : t.name, t.description ? ` — ${t.description}` : "")))
+      ? el("ul", { class: "tools" }, q.tools.map((t) => el("li", {}, t.note ? `${t.name} (${t.note})` : t.name, t.description ? ` — ${t.description}` : "", lines(t.changes))))
       : null,
+    q.arguments && q.arguments.length ? [el("p", { class: "meta" }, "Arguments, sent by the agent:"), lines(q.arguments)] : null,
     q.warning ? el("p", { class: "warning" }, q.warning) : null,
     q.note ? el("p", { class: "note" }, q.note) : null,
     el("p", { class: "question" }, q.question),
-    always ? el("label", { class: "always" }, always, q.always) : null,
+    scopes,
+    alwaysRow,
     el("div", { class: "row" }, el("div", { class: "actions" }, allow, deny), left),
+    block ? el("div", { class: "block-row" }, block) : null,
   );
-  const answer = async (yes) => {
+  const answer = async (yes, blocked = false) => {
     allow.disabled = deny.disabled = true;
-    const response = await post("/api/answer", { id: q.id, allow: yes, always: !!(yes && always && always.checked) });
+    if (block) block.disabled = true;
+    const response = await post("/api/answer", {
+      id: q.id,
+      allow: yes,
+      scope,
+      always: !!(yes && always && always.checked),
+      block: blocked,
+    });
     if (response.status === 401) return showLogin("The session is over: log in again.");
     if (!response.ok) notice((await response.json().catch(() => ({}))).error || "The answer didn't go through.");
-    else notice(yes ? `Allowed: ${q.title}` : `Denied: ${q.title}`);
+    else notice(blocked ? `Blocked: ${q.title}` : yes ? `Allowed: ${q.title}` : `Denied: ${q.title}`);
     refresh();
   };
   allow.addEventListener("click", () => answer(true));
   deny.addEventListener("click", () => answer(false));
+  block?.addEventListener("click", () => answer(false, true));
   // A moment before the buttons work: a tap meant for something else doesn't answer.
-  setTimeout(() => (allow.disabled = deny.disabled = false), 1000);
+  setTimeout(() => {
+    allow.disabled = deny.disabled = false;
+    if (block) block.disabled = false;
+  }, scopeList.length ? 500 : 1000);
   return { card, left, expires: q.expires };
 };
 
@@ -141,20 +170,42 @@ const takeAway = (kind, id, what) =>
     onclick: async () => {
       const response = await post("/api/revoke", { kind, id });
       if (response.status === 401) return showLogin("The session is over: log in again.");
-      notice(response.ok ? `Taken away: ${what}` : "It couldn't be taken away.");
+      notice(response.ok ? (kind === "block" ? `Unblocked: ${what}` : `Taken away: ${what}`) : "It couldn't be done.");
       refresh();
     },
-  }, kind === "agent" ? "Disconnect" : "Revoke");
+  }, kind === "agent" ? "Disconnect" : kind === "block" ? "Unblock" : "Revoke");
 
 const render = (state) => {
   const now = state.now;
   renderQuestions(state.questions || [], now);
+  const programs = [...(state.commands || [])].sort((a, b) => (b.to_review > 0) - (a.to_review > 0));
+  $("review-section").hidden = !programs.length;
+  // A card is drawn again only when what it shows changed: the focus and a click on its
+  // buttons survive the refresh every two seconds.
+  const box = $("review");
+  const keep = new Map([...box.children].map((n) => [n.dataset.sign, n]));
+  box.replaceChildren(...programs.map((p) => {
+    const sign = JSON.stringify([p, reviewing.get(p.key) || null]);
+    const old = keep.get(sign);
+    if (old) return old;
+    const card = reviewCard(p);
+    card.dataset.sign = sign;
+    return card;
+  }));
   list($("grants"), state.grants || [], "No agent is using a program.", (g) =>
     el("div", { class: "card row" },
       el("div", {},
         el("p", { class: "title" }, `${g.agent || "An agent"} → ${g.program || "a program"}`),
-        el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls${g.tools && g.tools.length ? ` · ${g.tools.join(", ")}` : ""}`)),
+        el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls · ${g.tools && g.tools.length ? `for the session: ${g.tools.join(", ")}` : "approved commands only"}`)),
       takeAway("grant", g.id, `${g.agent} → ${g.program}`)));
+  // Blocks: refused at once until the agent exits, or until lifted here.
+  $("blocks-section").hidden = !(state.blocks || []).length;
+  list($("blocks"), state.blocks || [], "", (b) =>
+    el("div", { class: "card row" },
+      el("div", {},
+        el("p", { class: "title" }, `${b.agent || "An agent"} ⊘ ${b.program || "a program"}`),
+        el("p", { class: "meta" }, `blocked ${ago(b.since, now)} · its calls are refused until it exits`)),
+      takeAway("block", b.id, `${b.agent} → ${b.program}`)));
   list($("agents"), state.agents || [], "No agent connected.", (a) =>
     el("div", { class: "card row" },
       el("div", {},
@@ -173,6 +224,60 @@ const render = (state) => {
         el("p", { class: "title" }, a.label || a.name),
         el("p", { class: "meta" }, [a.exe, a.signer ? `signed by ${a.signer}` : "unsigned", `since ${ago(a.since, now)}`].join(" · "))),
       takeAway("app", a.key, a.label || a.name)));
+};
+
+/// Each program's commands as Clak keeps them, those with new or changed commands first:
+/// each opens to its commands, to approve, ask each time, turn off or on. Kept open across
+/// refreshes. An approval names the version on screen.
+const reviewing = new Map();
+
+const commandsOf = async (key) => {
+  const response = await post("/api/commands", { key });
+  if (response.status === 401) return showLogin("The session is over: log in again.");
+  if (!response.ok) notice("The commands couldn't be read.");
+  return response.ok ? response.json() : null;
+};
+
+const decide = async (key, body) => {
+  const response = await post("/api/commands", { key, ...body });
+  if (response.status === 401) return showLogin("The session is over: log in again.");
+  reviewing.set(key, response.ok ? await response.json() : null);
+  refresh();
+};
+
+const STATUS = { approved: "approved", changed: "changed", new: "new", ask: "asks every time", off: "off" };
+
+const commandRow = (key, c) => {
+  const buttons = [];
+  if (!c.missing_since) {
+    if (c.status !== "approved" && c.state !== "off") buttons.push(el("button", { class: "primary", onclick: () => decide(key, { action: "approve", name: c.name, digest: c.digest }) }, c.status === "changed" ? "Approve the change" : "Approve"));
+    if (c.state !== "ask" && c.status !== "new") buttons.push(el("button", { onclick: () => decide(key, { action: "ask", name: c.name }) }, c.state === "off" ? "Turn on" : "Ask each time"));
+    if (c.state !== "off") buttons.push(el("button", { class: "deny", onclick: () => decide(key, { action: "off", name: c.name }) }, "Turn off"));
+  }
+  return el("div", { class: "review" },
+    el("p", {}, `${c.name} (${c.missing_since ? "no longer offered" : STATUS[c.status] || c.status})`, c.description ? ` — ${c.description}` : ""),
+    lines(c.changes),
+    buttons.length ? el("div", { class: "actions" }, buttons) : null);
+};
+
+const reviewCard = (program) => {
+  const open = reviewing.get(program.key);
+  const list = open?.commands || [];
+  const offered = list.filter((c) => !c.missing_since);
+  const missing = list.length - offered.length;
+  return el("div", { class: "card" },
+    el("p", { class: "title" }, `${program.label}: ${program.approved} approved` + (program.to_review ? ` · ${program.to_review} new or changed` : "")),
+    open
+      ? [
+        list.map((c) => commandRow(program.key, c)),
+        el("div", { class: "actions" },
+          program.to_review ? el("button", { class: "primary", onclick: () => decide(program.key, { action: "approve_all", commands: offered.map((c) => ({ name: c.name, digest: c.digest })) }) }, "Approve all") : null,
+          program.approved ? el("button", { onclick: () => decide(program.key, { action: "reset" }) }, "Reset approvals") : null,
+          missing ? el("button", { onclick: () => decide(program.key, { action: "forget_missing" }) }, "Forget the ones no longer offered") : null,
+          el("button", { onclick: () => { reviewing.delete(program.key); refresh(); } }, "Close")),
+      ]
+      : el("div", { class: "actions" },
+        el("button", { onclick: async () => { reviewing.set(program.key, await commandsOf(program.key)); refresh(); } }, "Commands")));
 };
 
 let timer = null;

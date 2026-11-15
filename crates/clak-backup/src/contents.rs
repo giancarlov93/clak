@@ -1,6 +1,6 @@
 //! What a backup holds: the MCP servers with their tokens, sign-ins and environment
-//! variables, the REST APIs with their secrets, the presets, the allowed applications and
-//! the "Always allow" rules. Not the usage counts, the prices, the icons nor the app's
+//! variables, the REST APIs with their secrets, the presets, the allowed applications, the
+//! "Always allow" rules and the commands the user approved. Not the usage counts, the prices, the icons nor the app's
 //! preferences: they are made again, or belong to this computer.
 //!
 //! It is read from the hub's folder and from the secret store, the same ones the hub reads
@@ -10,6 +10,7 @@
 use clak_apis::{ApiEntry, ApiStore};
 use clak_connectors::launch::Launch;
 use clak_connectors::{ConnectorEntry, ConnectorStore, OAuthGrant};
+use clak_hub::commands::{self, CommandCache, Program};
 use clak_hub::permissions::{AppPermissions, Entry};
 use clak_hub::rules::{Rule, Rules};
 use clak_wire::json as wire;
@@ -49,6 +50,8 @@ pub struct Contents {
     pub presets: Vec<Map<String, Value>>,
     pub apps: Vec<Entry>,
     pub rules: Vec<Rule>,
+    /// The programs' commands, with what the user approved: restored with the programs.
+    pub commands: Vec<Program>,
 }
 
 impl Contents {
@@ -80,6 +83,10 @@ impl Contents {
             presets: clak_setup::presets::all(home),
             apps: AppPermissions::load(home.join("apps.json")).all(),
             rules: Rules::load(home.join("rules.json")).all().to_vec(),
+            commands: CommandCache::load(home.join("commands.json"))
+                .all()
+                .cloned()
+                .collect(),
         }
     }
 
@@ -91,6 +98,7 @@ impl Contents {
             "presets": self.presets.len(),
             "apps": self.apps.len(),
             "rules": self.rules.len(),
+            "commands": self.commands.iter().map(|p| p.commands.len()).sum::<usize>(),
         })
     }
 
@@ -100,6 +108,7 @@ impl Contents {
             && self.presets.is_empty()
             && self.apps.is_empty()
             && self.rules.is_empty()
+            && self.commands.is_empty()
     }
 
     pub fn to_json(&self) -> Value {
@@ -113,6 +122,7 @@ impl Contents {
             "presets": self.presets,
             "apps": self.apps.iter().map(app_json).collect::<Vec<_>>(),
             "rules": self.rules.iter().map(Rule::to_json).collect::<Vec<_>>(),
+            "commands": { "programs": self.commands.iter().map(commands::program_to_json).collect::<Vec<_>>() },
         })
     }
 
@@ -148,6 +158,10 @@ impl Contents {
                 .collect(),
             apps: list("apps").iter().filter_map(app_from).collect(),
             rules: list("rules").iter().filter_map(Rule::from_json).collect(),
+            commands: value
+                .get("commands")
+                .map(CommandCache::programs_from_json)
+                .unwrap_or_default(),
         }
     }
 
@@ -156,6 +170,17 @@ impl Contents {
     /// does not count: an OAuth access token refreshed every hour, its expiry.
     pub fn fingerprint(&self, key: &[u8]) -> String {
         let mut value = self.to_json();
+        // When a command was last offered isn't a change worth a backup.
+        for program in value["commands"]["programs"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+        {
+            program.as_object_mut().map(|p| p.remove("last_seen"));
+            for command in program["commands"].as_array_mut().into_iter().flatten() {
+                command.as_object_mut().map(|c| c.remove("last_seen"));
+            }
+        }
         for connector in value["connectors"].as_array_mut().into_iter().flatten() {
             if let Some(oauth) = connector.get_mut("oauth").and_then(Value::as_object_mut) {
                 oauth.remove("access_token");

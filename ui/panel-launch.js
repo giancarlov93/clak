@@ -578,9 +578,11 @@ const Launch = (() => {
   // --- the presets -----------------------------------------------------------------
 
   /// What a preset program points to, in the hub's terms: the open documents of a known
-  /// application, or the connector with that name.
+  /// application, or the connector with that name (never a program that connected from a
+  /// process, as in the hub).
+  const named = (r) => ["connector", "hub"].includes(r.origin && r.origin.kind);
   const resourcesOf = (target, state) =>
-    (state.resources || []).filter((r) => (target.app ? r.key === target.app : !r.key && r.name === target.name));
+    (state.resources || []).filter((r) => (target.app ? r.key === target.app : !r.key && named(r) && r.name === target.name));
 
   const programChip = (p, state) => {
     const open = resourcesOf(p, state);
@@ -650,6 +652,26 @@ const Launch = (() => {
   };
 
   const idOf = (p) => (p.app ? `app:${p.app}` : `name:${p.name}`);
+
+  /// How many commands of the preset's programs aren't approved: they will ask, preset or
+  /// not. Where Clak keeps them: an application by its key, a server or an API by its id.
+  const unapprovedHint = () => {
+    const state = Panel.state();
+    const cli = (c) => c.cli || c.command || Editors.cliFrom(c.name);
+    const keyOf = (p) => {
+      if (p.app) return `app:${p.app}`;
+      const server = (state.connectors || []).find((c) => cli(c) === p.name);
+      if (server) return `mcp:${server.id}`;
+      const api = (state.apis || []).find((a) => cli(a) === p.name);
+      return api ? `api:${api.id}` : null;
+    };
+    let waiting = 0;
+    for (const [, p] of draft.programs) {
+      const kept = (state.commands || []).find((c) => c.key === keyOf(p));
+      if (kept) waiting += kept.asking ?? kept.commands - kept.approved - (kept.off || 0);
+    }
+    return waiting ? Kit.bar("warn", `${D.plural(waiting, "command", "commands")} of these programs ${waiting === 1 ? "isn't" : "aren't"} approved: ${waiting === 1 ? "it asks" : "they ask"} until you approve ${waiting === 1 ? "it" : "them"}, in the Status tab.`) : null;
+  };
 
   const edit = (preset) => {
     const installed = data?.installed || [];
@@ -736,7 +758,9 @@ const Launch = (() => {
       : null;
     return el("div", { class: "pick-row", "data-id": c.id }, head,
       el("label", { class: "pick indent-pick", title: c.tools.length ? "" : "Its commands can be chosen while it is connected" },
-        all, el("span", null, c.tools.length || chosen.tools ? "All commands" : "All commands (connect it to choose some)")),
+        all, el("span", null, c.tools.length || chosen.tools
+          ? "No question for any approved command (untick to choose which)"
+          : "No question for any approved command (connect it to choose which)")),
       tools);
   };
 
@@ -820,7 +844,8 @@ const Launch = (() => {
         all.length
           ? el("div", { class: "picks" }, all.map(programPick))
           : el("div", { class: "quiet" }, "No program known yet: allow an application, or add an MCP server or an API.")),
-      el("div", { class: "quiet hint" }, "Launched with this preset, the agent uses these programs without a question. Other commands and programs still ask."),
+      el("div", { class: "quiet hint" }, "Launched with this preset, the agent uses these programs without being asked first. A preset doesn't approve commands: those you haven't approved still ask, as do other programs. If you choose which commands, only those run without a question; the others ask, even if approved."),
+      unapprovedHint(),
       draft.error ? Kit.bar("err", draft.error) : null,
       el("div", { class: "buttons" },
         el("button", { onclick: closeEditor }, "Cancel"),

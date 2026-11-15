@@ -6,18 +6,21 @@ The details of every message are in the [protocol specification](protocol.md).
 
 ## How it works
 
-1. The user opens a document in your program and chooses *Connect to Clak* (a button,
-   a menu item, a setting).
+1. The user opens something in your program (a document, a scene, a project) and chooses
+   *Connect to Clak* (a button, a menu item, a setting).
 2. Your program reads `~/.clak/daemon.json`, opens a WebSocket to the port written there
-   and sends `register`: the program's name, the document's title and its commands.
+   and sends `register`: the program's name, the title of what is open (the instance) and
+   its commands.
 3. The first time, Clak asks the user whether your program may connect. Clak remembers
    the answer.
-4. Agents see the document in `clak list --others` (`clak list` shows the programs they can
-   already use). The first time an agent uses it, Clak asks the user again, for that agent.
+4. Agents see the instance in `clak list --others` (`clak list` shows the programs they can
+   already use). The first time an agent uses your program, Clak asks the user, for that
+   agent. Then each command the user hasn't approved asks too, with what it sends; an
+   approved one runs until it changes.
 5. Agents call your commands (`clak notes append --line milk`). Your program receives
    `call`, runs the command and answers with `result`.
-6. When the document closes, your program sends `close`. The document disappears for
-   agents, and their permissions end.
+6. When it closes, your program sends `close`. The instance disappears for agents, and
+   their permissions on it end.
 
 Your program never handles permissions: Clak asks, and tells you the outcome
 (`granted`, `revoked`).

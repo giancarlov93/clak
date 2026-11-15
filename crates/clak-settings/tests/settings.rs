@@ -814,7 +814,9 @@ async fn an_agent_adds_a_stdio_program_and_the_variables_do_not_leak() {
             );
             assert_eq!(
                 change.what("Environment"),
-                Some("API_KEY, DEBUG (values given by the agent, saved encrypted)")
+                Some(
+                    "API_KEY, DEBUG=1 (values given by the agent, saved encrypted; secrets not shown)"
+                )
             );
             assert_eq!(change.what("Command"), Some("clak browser"));
             assert!(
@@ -859,15 +861,61 @@ async fn an_agent_adds_a_stdio_program_and_the_variables_do_not_leak() {
             assert_eq!(
                 change.what("Environment"),
                 Some(
-                    "API_KEY (values given by the agent, saved encrypted) (replacing the saved ones)"
+                    "API_KEY (values given by the agent, saved encrypted; secrets not shown) (replacing the saved ones)"
                 )
             );
-            assert_eq!(change.request.warning, None);
+            let warning = change.request.warning.as_deref().unwrap();
+            assert!(
+                warning.contains("their values come from the agent"),
+                "{warning}"
+            );
+            assert!(
+                !warning.contains("every time it starts: add it"),
+                "{warning}"
+            );
             change.allow();
         }
     );
     assert!(!is_error(&answer), "{}", content(&answer));
     assert_eq!(hub.connectors.env(&id).len(), 1);
+
+    // A variable that makes the program load other code: not from an agent, and the user
+    // isn't bothered.
+    let questions = hub.prompt.count();
+    let answer = hub
+        .call(
+            "claude",
+            "settings",
+            "edit-server",
+            json!({ "server": "browser", "env": { "API_KEY": "new", "DYLD_INSERT_LIBRARIES": "/tmp/x.dylib" } }),
+        )
+        .await;
+    assert!(is_error(&answer));
+    assert!(
+        content(&answer).contains("an agent can't set it"),
+        "{}",
+        content(&answer)
+    );
+    assert_eq!(hub.prompt.count(), questions);
+    assert_eq!(hub.connectors.env(&id).len(), 1);
+
+    // One that sends it elsewhere: the confirmation names it.
+    let (answer, ()) = tokio::join!(
+        hub.call(
+            "claude",
+            "settings",
+            "edit-server",
+            json!({ "server": "browser", "env": { "API_KEY": "new", "HOME": "/tmp/elsewhere" } })
+        ),
+        async {
+            let change = hub.prompt.next(ConsentKind::Change).await;
+            let warning = change.request.warning.as_deref().unwrap();
+            assert!(warning.contains("HOME changes where"), "{warning}");
+            change.allow();
+        }
+    );
+    assert!(!is_error(&answer), "{}", content(&answer));
+    assert_eq!(hub.connectors.env(&id).len(), 2);
     for wrong in [
         json!({ "server": "browser", "url": "https://x.example.com/mcp" }),
         json!({ "server": "browser", "token": "t" }),
@@ -929,6 +977,10 @@ async fn a_wrong_program_does_not_bother_the_user() {
         (
             json!({ "name": "B", "stdio": "x", "env": { "NO-PE": "1" } }),
             "not a valid environment variable name",
+        ),
+        (
+            json!({ "name": "B", "stdio": "x", "env": { "NODE_OPTIONS": "--require=/tmp/p.js" } }),
+            "an agent can't set it",
         ),
     ];
     for (args, expected) in cases {

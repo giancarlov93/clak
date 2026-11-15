@@ -8,14 +8,18 @@
 }
 :root[data-theme="dark"] { --sheet: rgba(40, 40, 42, 0.78); }
 
-body { display: flex; flex-direction: column; }
+/* The window can't grow past the screen: what doesn't fit scrolls, and the buttons stay in
+   sight at the bottom. */
+body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 html.mac body { background: var(--sheet); }
 
 main {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
   background: var(--layer);
   border-bottom: 1px solid var(--stroke);
   padding: 20px 24px;
 }
+footer { flex: none; }
 html.win main { border-top: 1px solid var(--stroke); }
 /* On the Mac the title bar is over the content: leave room for the traffic lights. */
 html.mac main { padding: 34px 22px 14px; background: transparent; border: none; }
@@ -73,6 +77,10 @@ html.win .caption { text-transform: none; letter-spacing: 0; font-size: 12px; }
 .tool .name { font-family: var(--mono); font-weight: 600; }
 .tool .note { color: var(--caution); margin-left: 6px; }
 .tool .description { color: var(--quiet); font-size: 12px; }
+.tool .changes, .tool .parameters { margin: 6px 0 2px; font-size: 12px; grid-template-columns: minmax(80px, max-content) 1fr; }
+.tool .changes dd, .tool .parameters dd { overflow-wrap: anywhere; }
+.tool .parameters dt { font-family: var(--mono); }
+.tool + .tool { margin-top: 10px; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 html button.chip {
@@ -83,6 +91,18 @@ html button.chip {
 html button.chip:hover:not(:disabled) { background: var(--control-hover); border-color: var(--stroke); }
 html button.chip.on { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .chip-text { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--subtle); max-height: 120px; overflow-y: auto; }
+
+/* --- a command's arguments, and how far the yes goes --------------------------------- */
+
+#arguments-block h2 { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.arguments { margin: 0; padding: 8px 14px; font-size: 12px; grid-template-columns: minmax(60px, max-content) 1fr; max-height: 160px; overflow-y: auto; }
+.arguments dt { font-family: var(--mono); }
+.arguments dd { font-family: var(--mono); overflow-wrap: anywhere; }
+
+.scope { border: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.scope legend { padding: 0; margin-bottom: 4px; font-size: 12px; color: var(--quiet); }
+.scope label { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: default; }
+.scope input { margin-top: 2px; flex: none; }
 
 /* --- the details, folded ----------------------------------------------------------- */
 
@@ -99,6 +119,8 @@ footer {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 16px 24px 20px;
 }
+footer .left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+footer .left button { align-self: flex-start; font-size: 12px; text-align: left; }
 html.mac footer { padding: 6px 22px 18px; }
 .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .buttons button { min-width: 126px; }

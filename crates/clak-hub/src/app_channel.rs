@@ -5,7 +5,7 @@
 //! whole HTTP server for a single `101` would be extra surface on a port that any web page
 //! can probe.
 
-use crate::consent::Verdict;
+use crate::consent::{Reply, Verdict};
 use crate::core::{Broker, Outbox};
 use crate::permissions::AppPermissions;
 use crate::texts;
@@ -13,6 +13,8 @@ use crate::wire::{self, Malformed, ResourceDef, ToolDef};
 use clak_wire::json::{self, MAX_MESSAGE_BYTES};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Map, Value, json};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
@@ -201,10 +203,8 @@ async fn handle(
             });
             return Ok(Flow::Drop);
         }
-        let tools = wire::active(
-            wire::parse_tools(wire::required(message, "tools")?)?,
-            message.get("active"),
-        )?;
+        let manifest = wire::parse_tools(wire::required(message, "tools")?)?;
+        let tools = wire::active(manifest.clone(), message.get("active"))?;
         let resource = ResourceDef::from_json(wire::required(message, "resource")?)?;
         // Slow, and outside the lock: meanwhile the hub serves the others.
         let platform = broker.options().platform.clone();
@@ -212,7 +212,7 @@ async fn handle(
             tokio::task::spawn_blocking(move || platform.attest_loopback(peer_port, local_port))
                 .await
                 .unwrap_or_else(|_| json!({}));
-        let Some(key) = admit(broker, outbox, &resource, &origin, &tools).await else {
+        let Some((key, approve)) = admit(broker, outbox, &resource, &origin, &tools).await else {
             return Ok(Flow::Drop);
         };
         let instructions = instructions(message);
@@ -224,9 +224,18 @@ async fn handle(
                 resource.app = label;
             }
             let command = entry.and_then(|e| e.command.clone());
+            let shown = if approve { tools.clone() } else { Vec::new() };
             let id = c.register(outbox.clone(), resource, tools, origin, command.as_deref());
             c.set_instructions(&id, instructions);
             c.set_key(&id, key);
+            c.observe(&id, &manifest);
+            // Approved as the question showed them, when the user ticked it.
+            if approve && let Some((cache, ..)) = c.app_by_id(&id).and_then(|a| c.cache_key(a)) {
+                for tool in &shown {
+                    c.commands.approve(&cache, tool, "connect");
+                }
+                c.touch();
+            }
             id
         });
         *app = Some(conn_id);
@@ -238,15 +247,14 @@ async fn handle(
     };
     match kind {
         Some("tools_changed" | "register") => {
-            let tools = wire::active(
-                wire::parse_tools(wire::required(message, "tools")?)?,
-                message.get("active"),
-            )?;
+            let manifest = wire::parse_tools(wire::required(message, "tools")?)?;
+            let tools = wire::active(manifest.clone(), message.get("active"))?;
             let update = message
                 .contains_key("instructions")
                 .then(|| instructions(message));
             broker.run(|c| {
                 c.tools_changed(conn_id, tools);
+                c.observe(conn_id, &manifest);
                 if let Some(text) = update {
                     c.set_instructions(conn_id, text);
                 }
@@ -311,14 +319,15 @@ pub fn instructions(message: &Map<String, Value>) -> Option<String> {
 /// A program gets in only if the user allows it: once per executable, and the hub remembers
 /// it. While the question is open the program knows it (`waiting`); if the user says no it
 /// receives `denied` and the connection closes. Admitted: the key of its application, if it
-/// can be remembered (a preset names the application by it).
+/// can be remembered (a preset names the application by it), and whether the user also
+/// approved its commands, as the question showed them.
 async fn admit(
     broker: &Broker,
     outbox: &Outbox,
     resource: &ResourceDef,
     origin: &Value,
     tools: &[ToolDef],
-) -> Option<Option<String>> {
+) -> Option<(Option<String>, bool)> {
     let platform = broker.options().platform.clone();
     let (o, name) = (origin.clone(), resource.app.clone());
     let key =
@@ -327,7 +336,7 @@ async fn admit(
             .ok()
             .flatten();
     if broker.run(|c| c.permissions().allows(key.as_deref())) {
-        return Some(key);
+        return Some((key, false));
     }
 
     outbox.send(json!({ "type": "waiting", "reason": "consent" }));
@@ -338,22 +347,28 @@ async fn admit(
             .unwrap_or_else(|| clak_wire::json::new_id("unknown"))
     );
     let (allow_key, allow_origin, allow_name) = (key.clone(), origin.clone(), resource.app.clone());
+    let approve = Arc::new(AtomicBool::new(false));
+    let approved = approve.clone();
     let stop = broker.stopping();
     let verdict = broker
-        .consent(
+        .consent_reply(
             &consent_key,
             |id, _| texts::app(id, resource, origin, tools, remembered),
-            move |c| {
+            move |c, reply| {
+                let Reply::Allow { always, .. } = reply else {
+                    return;
+                };
                 if let Some(key) = allow_key {
                     c.permissions_mut().allow(&key, &allow_origin, &allow_name);
                 }
+                approved.store(always, Ordering::SeqCst);
             },
             &stop,
         )
         .await
         .unwrap_or(Verdict::NoAnswer);
     if verdict == Verdict::Allowed {
-        return Some(key);
+        return Some((key, approve.load(Ordering::SeqCst)));
     }
     outbox.send(json!({
         "type": "denied",

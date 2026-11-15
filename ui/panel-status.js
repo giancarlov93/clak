@@ -21,6 +21,8 @@
   let tools = null; // the last `tools` reply, read
   let history = null; // the last `history` reply, read
   let call = null; // the last `call` reply: one call in full
+  let commands = null; // the last `commands` reply: a program's commands as Clak keeps them
+  let commandsSeen = null; // that program's counts when it was asked for, to ask again on a change
   let askedCall = null;
   let asked = null; // what the hub has already been asked for
 
@@ -28,6 +30,10 @@
   const hosting = () => ctx.mode === "local";
 
   const go = (next) => {
+    if (next.page === "commands") {
+      commands = null;
+      commandsSeen = null;
+    }
     if (next.page === "program" && view.page !== "command") tools = null;
     if (next.page === "history") history = null;
     if (next.page === "call") askedCall = null;
@@ -88,12 +94,28 @@
     return `Started ${D.ago(b.since, now)} · pid ${b.pid}` + (b.can_ask ? "" : " · no interface: can't grant permissions") + (hosting() ? "" : " · separate process");
   };
 
+  /// What runs without asking besides the approved commands: those allowed for the session.
+  const scopeOf = (g) =>
+    (g.tools || []).length ? `${D.plural(g.tools.length, "command", "commands")} for the session` : "approved commands only";
+
+  /// A program the user blocked for an agent: refused without a question until lifted
+  /// here, or until the agent exits.
+  const blockRow = (b, now) =>
+    el("div", { class: "grant", "data-id": b.id },
+      el("span", { class: "row-body" }, Kit.tile("shield", 24, "#ff3b30"),
+        el("span", { class: "lines" }, el("strong", { class: "ellipsis" }, b.program),
+          el("span", { class: "quiet ellipsis" }, `blocked ${D.ago(b.since, now)}${b.session_id ? "" : ` for ${b.agent} (pid ${b.pid})`}`))),
+      // Only the app hosting the hub lifts a block: on the channel an agent could too.
+      hosting() && !ctx.readonly
+        ? el("button", { class: "small", title: "The agent may ask again", onclick: () => Panel.send({ type: "unblock", id: b.id }) }, "Unblock")
+        : null);
+
   const grantRow = (g, now) => {
     const r = D.resourceOf(state, g.resource_id);
     const title = r ? D.resourceTitle(r) : g.resource_id;
     const content = el("span", { class: "row-body" }, Kit.tile(glyphOf(r), 24, null, exeOf(r)),
       el("span", { class: "lines" }, el("strong", { class: "ellipsis" }, title),
-        el("span", { class: "quiet ellipsis", title: "" }, `${D.grantDetail(g, now)} · ${D.plural((g.tools || []).length, "command allowed", "commands allowed")}`)),
+        el("span", { class: "quiet ellipsis", title: "" }, `${D.grantDetail(g, now)} · ${scopeOf(g)}`)),
       g.errors > 0 ? Kit.badge(D.plural(g.errors, "error", "errors"), "err") : null);
     const show = D.showable(r) ? Kit.iconButton("show", `Brings ${title} to the front`, (e) => Kit.bringToFront(e.currentTarget, "resource", r.id)) : null;
     return el("div", { class: "grant", "data-id": g.id },
@@ -104,6 +126,7 @@
 
   const agentCard = (s, now) => {
     const grants = byAge((state.grants || []).filter((g) => g.session_id === s.id));
+    const blocks = (state.blocks || []).filter((b) => b.session_id === s.id);
     const mcp = s.via === "mcp";
     return el("div", { class: "card agent", "data-id": s.id },
       el("div", { class: "head" }, Kit.tile(mcp ? "chat" : "terminal", 40, "#ff9500", s.exe),
@@ -114,9 +137,9 @@
         el("div", { class: "actions" },
           el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "session", s.id) }, "Show"),
           el("button", { title: "Ends all its permissions", onclick: () => Panel.send({ type: "forget_session", session_id: s.id }) }, "Disconnect"))),
-      grants.length === 0
+      grants.length === 0 && blocks.length === 0
         ? el("div", { class: "quiet indent" }, "No programs in use")
-        : el("div", { class: "inset indent" }, grants.map((g) => grantRow(g, now))));
+        : el("div", { class: "inset indent" }, grants.map((g) => grantRow(g, now)), blocks.map((b) => blockRow(b, now))));
   };
 
   const programCard = (r, now) => {
@@ -134,6 +157,8 @@
     const programs = resources.filter((r) => r.origin?.kind !== "hub").length; // the settings are always there: they don't count
     const grants = (state.grants || []).length;
     const pending = state.pending || [];
+    const loose = (state.blocks || []).filter((b) => !b.session_id);
+    const review = Commands.toReview(state);
     return [
       Kit.title("Status"),
       el("div", { class: "card hero" }, el("span", { class: "tile round " + (on ? "ok" : "err") }, Kit.icon("status")),
@@ -150,8 +175,18 @@
         ? el("div", { title: Clak.mac ? "The question is in a window at the top right" : "The question is in a window at the bottom right" },
           Kit.bar("warn", [el("strong", null, "Waiting for your answer"), ...pending.map((p) => el("div", null, p.title))]))
         : null,
+      state.commands_error
+        ? Kit.bar("err", `What you decide about commands can't be saved, and would be lost when Clak starts again: ${state.commands_error}`)
+        : null,
+      review.length
+        ? Kit.bar("warn", [el("strong", null, "Commands to review"),
+          ...review.map((p) => el("div", null, el("button", { class: "link", onclick: () => go({ page: "commands", key: p.key, title: p.label }) },
+            `${p.label}: ${D.plural(p.to_review, "command", "commands")} new or changed`)))])
+        : null,
       Kit.section("Agents", { count: sessions.length }),
       sessions.length ? sessions.map((s) => agentCard(s, now)) : Kit.empty("agents", "None"),
+      // Blocked before they ever connected: no card of their own.
+      loose.length ? el("div", { class: "card" }, el("div", { class: "inset" }, loose.map((b) => blockRow(b, now)))) : null,
       Kit.section("Connected programs", { count: programs }),
       resources.length
         ? el("div", { class: "programs" }, resources.map((r) => programCard(r, now)))
@@ -227,6 +262,7 @@
           el("div", { class: "users" }, Kit.icon("people"), el("span", null, users(r.id)))),
         D.showable(r) ? el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "resource", r.id) }, "Show") : null),
       r.status ? Kit.bar("warn", r.status) : null,
+      cacheRow(r),
       Kit.section("Commands", { count: Clak.mac && list ? list.length : undefined }),
       list === null ? el("div", { class: "quiet" }, "Loading…") : list.length === 0 ? el("div", { class: "quiet" }, "No commands") : null,
       list?.length
@@ -234,6 +270,41 @@
           Kit.clickRow(el("span", { class: "row-body" }, el("span", { class: "mono strong cmd" }, t.name), el("span", { class: "quiet ellipsis" }, t.summary)),
             () => go({ page: "command", id: r.id, name: t.name }), null, t.name)))
         : null,
+    ];
+  };
+
+  /// The program's commands as Clak keeps them: how many approved, how many to review.
+  const cacheRow = (r) => {
+    const kept = r.cache && (state.commands || []).find((p) => p.key === r.cache);
+    if (!kept) return null;
+    const text = `${kept.approved} approved` + (kept.to_review ? ` · ${kept.to_review} to review` : "");
+    return el("div", { class: "card click" },
+      Kit.clickRow(el("span", { class: "row-body" }, Kit.icon("shield"),
+        el("span", { class: "lines" }, el("strong", null, "Approved commands"), el("span", { class: "quiet" }, text)),
+        kept.to_review ? Kit.badge("To review", "warn") : null),
+      () => go({ page: "commands", key: kept.key, title: kept.label }), "Which commands run without asking", `Approved commands: ${text}`));
+  };
+
+  // --- a program's commands, as the user decides about them ---------------------------
+
+  const askCommands = () => {
+    const kept = (state.commands || []).find((p) => p.key === view.key);
+    const seen = JSON.stringify(kept || null);
+    if (commands && commandsSeen === seen) return;
+    commandsSeen = seen;
+    Panel.send({ type: "commands", key: view.key });
+  };
+
+  const commandsPage = (now) => {
+    askCommands();
+    const data = commands?.key === view.key ? commands : null;
+    const send = (message) => {
+      Panel.send(message);
+      Panel.send({ type: "commands", key: view.key });
+    };
+    return [
+      ...crumbs([["Status", toOverview]], view.title || data?.label || "Commands"),
+      ...Commands.page(data, { send, canApprove: hosting() && !ctx.readonly, now }),
     ];
   };
 
@@ -563,7 +634,7 @@
     const now = Date.now();
     if (!running() && view.page !== "overview") view = { page: "overview" }; // without a hub there is nothing to look at
     const content =
-      view.page === "program" ? program(now) : view.page === "command" ? command(now) : view.page === "history" ? historyPage(now) : view.page === "call" ? callPage(now) : overview(now);
+      view.page === "program" ? program(now) : view.page === "command" ? command(now) : view.page === "history" ? historyPage(now) : view.page === "call" ? callPage(now) : view.page === "commands" ? commandsPage(now) : overview(now);
     Kit.replace(page, content);
     drawFooter();
   };
@@ -591,8 +662,11 @@
     /// From the icon's box: "history:<grant id>" or "program:<id>". Before the hub's first
     /// state it waits for it, otherwise draw() would go back to the overview.
     route(where) {
-      const [kind, id] = where.split(":");
-      const next = (kind === "history" || kind === "program") && id ? { page: kind, id } : { page: "overview" };
+      const [kind, ...rest] = where.split(":");
+      const id = rest.join(":");
+      const next = (kind === "history" || kind === "program") && id ? { page: kind, id }
+        : kind === "commands" && id ? { page: "commands", key: id }
+        : { page: "overview" };
       if (running()) go(next);
       else waiting = next;
     },
@@ -617,6 +691,9 @@
       } else if (m.type === "history") {
         history = D.history(m);
         if (view.id === history.grantId) draw();
+      } else if (m.type === "commands") {
+        commands = m;
+        if (view.page === "commands" && view.key === m.key) draw();
       }
     },
   });

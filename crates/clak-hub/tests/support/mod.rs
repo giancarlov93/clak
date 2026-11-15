@@ -4,7 +4,8 @@
 #![allow(dead_code)]
 
 use clak_hub::{
-    AgentIdentity, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions, Platform,
+    AgentIdentity, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions, Platform, Reply,
+    Scope,
 };
 use clak_kit::LiveResource;
 use serde_json::{Map, Value, json};
@@ -19,33 +20,58 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Question {
     pub request: ConsentRequest,
-    answer: Option<oneshot::Sender<bool>>,
+    answer: Option<oneshot::Sender<Reply>>,
     pub cancel: CancellationToken,
-    /// The questions answered yes with "Always allow" ticked.
-    always: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Question {
-    pub fn allow(mut self) {
-        let _ = self.answer.take().unwrap().send(true);
+    pub fn answer(mut self, reply: Reply) {
+        let _ = self.answer.take().unwrap().send(reply);
     }
 
-    /// Yes, with "Always allow" ticked.
+    /// Yes: to use a program, for the session; to a command, this call only.
+    pub fn allow(self) {
+        self.answer(Reply::YES);
+    }
+
+    /// Yes to a command for the agent's session.
+    pub fn allow_session(self) {
+        self.answer(Reply::Allow {
+            scope: Scope::Session,
+            always: false,
+        });
+    }
+
+    /// Yes to a command, approved in Clak for every agent.
+    pub fn approve(self) {
+        self.answer(Reply::Allow {
+            scope: Scope::Approve,
+            always: false,
+        });
+    }
+
+    /// Yes to use a program, with "Always allow" ticked.
     pub fn allow_always(self) {
-        self.always.lock().unwrap().insert(self.request.id.clone());
-        self.allow();
+        self.answer(Reply::Allow {
+            scope: Scope::Once,
+            always: true,
+        });
     }
 
-    pub fn deny(mut self) {
-        let _ = self.answer.take().unwrap().send(false);
+    pub fn deny(self) {
+        self.answer(Reply::Deny);
+    }
+
+    pub fn block(self) {
+        self.answer(Reply::Block);
     }
 }
 
 /// The user, faked: the hub's questions arrive here, and the test decides the answer. With
-/// `allow_all` it always says yes, and counts.
+/// `allow_all` it always says yes — to use a program, and to a command, approving it — and
+/// counts.
 pub struct FakePrompt {
     pub allow_all: AtomicBool,
-    always: Arc<Mutex<HashSet<String>>>,
     count: AtomicUsize,
     sender: mpsc::UnboundedSender<Question>,
     receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<Question>>,
@@ -56,7 +82,6 @@ impl FakePrompt {
         let (sender, receiver) = mpsc::unbounded_channel();
         Arc::new(FakePrompt {
             allow_all: AtomicBool::new(false),
-            always: Arc::default(),
             count: AtomicUsize::new(0),
             sender,
             receiver: tokio::sync::Mutex::new(receiver),
@@ -96,30 +121,30 @@ impl FakePrompt {
 }
 
 impl ConsentPrompt for FakePrompt {
-    fn always(&self, id: &str) -> bool {
-        self.always.lock().unwrap().remove(id)
-    }
-
     fn ask(
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> clak_hub::consent::BoxFuture<Result<bool, String>> {
+    ) -> clak_hub::consent::BoxFuture<Result<Reply, String>> {
         self.count.fetch_add(1, Ordering::SeqCst);
         if self.allow_all.load(Ordering::SeqCst) {
-            return Box::pin(async { Ok(true) });
+            return Box::pin(async {
+                Ok(Reply::Allow {
+                    scope: Scope::Approve,
+                    always: false,
+                })
+            });
         }
         let (answer, receiver) = oneshot::channel();
         let _ = self.sender.send(Question {
             request,
             answer: Some(answer),
             cancel: cancel.clone(),
-            always: self.always.clone(),
         });
         Box::pin(async move {
             tokio::select! {
-                answer = receiver => Ok(answer.unwrap_or(false)),
-                _ = cancel.cancelled() => Ok(false),
+                answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
+                _ = cancel.cancelled() => Ok(Reply::Deny),
             }
         })
     }

@@ -178,9 +178,10 @@ async fn using_a_connector_asks_permission_as_for_a_program() {
                 .iter()
                 .any(|l| l.label == "Service" && l.value.contains("MCP server"))
         );
-        assert!(question.request.note.contains("connector"));
         assert_eq!(question.request.warning, None); // 127.0.0.1: no warning about encryption
         question.allow();
+        // Then the command, never approved.
+        hub.prompt.next(ConsentKind::Call).await.allow();
     };
     let (called, ()) = tokio::join!(call, answer);
     assert_eq!(content(&called), "noon");
@@ -217,7 +218,7 @@ async fn a_command_that_changes_on_the_server_requires_consent() {
     wait_until(|| server.lists() > lists + 1).await; // the list re-read, and published
     let call = hub.call("claude", "fake", "time", None);
     let answer = async {
-        let question = hub.prompt.next(ConsentKind::Tool).await;
+        let question = hub.prompt.next(ConsentKind::Call).await;
         assert!(
             question
                 .request
@@ -352,6 +353,7 @@ async fn changing_the_token_disabling_or_removing_a_connector_revokes_permission
 
     connectors.set_token(&entry.id, Some("two")).unwrap();
     hub.connector(&entry.id, phase::ACTIVE).await;
+    // Another token: may the agent use it is asked again; the command stays approved.
     let call = hub.call("claude", "fake", "time", None);
     let (called, ()) = tokio::join!(call, async {
         hub.prompt.next(ConsentKind::Use).await.allow()
@@ -462,6 +464,8 @@ async fn a_confirmation_asked_by_the_server_is_given_by_the_user_command_by_comm
     let call = hub.call("claude", "fake", "empty_trash", None);
     let answer =
         async {
+            // The command, not approved, first; then the server's own question.
+            hub.prompt.next(ConsentKind::Call).await.allow();
             let question = hub.prompt.next(ConsentKind::Confirm).await;
             assert_eq!(
                 question.request.question,
@@ -577,9 +581,11 @@ async fn renaming_a_connector_keeps_permissions_changing_address_revokes_them() 
     })
     .await;
     assert_eq!(hub.store().token(&entry.id), None);
+    // Another address is another server: asked again, and its commands too.
     let call = hub.call("claude", "laboratory", "time", None);
     let (called, ()) = tokio::join!(call, async {
-        hub.prompt.next(ConsentKind::Use).await.allow()
+        hub.prompt.next(ConsentKind::Use).await.allow();
+        hub.prompt.next(ConsentKind::Call).await.allow()
     });
     assert_eq!(content(&called), "noon");
 

@@ -25,16 +25,26 @@
       <h2 id="tools-heading">Commands</h2>
       <div id="tools"></div>
     </div>
+    <div id="arguments-block" class="hidden">
+      <h2>Arguments <span class="count">sent by the agent</span></h2>
+      <dl id="arguments" class="card lines arguments"></dl>
+    </div>
     <details id="details">
       <summary>Details</summary>
       <dl id="who" class="lines"></dl>
       <dl id="what" class="lines"></dl>
     </details>
-    <p id="note" class="quiet"></p>
+    <fieldset id="scope" class="scope hidden">
+      <legend>Allow</legend>
+    </fieldset>
     <label id="always-row" class="always hidden"><input id="always" type="checkbox"><span id="always-text"></span></label>
+    <p id="note" class="quiet"></p>
   </main>
   <footer>
-    <span class="quiet"><span id="queue" class="queue hidden"></span><span id="countdown"></span></span>
+    <div class="left">
+      <span class="quiet"><span id="queue" class="queue hidden"></span><span id="countdown"></span></span>
+      <button id="block" class="link danger hidden" type="button" disabled></button>
+    </div>
     <div class="buttons">
       <button id="deny" disabled>Deny</button>
       <button id="allow" class="accent" disabled>Allow</button>

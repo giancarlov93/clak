@@ -5,7 +5,8 @@
 
 use clak_apis::{ApiHub, ApiStore, rest};
 use clak_hub::{
-    AgentIdentity, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions, Platform,
+    AgentIdentity, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions, Platform, Reply,
+    Scope,
 };
 use clak_platform::MemoryBox;
 use serde_json::{Map, Value, json};
@@ -18,14 +19,20 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+/// The fake user's yes: to use a program, and to a command, approved in Clak.
+const ALL: Reply = Reply::Allow {
+    scope: Scope::Approve,
+    always: false,
+};
+
 pub struct Question {
     pub request: ConsentRequest,
-    answer: Option<oneshot::Sender<bool>>,
+    answer: Option<oneshot::Sender<Reply>>,
 }
 
 impl Question {
     pub fn allow(mut self) {
-        let _ = self.answer.take().unwrap().send(true);
+        let _ = self.answer.take().unwrap().send(ALL);
     }
 }
 
@@ -59,6 +66,23 @@ impl FakePrompt {
         );
         question
     }
+
+    /// The call, with a yes to every question it brings (to use the program, to run the
+    /// command), whatever they are.
+    pub async fn allowing<T>(&self, call: impl std::future::Future<Output = T>) -> T {
+        tokio::pin!(call);
+        let mut receiver = self.receiver.lock().await;
+        loop {
+            tokio::select! {
+                out = &mut call => return out,
+                question = receiver.recv() => {
+                    if let Some(question) = question {
+                        question.allow();
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl ConsentPrompt for FakePrompt {
@@ -66,10 +90,10 @@ impl ConsentPrompt for FakePrompt {
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> clak_hub::consent::BoxFuture<Result<bool, String>> {
+    ) -> clak_hub::consent::BoxFuture<Result<Reply, String>> {
         self.count.fetch_add(1, Ordering::SeqCst);
         if self.allow_all.load(Ordering::SeqCst) {
-            return Box::pin(async { Ok(true) });
+            return Box::pin(async { Ok(ALL) });
         }
         let (answer, receiver) = oneshot::channel();
         let _ = self.sender.send(Question {
@@ -78,8 +102,8 @@ impl ConsentPrompt for FakePrompt {
         });
         Box::pin(async move {
             tokio::select! {
-                answer = receiver => Ok(answer.unwrap_or(false)),
-                _ = cancel.cancelled() => Ok(false),
+                answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
+                _ = cancel.cancelled() => Ok(Reply::Deny),
             }
         })
     }

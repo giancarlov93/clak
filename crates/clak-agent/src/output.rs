@@ -133,7 +133,7 @@ const HELP_CHAIN: &str = "not detached from the shell (in the background with &,
 const HELP: &str = r#"clak — use the programs open on the user's computer that are connected to Clak.
 
   clak list                          the connected programs you can use without asking the user
-  clak list --others                 the other connected programs: the first command asks the user
+  clak list --others                 the other connected programs: the first use asks the user
   clak list --all, clak list -a      both
   clak <program> -h                  how to use it: its instructions, if it has any, and its commands
   clak <program> list                its commands, each with its usage line
@@ -161,10 +161,11 @@ Options:
                      A result over 25,000 characters goes to a file anyway: '-o -' prints it
   --wait SECONDS     how long to wait (including for the user's answer); default 110
 
-Permissions: the first time an agent uses clak, and the first time it uses a program,
-Clak asks the user for permission in its own window, and the command waits for the
-answer; meanwhile clak says so on stderr. If the user refuses, do not retry until they
-ask you to. If they do not answer, ask them whether they are at the computer.
+Permissions: the first time an agent uses clak, and the first time it uses each program,
+Clak asks the user for permission in its own window; then each command the user hasn't
+approved asks too, showing what it sends. The command waits for the answer; meanwhile clak
+says so on stderr. If the user refuses, or blocks the program for you, do not retry until
+they ask you to. If they do not answer, ask them whether they are at the computer.
 Clak identifies who is asking by walking up the process tree: run clak directly,
 {chain}
 

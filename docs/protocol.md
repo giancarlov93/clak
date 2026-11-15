@@ -14,7 +14,12 @@ AI agents (Claude Code, Codex, Cursor and others) find them with the `clak` comm
 and call them. The hub sits in the middle and asks the user before anything happens:
 
 - before a program can connect at all (once per executable, remembered);
-- before each agent can use a program (once per agent and per open program).
+- before each agent uses a program (the first time, for its session), even when all the
+  program's commands are approved: who may use it is a question of its own;
+- before a command runs that the user hasn't approved: Clak keeps each program's commands,
+  and asks again when one is new or changed. The user allows that call, that command for
+  the agent's session, or approves it for every agent; or blocks the program for that
+  agent.
 
 The program never decides who may use it: it is told (`granted`, `revoked`).
 
@@ -30,7 +35,8 @@ for it ends.
 | resource | What one connection represents: one opening of one document. |
 | tool, command | Something an agent can call, with a name, a description and a JSON Schema for its arguments. |
 | agent, harness | An AI agent running on the same computer, using the `clak` command line. |
-| grant | The permission one agent has to use one resource. |
+| grant | The permission one agent has to use one resource, for its session. |
+| approved command | A command the user approved in Clak, as it was: it runs for every agent allowed to use the program, until it changes. |
 
 ## 1. Finding the hub
 
@@ -283,8 +289,10 @@ denied without asking. Don't reconnect on your own: wait for the user to try aga
 {"type": "granted", "grant_id": "grant_6fb2ce07232e", "harness": "Claude Code · shopping"}
 ```
 
-An agent may now use the resource. `harness` names it for the user, as the agent and the folder
-it works in: showing who is using the document is good practice.
+An agent may now use the resource: the user allowed it (or a preset, or an "Always allow",
+did). The commands the user hasn't approved still ask, at each call. `harness` names the agent
+for the user, as the agent and the folder it works in: showing who is using the resource is
+good practice.
 
 ### `revoked`
 
@@ -292,8 +300,8 @@ it works in: showing who is using the document is good practice.
 {"type": "revoked", "grant_id": "grant_6fb2ce07232e", "reason": "user", "harness": "Claude Code · shopping"}
 ```
 
-An agent can no longer use the resource: the user revoked it (`user`) or the agent's
-process ended (`harness_gone`).
+An agent can no longer use the resource: the user revoked it (`user`), blocked the program for
+that agent (`blocked`), or the agent's process ended (`harness_gone`).
 
 ### `call`
 
@@ -353,11 +361,13 @@ integer, `--force` becomes `true`, and a value for an `object` or `array` proper
 as JSON. Give every property a `type` and a `description`, list the `required` ones, and
 use `enum` and `default` where they apply: the agent sees all of it in `clak <name> -h`.
 
-**Approval covers the exact text.** When a user lets an agent use a resource, the
-permission covers each command's name, description and schema exactly as they were. A
-command that is added or changed afterwards (even by a comma) needs that agent's
-permission again, which the hub asks for the first time the agent calls it. Keep
-descriptions stable; don't put changing data in them.
+**Approval covers the exact text.** Clak keeps each program's commands (in `commands.json`,
+across connections and restarts: an application by its executable, for all its instances).
+When the user approves a command, the approval covers its name, description and schema
+exactly as they were shown. A command that is added or changed afterwards (even by a comma)
+asks the user again, showing what changed. Keep descriptions stable; don't put changing data
+in them. Send your whole manifest in `tools` and use `active` for what is on now: Clak keeps
+the inactive ones too, so a mode switch doesn't look like new commands.
 
 **Active commands.** `tools` lists everything the extension can do; `active` lists what
 makes sense right now. A command that isn't active doesn't exist for agents and calling it
@@ -425,11 +435,12 @@ a plugin in Rhino) is identified as that application: the user sees "blender.exe
 precise `app` name: allowing one plugin of a host doesn't allow another with a different
 `app`.
 
-**Agents.** Every agent needs its own permission for every resource, asked by the hub.
-The one exception is an agent the user launched from Clak with a preset: the user chose
-its programs beforehand, so its grants arrive without a question (still as `granted`), for all
-the program's commands or only those the preset lists. Grants end when the agent's process ends, when the
-user revokes them, or when the connection closes.
+**Agents.** Every agent asks the user before it uses a program the first time, for its
+session (or the user ticks "Always allow"); an agent the user launched from Clak with a
+preset doesn't, for the programs the preset names, so its grants arrive without a question
+(still as `granted`). Then each command the user hasn't approved asks, showing the arguments
+the agent sends. Grants end when the agent's process ends, when the user revokes them or
+blocks the program, or when the connection closes.
 
 **The token.** The hub listens on a loopback port that any local process, and any web
 page, could try. The token, in the user's `daemon.json`, is what keeps them out.

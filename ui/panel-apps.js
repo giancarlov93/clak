@@ -92,7 +92,7 @@
           moved ? Kit.link("Undo", null, () => { draft.exe = draft.was; draw(); }) : null)),
       el("div", { class: "quiet hint" }, moved
         ? "Remembered by the file at the new location, its developer or, if unsigned, its content. Its copy at the old location will ask again."
-        : "Agents see the name and use the application with the command; a second open document gets -2. Empty: its own."),
+        : "Agents see the name and use the application with the command; a second open instance gets -2. Empty: its own."),
       draft.error ? Kit.bar("err", draft.error) : null,
       el("div", { class: "buttons" },
         el("button", { onclick: closeEditor }, "Cancel"),
@@ -112,11 +112,20 @@
           runtime ? Kit.tag(runtime, { help: `Runs in ${runtime}` }) : null,
           signed ? el("span", { title: runtime ? `${runtime} signed by` : "Signed by" }, Kit.badge(app.signer, "ok")) : Kit.badge("unsigned", "warn")),
         el("div", { class: "mono quiet ellipsis selectable", title: app.exe }, app.exe),
-        el("div", { class: "quiet" }, [app.label ? `Its own name: ${app.name}` : null, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`].filter(Boolean).join(" · "))),
+        el("div", { class: "quiet" }, [app.label ? `Its own name: ${app.name}` : null, signed ? `Allowed ${D.ago(app.since, now)}` : `This version of the file only · allowed ${D.ago(app.since, now)}`].filter(Boolean).join(" · ")),
+        commandsLink(`app:${app.key}`)),
       el("div", { class: "actions" },
         Kit.iconButton("play", `Open ${shown(app)}`, (e) => launch(app, e.currentTarget)),
         ctx.readonly ? null : Kit.iconButton("options", "Edit: name, command, location", () => (editing ? closeEditor() : edit(app))),
         Kit.iconButton("trash", "Forget: it will ask again the next time it connects", () => Panel.send({ type: "forget_app", key: app.key }))));
+  };
+
+  /// Its commands as Clak keeps them, also when it isn't open: a link to review them.
+  const commandsLink = (key) => {
+    const kept = (state.commands || []).find((p) => p.key === key);
+    if (!kept) return null;
+    const text = `Commands: ${kept.approved} approved` + (kept.to_review ? ` · ${kept.to_review} to review` : "");
+    return el("button", { class: "link small-link", title: "Which commands run without asking", onclick: () => Panel.show(`status:commands:${key}`) }, text);
   };
 
   const ruleRow = (r, now) =>
@@ -125,7 +134,7 @@
       el("div", { class: "lines" },
         el("div", { class: "name" }, el("strong", null, `${r.agent} → ${r.program}`)),
         el("div", { class: "mono quiet ellipsis selectable", title: r.folder || "" }, r.folder || "In any folder"),
-        el("div", { class: "quiet" }, `Always allowed since ${D.ago(r.since, now)}`)),
+        el("div", { class: "quiet" }, `${r.commands ? `May always use it, only for ${r.commands.join(", ")}` : "May always use it"} · since ${D.ago(r.since, now)}`)),
       el("div", { class: "actions" },
         el("button", { title: "It will ask again the next time it starts", onclick: () => Panel.send({ type: "forget_rule", id: r.id }) }, "Remove")));
 
@@ -140,9 +149,9 @@
     Kit.replace(list,
       Kit.section("Allowed", { count: apps.length, help: "Remembered by executable: same path and same developer or, if unsigned, same content" }),
       apps.length === 0 ? Kit.empty("apps", "None allowed") : group(rows),
-      Kit.section("Always allowed", { count: rules.length, help: "An agent that may use a program without asking: made with “Always allow” in a consent window" }),
+      Kit.section("Always allowed", { count: rules.length, help: "An agent that may use a program without asking first: made with “Always allow” in the question to use it. The commands you haven't approved still ask" }),
       rules.length === 0
-        ? Kit.empty("shield", "None", "Tick “Always allow” in a consent window: that agent won't ask again for that program")
+        ? Kit.empty("shield", "None", "Tick “Always allow” in the question to use a program: that agent won't ask again to use it")
         : group(ruleRows));
   };
 

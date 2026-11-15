@@ -163,6 +163,17 @@ impl ConnectorHub {
         connector::problem_stdio(name, env)
     }
 
+    /// A variable that makes a program load other code (see [`connector::loads_code`]).
+    pub fn loads_code(name: &str) -> bool {
+        connector::loads_code(name)
+    }
+
+    /// A variable that changes where a program gets its packages, keeps its files or sends
+    /// its traffic (see [`connector::redirects`]).
+    pub fn redirects(name: &str) -> bool {
+        connector::redirects(name)
+    }
+
     /// Probes a program before saving it (see [`connector::probe_stdio`]).
     pub async fn probe_stdio(launch: &Launch, env: &BTreeMap<String, String>) -> ConnectorProbe {
         connector::probe_stdio(launch, env).await
@@ -613,6 +624,8 @@ impl ConnectorHub {
         self.lock().entries.retain(|e| e.id != id);
         let line = format!("connector removed: {name}");
         self.broker.run(|c| {
+            // Its commands, and what the user decided about them, go with it.
+            c.commands.forget(&format!("mcp:{id}"));
             c.log(line);
             c.touch();
         });

@@ -177,12 +177,18 @@ pub fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-/// The fingerprint of a JSON value: sorted keys, compact form, sha256, 16 digits.
+/// A short fingerprint of a JSON value: sorted keys, compact form, sha256, 16 digits.
 /// It only needs to be stable within this process: nobody else recomputes it.
 pub fn digest(value: &Value) -> String {
+    fingerprint(value)[..16].to_owned()
+}
+
+/// The whole fingerprint of a JSON value: sorted keys, compact form, sha256, 64 digits. It
+/// is kept on disk (the commands the user approved), so its form must never change.
+pub fn fingerprint(value: &Value) -> String {
     let mut bytes = Vec::new();
     write_sorted(&mut bytes, value);
-    hex::encode(Sha256::digest(&bytes))[..16].to_owned()
+    hex::encode(Sha256::digest(&bytes))
 }
 
 fn write_sorted(out: &mut Vec<u8>, value: &Value) {
@@ -273,6 +279,15 @@ mod tests {
         assert_eq!(digest(&json!({"a":1,"b":2})), digest(&json!({"b":2,"a":1})));
         assert_ne!(digest(&json!({"a":1})), digest(&json!({"a":2})));
         assert_eq!(digest(&json!({})).len(), 16);
+        // Kept on disk: the canonical form is pinned.
+        assert_eq!(
+            fingerprint(
+                &json!({"name": "a", "description": "é", "input_schema": {"type": "object", "properties": {}}})
+            ),
+            hex::encode(Sha256::digest(
+                r#"{"description":"é","input_schema":{"properties":{},"type":"object"},"name":"a"}"#
+            ))
+        );
     }
 
     #[test]

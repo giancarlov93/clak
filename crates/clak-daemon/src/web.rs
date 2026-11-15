@@ -27,9 +27,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use clak_hub::consent::BoxFuture;
-use clak_hub::{Broker, ConsentPrompt, ConsentRequest, Outbox};
+use clak_hub::{Broker, Choices, ConsentPrompt, ConsentRequest, Outbox, Reply, Scope};
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
@@ -65,8 +65,6 @@ pub struct WebPrompt(Arc<Questions>);
 
 struct Questions {
     open: Mutex<Vec<Open>>,
-    /// Answered yes with "Always allow" ticked, until the hub reads it.
-    always: Mutex<HashSet<String>>,
     /// The hub's time for an answer: for the page to say how long is left.
     timeout: Duration,
 }
@@ -74,7 +72,7 @@ struct Questions {
 struct Open {
     request: ConsentRequest,
     asked: f64,
-    answer: Option<oneshot::Sender<bool>>,
+    answer: Option<oneshot::Sender<Reply>>,
 }
 
 /// Takes a question off the page when the hub no longer waits for it, however that goes.
@@ -98,7 +96,6 @@ impl WebPrompt {
     pub fn new(timeout: Duration) -> WebPrompt {
         WebPrompt(Arc::new(Questions {
             open: Mutex::new(Vec::new()),
-            always: Mutex::new(HashSet::new()),
             timeout,
         }))
     }
@@ -117,41 +114,27 @@ impl WebPrompt {
     }
 
     /// The user's answer. False if the question is no longer there (answered elsewhere,
-    /// withdrawn, expired).
-    pub fn answer(&self, id: &str, allow: bool, always: bool) -> bool {
+    /// withdrawn, expired). Only what the question offers counts: a scope, "always" or a
+    /// block only for a command's question, and "always" only where it can be made.
+    pub fn answer(&self, id: &str, reply: Reply) -> bool {
         let sender = {
             let mut open = self.0.open.lock().unwrap_or_else(|e| e.into_inner());
             let Some(question) = open.iter_mut().find(|q| q.request.id == id) else {
                 return false;
             };
-            // Only where the question offers it.
-            if allow && always && question.request.always.is_some() {
-                self.0
-                    .always
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(id.to_owned());
-            }
-            question.answer.take()
+            let reply = Choices::allowed(question.request.choices.as_ref(), reply);
+            question.answer.take().map(|sender| (sender, reply))
         };
-        sender.is_some_and(|sender| sender.send(allow).is_ok())
+        sender.is_some_and(|(sender, reply)| sender.send(reply).is_ok())
     }
 }
 
 impl ConsentPrompt for WebPrompt {
-    fn always(&self, id: &str) -> bool {
-        self.0
-            .always
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
-    }
-
     fn ask(
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<bool, String>> {
+    ) -> BoxFuture<Result<Reply, String>> {
         let (sender, receiver) = oneshot::channel();
         let gone = Asked {
             questions: self.0.clone(),
@@ -171,8 +154,8 @@ impl ConsentPrompt for WebPrompt {
         Box::pin(async move {
             let _gone = gone;
             tokio::select! {
-                answer = receiver => Ok(answer.unwrap_or(false)),
-                _ = cancel.cancelled() => Ok(false),
+                answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
+                _ = cancel.cancelled() => Ok(Reply::Deny),
             }
         })
     }
@@ -270,6 +253,7 @@ pub fn router(page: Arc<Page>) -> Router {
         .route("/api/state", get(state))
         .route("/api/answer", post(answer))
         .route("/api/revoke", post(revoke))
+        .route("/api/commands", post(commands))
         .layer(axum::middleware::map_response(guarded))
         .with_state(page)
 }
@@ -443,9 +427,23 @@ async fn answer(
         return refused;
     }
     let id = body.get("id").and_then(Value::as_str).unwrap_or_default();
-    let allow = body.get("allow").and_then(Value::as_bool) == Some(true);
-    let always = body.get("always").and_then(Value::as_bool) == Some(true);
-    if !page.prompt.answer(id, allow, always) {
+    let flag = |key: &str| body.get(key).and_then(Value::as_bool) == Some(true);
+    // {allow, scope, always} or {block}: the question decides what of it counts.
+    let reply = if flag("block") {
+        Reply::Block
+    } else if flag("allow") {
+        Reply::Allow {
+            scope: body
+                .get("scope")
+                .and_then(Value::as_str)
+                .and_then(Scope::parse)
+                .unwrap_or(Scope::Once),
+            always: flag("always"),
+        }
+    } else {
+        Reply::Deny
+    };
+    if !page.prompt.answer(id, reply) {
         return refuse(
             StatusCode::NOT_FOUND,
             "This question is no longer open: answered, withdrawn or expired.",
@@ -454,8 +452,46 @@ async fn answer(
     Json(json!({ "ok": true })).into_response()
 }
 
+/// A program's commands as Clak keeps them (`{key}`), or what the user decides about them
+/// (`{key, action, name, digest}`: approve, ask, off, approve_all with `commands`, reset,
+/// forget_missing). The page is the user's, behind the password: it may approve, as the app
+/// hosting the hub may; an approval names the version on screen.
+async fn commands(
+    State(page): State<Arc<Page>>,
+    headers: HeaderMap,
+    Json(body): Json<Map<String, Value>>,
+) -> Response {
+    if let Some(refused) = checked(&page, &headers) {
+        return refused;
+    }
+    let key = body.get("key").and_then(Value::as_str);
+    let name = body.get("name").and_then(Value::as_str);
+    let digest = body.get("digest").and_then(Value::as_str);
+    let message = match body.get("action").and_then(Value::as_str) {
+        None => None,
+        Some("approve") => Some(json!({
+            "type": "command_state", "key": key, "name": name, "state": "approved", "digest": digest,
+        })),
+        Some(state @ ("ask" | "off")) => {
+            Some(json!({ "type": "command_state", "key": key, "name": name, "state": state }))
+        }
+        Some("approve_all") => {
+            Some(json!({ "type": "approve_all", "key": key, "commands": body.get("commands") }))
+        }
+        Some("reset") => Some(json!({ "type": "reset_commands", "key": key })),
+        Some("forget_missing") => Some(json!({ "type": "forget_missing", "key": key })),
+        Some(_) => return refuse(StatusCode::BAD_REQUEST, "Nothing to do of that kind."),
+    };
+    if let Some(Value::Object(message)) = message {
+        let (outbox, _replies) = Outbox::channel();
+        clak_hub::control_channel::panel_message(&page.broker, &message, &outbox, true);
+    }
+    Json(page.broker.run(|c| c.panel_commands(key))).into_response()
+}
+
 /// What can be taken away, as the panel does: a permission, a connected agent, an "Always
-/// allow", an allowed application. Never given: that happens only in the questions.
+/// allow", an allowed application; and a block lifted, which only lets the agent ask again.
+/// Never given: that happens only in the questions, and in the commands review.
 async fn revoke(
     State(page): State<Arc<Page>>,
     headers: HeaderMap,
@@ -470,6 +506,7 @@ async fn revoke(
         Some("agent") => json!({ "type": "forget_session", "session_id": id }),
         Some("rule") => json!({ "type": "forget_rule", "id": id }),
         Some("app") => json!({ "type": "forget_app", "key": id }),
+        Some("block") => json!({ "type": "unblock", "id": id }),
         _ => {
             return refuse(
                 StatusCode::BAD_REQUEST,
@@ -480,8 +517,11 @@ async fn revoke(
     let Value::Object(message) = message else {
         unreachable!("an object above")
     };
+    // Behind the password the page is the user's: it may lift a block, as the app hosting
+    // the hub may (on the channel an agent could lift its own).
+    let inside = message.get("type").and_then(Value::as_str) == Some("unblock");
     let (outbox, _replies) = Outbox::channel();
-    clak_hub::control_channel::panel_message(&page.broker, &message, &outbox, false);
+    clak_hub::control_channel::panel_message(&page.broker, &message, &outbox, inside);
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -511,6 +551,15 @@ fn permissions(snapshot: &Value) -> Value {
             })
         })
         .collect();
+    // Shown, not lifted: only the app hosting the hub lifts a block.
+    let blocks: Vec<Value> = list("blocks")
+        .iter()
+        .map(|b| {
+            json!({
+                "id": b["id"], "agent": b["agent"], "program": b["program"], "since": b["since"],
+            })
+        })
+        .collect();
     let agents: Vec<Value> = sessions
         .iter()
         .map(|s| {
@@ -522,6 +571,8 @@ fn permissions(snapshot: &Value) -> Value {
         .collect();
     json!({
         "grants": grants,
+        "blocks": blocks,
+        "commands": snapshot["commands"],
         "agents": agents,
         "rules": list("rules"),
         "apps": list("apps"),
@@ -532,6 +583,7 @@ fn permissions(snapshot: &Value) -> Value {
 mod tests {
     use super::*;
     use clak_hub::{AgentIdentity, ConsentKind, ConsentLine, Hub, HubOptions, Platform};
+    use std::collections::HashSet;
 
     struct NoSystem;
 
@@ -644,18 +696,28 @@ mod tests {
         }
     }
 
+    /// A command's question; with `always`, it can be made standing.
     fn question(id: &str, always: bool) -> ConsentRequest {
         ConsentRequest {
             id: id.into(),
-            kind: ConsentKind::Use,
-            title: "Claude Code wants to use <b>notes</b>".into(),
+            kind: ConsentKind::Call,
+            title: "Claude Code wants to run “read” in <b>notes</b>".into(),
             question: "Allow it?".into(),
             who: vec![ConsentLine::new("Agent", "Claude Code")],
             what: vec![ConsentLine::new("Program", "notes")],
             tools: vec![],
             warning: None,
             note: "Until the agent exits.".into(),
-            always: always.then(|| "Always allow Claude Code to use notes".into()),
+            arguments: vec![ConsentLine::new("line", "2")],
+            choices: Some(Choices {
+                scopes: vec![
+                    (Scope::Once, "Only this call".into()),
+                    (Scope::Session, "“read” for this agent's session".into()),
+                    (Scope::Approve, "Approve “read”, as it is, for notes".into()),
+                ],
+                always: always.then(|| "Always allow Claude Code to use notes".into()),
+                block: Some("Block notes for Claude Code".into()),
+            }),
         }
     }
 
@@ -768,8 +830,14 @@ mod tests {
         // As text: the page puts it in the DOM as such.
         assert_eq!(
             questions[0]["title"],
-            "Claude Code wants to use <b>notes</b>"
+            "Claude Code wants to run “read” in <b>notes</b>"
         );
+        assert_eq!(questions[0]["arguments"][0]["value"], "2");
+        assert_eq!(
+            questions[0]["choices"]["block"],
+            "Block notes for Claude Code"
+        );
+        assert_eq!(questions[0]["choices"]["scopes"][1]["value"], "session");
         let left = questions[0]["expires"].as_f64().unwrap() - state["now"].as_f64().unwrap();
         assert!((590.0..=600.0).contains(&left), "{left}");
 
@@ -784,16 +852,20 @@ mod tests {
         let yes = served
             .post(
                 "/api/answer",
-                json!({ "id": "ask_1", "allow": true, "always": true }),
+                json!({ "id": "ask_1", "allow": true, "scope": "session", "always": true }),
             )
             .header("cookie", &cookie)
             .send()
             .await
             .unwrap();
         assert_eq!(yes.status(), 200);
-        assert_eq!(asked.await.unwrap(), Ok(true));
-        assert!(served.prompt.always("ask_1"));
-        assert!(!served.prompt.always("ask_1"));
+        assert_eq!(
+            asked.await.unwrap(),
+            Ok(Reply::Allow {
+                scope: Scope::Session,
+                always: true
+            })
+        );
         assert_eq!(served.state(&cookie).await["questions"], json!([]));
 
         // Answered already: nothing to answer.
@@ -814,15 +886,43 @@ mod tests {
         while served.prompt.list().is_empty() {
             tokio::task::yield_now().await;
         }
-        assert!(served.prompt.answer("ask_2", true, true));
-        assert_eq!(asked.await.unwrap(), Ok(true));
-        assert!(!served.prompt.always("ask_2"));
+        assert!(served.prompt.answer(
+            "ask_2",
+            Reply::Allow {
+                scope: Scope::Approve,
+                always: true
+            }
+        ));
+        assert_eq!(
+            asked.await.unwrap(),
+            Ok(Reply::Allow {
+                scope: Scope::Approve,
+                always: false
+            })
+        );
+        // A block, through the page.
+        let asked = tokio::spawn(
+            served
+                .prompt
+                .ask(question("ask_5", false), CancellationToken::new()),
+        );
+        while served.prompt.list().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let blocked = served
+            .post("/api/answer", json!({ "id": "ask_5", "block": true }))
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), 200);
+        assert_eq!(asked.await.unwrap(), Ok(Reply::Block));
 
         let cancel = CancellationToken::new();
         let asked = tokio::spawn(served.prompt.ask(question("ask_3", false), cancel.clone()));
         assert_eq!(served.prompt.list().len(), 1);
         cancel.cancel();
-        assert_eq!(asked.await.unwrap(), Ok(false));
+        assert_eq!(asked.await.unwrap(), Ok(Reply::Deny));
         assert!(served.prompt.list().is_empty());
         // Dropped without ever running: gone too.
         drop(
@@ -831,6 +931,43 @@ mod tests {
                 .ask(question("ask_4", false), CancellationToken::new()),
         );
         assert!(served.prompt.list().is_empty());
+        served.stop().await;
+    }
+
+    #[tokio::test]
+    async fn the_commands_are_read_and_decided_only_once_logged_in() {
+        let served = Served::start().await;
+        let stranger = served
+            .post("/api/commands", json!({ "key": "app:x" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(stranger.status(), 401);
+        let cookie = served.session().await;
+        let read = served
+            .post("/api/commands", json!({ "key": "app:x" }))
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(read.status(), 200);
+        let body: Value = serde_json::from_str(&read.text().await.unwrap()).unwrap();
+        assert_eq!(body["type"], "commands");
+        assert_eq!(body["commands"], json!([]));
+        for (action, status) in [
+            ("forget_missing", 200),
+            ("approve_all", 200),
+            ("everything", 400),
+        ] {
+            let response = served
+                .post("/api/commands", json!({ "key": "app:x", "action": action }))
+                .header("cookie", &cookie)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), status, "{action}");
+        }
+        assert!(served.state(&cookie).await["commands"].is_array());
         served.stop().await;
     }
 
@@ -847,6 +984,7 @@ mod tests {
             ("agent", 200),
             ("rule", 200),
             ("app", 200),
+            ("block", 200),
             ("everything", 400),
         ] {
             let response = served

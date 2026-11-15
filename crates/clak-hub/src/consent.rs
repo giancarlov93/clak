@@ -14,10 +14,12 @@ use tokio_util::sync::CancellationToken;
 pub enum ConsentKind {
     /// An agent wants to connect to the hub: to see which programs are there.
     Session,
-    /// An agent wants to use a connected program.
+    /// An agent wants to run a command the user hasn't approved (new, changed, or set to ask
+    /// every time).
+    Call,
+    /// An agent wants to use a program, for its session: asked the first time, even when
+    /// all the program's commands are approved. Also Clak's own settings.
     Use,
-    /// A program has a new command, or one changed after consent.
-    Tool,
     /// A program wants to connect to the hub.
     App,
     /// An MCP server, halfway through a command, asks for a confirmation (elicitation). Holds only for that command.
@@ -30,8 +32,8 @@ impl ConsentKind {
     pub fn as_str(self) -> &'static str {
         match self {
             ConsentKind::Session => "session",
+            ConsentKind::Call => "call",
             ConsentKind::Use => "use",
-            ConsentKind::Tool => "tool",
             ConsentKind::App => "app",
             ConsentKind::Confirm => "confirm",
             ConsentKind::Change => "change",
@@ -55,12 +57,16 @@ impl ConsentLine {
     }
 }
 
-/// A command as the agent will see it. `note` says whether it is new or changed.
-#[derive(Debug, Clone, PartialEq)]
+/// A command as the agent will see it. `note` says whether it is new or changed; `changes`
+/// what changed since the user approved it; `parameters` what it takes, when approving it is
+/// offered: the user approves what they read.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConsentTool {
     pub name: String,
     pub description: String,
     pub note: Option<String>,
+    pub changes: Vec<ConsentLine>,
+    pub parameters: Vec<ConsentLine>,
 }
 
 /// A question for the user. The hub composes it, not whoever shows it: so the words are the
@@ -79,9 +85,50 @@ pub struct ConsentRequest {
     pub warning: Option<String>,
     /// How long the permission lasts, if given.
     pub note: String,
-    /// The offer to make it standing ("Always allow Claude Code to use notion in ~/app"),
-    /// when it can be: the window shows it as a box to tick.
+    /// What the agent sends with a command, one line per argument, already cleaned and with
+    /// what looks like a secret masked: only in a command's question.
+    pub arguments: Vec<ConsentLine>,
+    /// What the question offers besides yes and no, in words.
+    pub choices: Option<Choices>,
+}
+
+/// What a question offers besides yes and no. The window shows the scopes as a choice (the
+/// first is the default), "always" as a box to tick, never ticked from the start, and the
+/// block as a button of its own.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Choices {
+    /// How far a yes goes: «Only this call», «For this agent's session», «Approve…».
+    pub scopes: Vec<(Scope, String)>,
+    /// The offer to make the yes standing, when it can be.
     pub always: Option<String>,
+    /// «Block Notion for Claude Code».
+    pub block: Option<String>,
+}
+
+impl Choices {
+    /// The reply as the question allows it: a scope it doesn't offer is the first one,
+    /// "always" only if offered, a block only if offered.
+    pub fn allowed(choices: Option<&Choices>, reply: Reply) -> Reply {
+        let Some(choices) = choices else {
+            return if reply.allows() {
+                Reply::YES
+            } else {
+                Reply::Deny
+            };
+        };
+        match reply {
+            Reply::Block if choices.block.is_none() => Reply::Deny,
+            Reply::Allow { scope, always } => Reply::Allow {
+                scope: if choices.scopes.iter().any(|(s, _)| *s == scope) {
+                    scope
+                } else {
+                    choices.scopes.first().map_or(Scope::Once, |(s, _)| *s)
+                },
+                always: always && choices.always.is_some(),
+            },
+            reply => reply,
+        }
+    }
 }
 
 impl ConsentRequest {
@@ -99,11 +146,73 @@ impl ConsentRequest {
             "question": self.question,
             "who": lines(&self.who),
             "what": lines(&self.what),
-            "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note })).collect::<Vec<_>>(),
+            "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note, "changes": lines(&t.changes), "parameters": lines(&t.parameters) })).collect::<Vec<_>>(),
             "warning": self.warning,
             "note": self.note,
-            "always": self.always,
+            "arguments": lines(&self.arguments),
+            "choices": self.choices.as_ref().map(|c| json!({
+                "scopes": c.scopes.iter().map(|(s, label)| json!({ "value": s.as_str(), "label": label })).collect::<Vec<_>>(),
+                "always": c.always,
+                "block": c.block,
+            })),
         })
+    }
+}
+
+/// How far a yes to a command goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// This call only.
+    Once,
+    /// This command, as it is now, for the agent's session.
+    Session,
+    /// This command, as it is now, approved in Clak: it runs for every agent the user lets
+    /// use the program, until it changes.
+    Approve,
+}
+
+impl Scope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scope::Once => "once",
+            Scope::Session => "session",
+            Scope::Approve => "approve",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Scope> {
+        match text {
+            "once" => Some(Scope::Once),
+            "session" => Some(Scope::Session),
+            "approve" => Some(Scope::Approve),
+            _ => None,
+        }
+    }
+}
+
+/// The user's answer to a question. Only a command's question offers more than
+/// [`Reply::YES`] and [`Reply::Deny`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reply {
+    Deny,
+    /// No, and the agent may not use this program for the rest of its session.
+    Block,
+    Allow {
+        scope: Scope,
+        /// The user also ticked "always": the yes becomes a standing rule.
+        always: bool,
+    },
+}
+
+impl Reply {
+    /// A plain yes.
+    pub const YES: Reply = Reply::Allow {
+        scope: Scope::Once,
+        always: false,
+    };
+
+    pub fn allows(self) -> bool {
+        matches!(self, Reply::Allow { .. })
     }
 }
 
@@ -123,19 +232,14 @@ pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 /// Who shows the questions to the user. In the app it is a window; a hub without an
 /// interface has none, and then no permission is given.
 pub trait ConsentPrompt: Send + Sync + 'static {
-    /// After a yes: whether the user also ticked the request's `always`. Asked once.
-    fn always(&self, _id: &str) -> bool {
-        false
-    }
-
-    /// True if the user consents. The token is cancelled when the answer is no longer needed
-    /// (the asker has gone away, or too much time has passed): the question must be removed.
-    /// An error means the question could not be shown.
+    /// The user's answer. The token is cancelled when the answer is no longer needed (the
+    /// asker has gone away, too much time has passed, or another answer covered it): the
+    /// question must be removed. An error means the question could not be shown.
     fn ask(
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<bool, String>>;
+    ) -> BoxFuture<Result<Reply, String>>;
 }
 
 /// The agent behind a request: the first process, walking up from whoever opened the
@@ -272,6 +376,8 @@ impl HubOptions {
 pub enum Verdict {
     Allowed,
     Denied,
+    /// Denied, and the program is closed to the agent for its session.
+    Blocked,
     /// Nobody answered in time, or the asker has gone away.
     NoAnswer,
     /// The hub has no interface to ask with.

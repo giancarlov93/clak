@@ -116,15 +116,12 @@ async fn a_program_that_stops_restarts_and_says_why() {
         .unwrap();
     hub.connector(&entry.id, phase::ACTIVE).await;
     hub.prompt.set_allow_all(true);
-    let asked = {
-        let _ = hub
-            .call("claude", "browser", "echo", Some(json!({"text": "one"})))
-            .await;
-        hub.prompt.count()
-    };
-
+    let _ = hub
+        .call("claude", "browser", "echo", Some(json!({"text": "one"})))
+        .await;
     let quit = hub.call("claude", "browser", "quit", None).await;
     assert!(is_error(&quit));
+    let asked = hub.prompt.count();
     let down = hub
         .connector_until(&entry.id, |c| {
             c["error"].as_str().is_some_and(|e| e.contains("bye"))
@@ -222,6 +219,8 @@ async fn a_confirmation_asked_by_the_program_is_given_by_the_user() {
 
     let call = hub.call("claude", "browser", "ask", None);
     let (called, ()) = tokio::join!(call, async {
+        // The command, not approved, first; then the program's own question.
+        hub.prompt.next(ConsentKind::Call).await.allow();
         let question = hub.prompt.next(ConsentKind::Confirm).await;
         assert_eq!(question.request.question, "Proceed?");
         question.allow();
@@ -241,7 +240,7 @@ async fn changing_the_variables_restarts_and_revokes_permissions_renaming_does_n
     hub.connector(&entry.id, phase::ACTIVE).await;
     hub.prompt.set_allow_all(true);
     let _ = hub
-        .call("claude", "browser", "echo", Some(json!({"text": "x"})))
+        .call("claude", "browser", "env", Some(json!({"name": "COLOR"})))
         .await;
     hub.prompt.set_allow_all(false);
 
