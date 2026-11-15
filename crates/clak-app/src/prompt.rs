@@ -8,12 +8,12 @@
 //! says which it is of how many ("1 of 3").
 //!
 //! A command's question says how far a yes goes: this call, the command for the agent's
-//! session, or all the program's commands; it can also block the program for the agent. A
-//! yes can come with "Always allow" ticked, when the question offers it: the hub then makes
-//! it a standing rule (`clak_hub::rules`).
+//! session, or approved in Clak; the questions about a program can also block it for the
+//! agent. The yes to use a program can come with "Always allow" ticked, when the question
+//! offers it: the hub then makes it a standing rule (`clak_hub::rules`).
 
 use clak_hub::consent::BoxFuture;
-use clak_hub::{ConsentPrompt, ConsentRequest, Reply, Scope};
+use clak_hub::{Choices, ConsentPrompt, ConsentRequest, Reply};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -28,6 +28,8 @@ const GAP: f64 = 12.0;
 
 struct Open {
     request: Value,
+    /// What the question offers: an answer gets nothing more.
+    choices: Option<Choices>,
     expires: f64,
     answer: Option<oneshot::Sender<Reply>>,
     height: f64,
@@ -91,26 +93,7 @@ impl WindowPrompt {
         let sender = {
             let mut questions = self.questions();
             questions.open.get_mut(id).and_then(|open| {
-                let choices = &open.request["choices"];
-                let reply = match reply {
-                    _ if choices.is_null() => {
-                        if reply.allows() {
-                            Reply::YES
-                        } else {
-                            Reply::Deny
-                        }
-                    }
-                    Reply::Allow { scope, always } => Reply::Allow {
-                        scope,
-                        always: always
-                            && match scope {
-                                Scope::Once => false,
-                                Scope::Command => !choices["always_command"].is_null(),
-                                Scope::Program => !choices["always_program"].is_null(),
-                            },
-                    },
-                    reply => reply,
-                };
+                let reply = Choices::allowed(open.choices.as_ref(), reply);
                 open.answer.take().map(|sender| (sender, reply))
             })
         };
@@ -288,6 +271,7 @@ impl ConsentPrompt for WindowPrompt {
                     id.clone(),
                     Open {
                         request: request.to_json(),
+                        choices: request.choices.clone(),
                         expires: clak_wire::json::now() + this.timeout.as_secs_f64(),
                         answer: Some(sender),
                         height: 420.0,

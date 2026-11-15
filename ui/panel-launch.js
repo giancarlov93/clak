@@ -653,6 +653,26 @@ const Launch = (() => {
 
   const idOf = (p) => (p.app ? `app:${p.app}` : `name:${p.name}`);
 
+  /// How many commands of the preset's programs aren't approved: they will ask, preset or
+  /// not. Where Clak keeps them: an application by its key, a server or an API by its id.
+  const unapprovedHint = () => {
+    const state = Panel.state();
+    const cli = (c) => c.cli || c.command || Editors.cliFrom(c.name);
+    const keyOf = (p) => {
+      if (p.app) return `app:${p.app}`;
+      const server = (state.connectors || []).find((c) => cli(c) === p.name);
+      if (server) return `mcp:${server.id}`;
+      const api = (state.apis || []).find((a) => cli(a) === p.name);
+      return api ? `api:${api.id}` : null;
+    };
+    let waiting = 0;
+    for (const [, p] of draft.programs) {
+      const kept = (state.commands || []).find((c) => c.key === keyOf(p));
+      if (kept) waiting += kept.commands - kept.approved;
+    }
+    return waiting ? Kit.bar("warn", `${D.plural(waiting, "command", "commands")} of these programs ${waiting === 1 ? "isn't" : "aren't"} approved: ${waiting === 1 ? "it asks" : "they ask"} until you approve ${waiting === 1 ? "it" : "them"}, in the Status tab.`) : null;
+  };
+
   const edit = (preset) => {
     const installed = data?.installed || [];
     editing = null;
@@ -822,7 +842,8 @@ const Launch = (() => {
         all.length
           ? el("div", { class: "picks" }, all.map(programPick))
           : el("div", { class: "quiet" }, "No program known yet: allow an application, or add an MCP server or an API.")),
-      el("div", { class: "quiet hint" }, "Launched with this preset, the agent uses these programs without a question. Other commands and programs still ask."),
+      el("div", { class: "quiet hint" }, "Launched with this preset, the agent uses these programs without being asked first. A preset doesn't approve commands: those you haven't approved still ask, as do other programs."),
+      unapprovedHint(),
       draft.error ? Kit.bar("err", draft.error) : null,
       el("div", { class: "buttons" },
         el("button", { onclick: closeEditor }, "Cancel"),

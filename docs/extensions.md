@@ -13,8 +13,9 @@ The details of every message are in the [protocol specification](protocol.md).
 3. The first time, Clak asks the user whether your program may connect. Clak remembers
    the answer.
 4. Agents see the instance in `clak list --others` (`clak list` shows the programs they can
-   already use). Each command an agent runs asks the user, with what it sends, unless they
-   allowed that command, or all your commands, for that agent's session.
+   already use). The first time an agent uses your program, Clak asks the user, for that
+   agent. Then each command the user hasn't approved asks too, with what it sends; an
+   approved one runs until it changes.
 5. Agents call your commands (`clak notes append --line milk`). Your program receives
    `call`, runs the command and answers with `result`.
 6. When the document closes, your program sends `close`. The document disappears for

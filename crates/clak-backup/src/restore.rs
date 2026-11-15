@@ -3,7 +3,9 @@
 //! it now. Nothing already here is removed or replaced, but a missing secret.
 //!
 //! The order matters: the applications first, because the presets and the rules name them
-//! by their key, which may have changed if the user pointed one to where it is now.
+//! by their key, which may have changed if the user pointed one to where it is now. The
+//! commands the user approved come last, with the programs restored: an application under
+//! its key here, a server or an API under its id here (found by its address).
 
 use crate::plan::{Check, Here, HereApi, HereConnector, Kind, Plan};
 use clak_apis::{ApiDraft, ApiHub};
@@ -174,6 +176,45 @@ pub async fn restore(plan: &Plan, chosen: &HashSet<String>, to: &Targets<'_>) ->
             .map_err(|e| e.to_string());
         outcomes.push(outcome(item, saved));
     }
+
+    // The approvals of the programs this restore added (not of those already here): only
+    // for commands not decided here, and each for its own version (what changed since asks).
+    let added = |item: &&crate::plan::Item| matches!(item.check, Check::Ready | Check::Warn(_));
+    let mut restored: HashMap<String, String> = HashMap::new();
+    for item in picked(Kind::App).filter(added) {
+        let old = &plan.contents.apps[item.index].key;
+        if let Some(key) = keys.get(old) {
+            restored.insert(format!("app:{old}"), format!("app:{key}"));
+        }
+    }
+    let connectors_here = to.connectors.entries();
+    for item in picked(Kind::Connector).filter(added) {
+        let old = &plan.contents.connectors[item.index].entry;
+        if let Some(here) = connectors_here
+            .iter()
+            .find(|e| e.url == old.url && e.launch == old.launch)
+        {
+            restored.insert(format!("mcp:{}", old.id), format!("mcp:{}", here.id));
+        }
+    }
+    let apis_here = to.apis.map(ApiHub::entries).unwrap_or_default();
+    for item in picked(Kind::Api).filter(added) {
+        let old = &plan.contents.apis[item.index].entry;
+        if let Some(here) = apis_here.iter().find(|e| e.base_url == old.base_url) {
+            restored.insert(format!("api:{}", old.id), format!("api:{}", here.id));
+        }
+    }
+    for program in &plan.contents.commands {
+        if let Some(key) = restored.get(&program.key) {
+            let mut program = program.clone();
+            program.key = key.clone();
+            to.broker.run(|c| {
+                c.commands.restore(program);
+                c.touch();
+            });
+        }
+    }
+    to.broker.run(|c| c.settle_calls(None));
 
     for item in picked(Kind::Rule) {
         let mut rule = plan.contents.rules[item.index].clone();

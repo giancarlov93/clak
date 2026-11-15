@@ -1,7 +1,8 @@
 //! The hub's questions on the terminal, for `--ask`: one at a time, answered "y" or "n" on a
-//! line. A command's question takes how far the yes goes: "o" this call only, "c" the
-//! command for the agent's session, "a" all the program's commands; "n" denies it, "b"
-//! blocks the program for the agent. "Always" is only in the app's window.
+//! line. A command's question takes how far the yes goes: "o" this call only, "s" the
+//! command for the agent's session, "a" approved in Clak; "n" denies it. "b" blocks the
+//! program for the agent, where the question offers it. "Always" is only in the app's
+//! window.
 //!
 //! Only a line typed while a question is on screen answers it. What was typed before (for a
 //! question that has gone, or for none) is thrown away when the next one appears: otherwise a
@@ -10,7 +11,7 @@
 //! because its time ran out.
 
 use clak_hub::consent::BoxFuture;
-use clak_hub::{ConsentPrompt, ConsentRequest, Reply, Scope};
+use clak_hub::{Choices, ConsentPrompt, ConsentRequest, Reply, Scope};
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -131,6 +132,9 @@ impl ConsentPrompt for ConsolePrompt {
                     "    • {}{note} — {}\n",
                     tool.name, tool.description
                 ));
+                for change in &tool.changes {
+                    text.push_str(&format!("        {}: {}\n", change.label, change.value));
+                }
             }
             if !request.arguments.is_empty() {
                 text.push_str("    Arguments (sent by the agent):\n");
@@ -141,16 +145,22 @@ impl ConsentPrompt for ConsolePrompt {
             if let Some(warning) = &request.warning {
                 text.push_str(&format!("    WARNING: {warning}\n"));
             }
-            let keys = match &request.choices {
-                Some(choices) => {
-                    text.push_str(&format!(
-                        "    o: only this call · c: {} · a: {} · n: no · b: {}\n",
-                        choices.command, choices.program, choices.block
-                    ));
-                    CALL_KEYS
+            let keys = keys_of(request.choices.as_ref());
+            if let Some(choices) = &request.choices {
+                let mut offered: Vec<String> = choices
+                    .scopes
+                    .iter()
+                    .map(|(scope, label)| format!("{}: {label}", key_of(*scope)))
+                    .collect();
+                if offered.is_empty() {
+                    offered.push("y: yes".into());
                 }
-                None => "[y/n] ",
-            };
+                offered.push("n: no".into());
+                if let Some(block) = &choices.block {
+                    offered.push(format!("b: {block}"));
+                }
+                text.push_str(&format!("    {}\n", offered.join(" · ")));
+            }
             let left = seconds(timeout.saturating_sub(asked.elapsed()));
             text.push_str(&format!(
                 "    {}\n    {left} s to answer.\n{} {keys}",
@@ -175,23 +185,44 @@ impl ConsentPrompt for ConsolePrompt {
                     screen("\n    No more input: no.\n");
                     return Ok(Reply::Deny);
                 };
-                match answer(&line, request.choices.is_some()) {
+                match answer(&line, request.choices.as_ref()) {
                     Some(reply) => {
                         shown.answered = true;
                         return Ok(reply);
                     }
-                    None => screen(keys),
+                    None => screen(&keys),
                 }
             }
         })
     }
 }
 
-/// The keys of a command's question.
-const CALL_KEYS: &str = "[o/c/a/n/b] ";
+fn key_of(scope: Scope) -> char {
+    match scope {
+        Scope::Once => 'o',
+        Scope::Session => 's',
+        Scope::Approve => 'a',
+    }
+}
 
-/// What a line answers, if anything. A plain yes is "only this call".
-fn answer(line: &str, call: bool) -> Option<Reply> {
+/// The keys a question takes: `[y/n]`, with `b` if it can block, or its scopes.
+fn keys_of(choices: Option<&Choices>) -> String {
+    let mut keys: Vec<char> = match choices {
+        Some(c) if !c.scopes.is_empty() => c.scopes.iter().map(|(s, _)| key_of(*s)).collect(),
+        _ => vec!['y'],
+    };
+    keys.push('n');
+    if choices.is_some_and(|c| c.block.is_some()) {
+        keys.push('b');
+    }
+    let keys: Vec<String> = keys.iter().map(char::to_string).collect();
+    format!("[{}] ", keys.join("/"))
+}
+
+/// What a line answers, if anything: only what the question offers. A plain yes is the
+/// first scope ("only this call").
+fn answer(line: &str, choices: Option<&Choices>) -> Option<Reply> {
+    let offers = |scope| choices.is_some_and(|c| c.scopes.iter().any(|(s, _)| *s == scope));
     let scope = |scope| Reply::Allow {
         scope,
         always: false,
@@ -199,10 +230,10 @@ fn answer(line: &str, call: bool) -> Option<Reply> {
     match line.trim().to_lowercase().as_str() {
         "y" | "yes" => Some(Reply::YES),
         "n" | "no" => Some(Reply::Deny),
-        "o" | "once" if call => Some(Reply::YES),
-        "c" | "command" if call => Some(scope(Scope::Command)),
-        "a" | "all" if call => Some(scope(Scope::Program)),
-        "b" | "block" if call => Some(Reply::Block),
+        "b" | "block" if choices.is_some_and(|c| c.block.is_some()) => Some(Reply::Block),
+        "o" | "once" if offers(Scope::Once) => Some(scope(Scope::Once)),
+        "s" | "session" if offers(Scope::Session) => Some(scope(Scope::Session)),
+        "a" | "approve" if offers(Scope::Approve) => Some(scope(Scope::Approve)),
         _ => None,
     }
 }
@@ -368,25 +399,26 @@ mod tests {
         let mut asked = request("run");
         asked.kind = ConsentKind::Call;
         asked.arguments = vec![ConsentLine::new("text", "milk")];
-        asked.choices = Some(clak_hub::CallChoices {
-            command: "“get_text” for this session".into(),
-            program: "All the commands of notes for this session".into(),
-            block: "Block notes for Claude Code".into(),
-            always_command: None,
-            always_program: None,
+        asked.choices = Some(Choices {
+            scopes: vec![
+                (Scope::Once, "Only this call".into()),
+                (Scope::Session, "“read” for this agent's session".into()),
+                (Scope::Approve, "Approve “read”, as it is, for notes".into()),
+            ],
+            always: None,
+            block: Some("Block notes for Claude Code".into()),
         });
         let cancel = CancellationToken::new();
-        let shown = asked.clone();
-        let answer = tokio::spawn(terminal.prompt.ask(shown, cancel.clone()));
-        terminal.shows(CALL_KEYS, 1).await;
-        // "y" alone is only this call; an unknown key asks again.
+        let answer = tokio::spawn(terminal.prompt.ask(asked.clone(), cancel.clone()));
+        terminal.shows("[o/s/a/n/b] ", 1).await;
+        // An unknown key asks again.
         terminal.type_line("x");
-        terminal.shows(CALL_KEYS, 2).await;
-        terminal.type_line("c");
+        terminal.shows("[o/s/a/n/b] ", 2).await;
+        terminal.type_line("s");
         assert_eq!(
             answer.await.unwrap(),
             Ok(Reply::Allow {
-                scope: Scope::Command,
+                scope: Scope::Session,
                 always: false
             })
         );
@@ -398,7 +430,7 @@ mod tests {
             (
                 "a",
                 Reply::Allow {
-                    scope: Scope::Program,
+                    scope: Scope::Approve,
                     always: false,
                 },
             ),
@@ -410,9 +442,18 @@ mod tests {
             terminal.type_line(line);
             assert_eq!(answer.await.unwrap(), Ok(reply), "{line}");
         }
-        // A plain question has no scopes.
-        assert_eq!(super::answer("c", false), None);
-        assert_eq!(super::answer("y", false), Some(Reply::YES));
+        // A plain question has no scopes, nor a block.
+        assert_eq!(super::answer("s", None), None);
+        assert_eq!(super::answer("b", None), None);
+        assert_eq!(super::answer("y", None), Some(Reply::YES));
+        assert_eq!(keys_of(None), "[y/n] ");
+        // The question to use a program: yes, no, or block.
+        let use_app = Choices {
+            block: Some("Block".into()),
+            ..Choices::default()
+        };
+        assert_eq!(keys_of(Some(&use_app)), "[y/n/b] ");
+        assert_eq!(super::answer("b", Some(&use_app)), Some(Reply::Block));
     }
 
     #[tokio::test]

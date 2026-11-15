@@ -40,6 +40,30 @@ fn register_unkeyed(
     })
 }
 
+/// The user approves, in the panel, all the commands of the program connected as `conn_id`:
+/// a preset chooses which programs an agent uses, not which commands are approved.
+fn approve_all(hub: &TestHub, conn_id: &str) {
+    hub.hub().broker().run(|c| {
+        let app = c.app_by_id(conn_id).unwrap().clone();
+        let (key, ..) = c.cache_key(&app).unwrap();
+        c.commands.approve_all(&key, "panel", None);
+    });
+}
+
+/// The connection id of the program agents call `name`.
+async fn conn_of(hub: &TestHub, name: &str) -> String {
+    let state = hub.snapshot().await;
+    state["resources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == name)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
 /// The key the hub remembers the test notepad by (see `apps` in the snapshot).
 async fn notepad_key(hub: &TestHub) -> String {
     let state = hub.snapshot().await;
@@ -123,7 +147,8 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
     assert_eq!(state["sessions"][0]["preset"], json!("Shopping"));
     let grants = state["grants"].as_array().unwrap();
     assert_eq!(grants.len(), 2);
-    assert!(grants.iter().all(|g| g["tools"] == json!(["get_text"])));
+    // The commands are another matter: approved in the panel, they run.
+    approve_all(&hub, &conn_of(&hub, "test-notepad").await);
 
     for program in ["test-notepad", "test-notepad-2"] {
         let response = hub
@@ -133,7 +158,7 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
     }
     assert_eq!(hub.prompt.count(), questions);
 
-    // A command outside the preset asks, as every command does.
+    // A command outside the preset asks, approved or not.
     let call = |resource: &str, tool: &str| {
         Some(json!({ "resource": resource, "tool": tool, "arguments": { "text": "x" } }))
     };
@@ -146,7 +171,7 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
         .await;
     hub.prompt.next(ConsentKind::Call).await.deny();
 
-    // A program outside the preset asks too.
+    // A program outside the preset asks too: may the agent use it?
     let _elsewhere = hub
         .open(
             Some("Claude Code"),
@@ -154,7 +179,7 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
             call("other-editor", "get_text"),
         )
         .await;
-    hub.prompt.next(ConsentKind::Call).await.deny();
+    hub.prompt.next(ConsentKind::Use).await.deny();
 
     drop((first, second, other));
     hub.stop().await;
@@ -178,6 +203,7 @@ async fn a_document_opened_later_is_covered_by_the_preset() {
         .await));
 
     let _later = hub.register_as("Test Notepad", "later.txt").await;
+    approve_all(&hub, &conn_of(&hub, "test-notepad-2").await);
     let questions = hub.prompt.count();
     let response = hub
         .call(
@@ -243,7 +269,7 @@ async fn a_name_names_a_connector_not_a_program_nobody_could_identify() {
     let (call, _) = tokio::join!(
         hub.call("Claude Code", "notion", "search", None, None),
         async {
-            hub.prompt.next(ConsentKind::Call).await.deny();
+            hub.prompt.next(ConsentKind::Use).await.deny();
         }
     );
     assert_eq!(code(&call), Some("denied"));
@@ -253,6 +279,7 @@ async fn a_name_names_a_connector_not_a_program_nobody_could_identify() {
         .broker()
         .run(|c| c.app_closed(&impostor, "resource_closed"));
     let (connector, mut inbox) = register_unkeyed(&hub, "Notion", json!({ "kind": "connector" }));
+    approve_all(&hub, &connector);
     let questions = hub.prompt.count();
     let (call, _) = tokio::join!(
         hub.call("Claude Code", "notion", "search", None, None),

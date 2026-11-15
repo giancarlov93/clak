@@ -62,39 +62,23 @@ const lines = (items) =>
   items && items.length ? el("dl", { class: "lines" }, items.map((l) => [el("dt", {}, l.label), el("dd", {}, l.value)])) : null;
 
 const questionCard = (q) => {
-  // A command's question: how far a yes goes (this call by default), "always" with a scope
-  // for the session, and the block.
+  // The scopes of a command's question (this call by default), "always" for the question to
+  // use a program, and the block.
   const choices = q.choices;
-  let scope = "once";
-  const alwaysText = () => (scope === "command" ? choices?.always_command : scope === "program" ? choices?.always_program : null);
-  const always = el("input", { type: "checkbox" });
-  const alwaysLabel = el("span", {});
-  const alwaysRow = el("label", { class: "always" }, always, alwaysLabel);
-  const showAlways = () => {
-    const text = alwaysText();
-    always.checked = false;
-    alwaysLabel.textContent = text || "";
-    alwaysRow.hidden = !text;
+  const scopeList = choices?.scopes || [];
+  let scope = scopeList[0]?.value || "once";
+  const always = choices?.always ? el("input", { type: "checkbox" }) : null;
+  const alwaysRow = always ? el("label", { class: "always" }, always, choices.always) : null;
+  const option = (choice) => {
+    const input = el("input", { type: "radio", name: `scope-${q.id}`, value: choice.value });
+    input.checked = choice.value === scope;
+    input.addEventListener("change", () => { scope = choice.value; });
+    return el("label", { class: "scope" }, input, choice.label);
   };
-  const option = (value, text) => {
-    const input = el("input", { type: "radio", name: `scope-${q.id}`, value });
-    input.checked = value === scope;
-    input.addEventListener("change", () => {
-      scope = value;
-      showAlways();
-    });
-    return el("label", { class: "scope" }, input, text);
-  };
-  const scopes = choices
-    ? el("div", { class: "scopes" },
-        option("once", "Only this call"),
-        option("command", choices.command),
-        option("program", choices.program))
-    : null;
-  showAlways();
+  const scopes = scopeList.length ? el("div", { class: "scopes" }, scopeList.map(option)) : null;
   const allow = el("button", { class: "primary", disabled: true }, "Allow");
   const deny = el("button", { class: "deny", disabled: true }, "Deny");
-  const block = choices ? el("button", { class: "deny", disabled: true }, choices.block) : null;
+  const block = choices?.block ? el("button", { class: "deny", disabled: true }, choices.block) : null;
   const left = el("p", { class: "meta" });
   const card = el(
     "div",
@@ -103,7 +87,7 @@ const questionCard = (q) => {
     lines(q.who),
     lines(q.what),
     q.tools && q.tools.length
-      ? el("ul", { class: "tools" }, q.tools.map((t) => el("li", {}, t.note ? `${t.name} (${t.note})` : t.name, t.description ? ` — ${t.description}` : "")))
+      ? el("ul", { class: "tools" }, q.tools.map((t) => el("li", {}, t.note ? `${t.name} (${t.note})` : t.name, t.description ? ` — ${t.description}` : "", lines(t.changes))))
       : null,
     q.arguments && q.arguments.length ? [el("p", { class: "meta" }, "Arguments, sent by the agent:"), lines(q.arguments)] : null,
     q.warning ? el("p", { class: "warning" }, q.warning) : null,
@@ -120,7 +104,7 @@ const questionCard = (q) => {
       id: q.id,
       allow: yes,
       scope,
-      always: !!(yes && alwaysText() && always.checked),
+      always: !!(yes && always && always.checked),
       block: blocked,
     });
     if (response.status === 401) return showLogin("The session is over: log in again.");
@@ -135,7 +119,7 @@ const questionCard = (q) => {
   setTimeout(() => {
     allow.disabled = deny.disabled = false;
     if (block) block.disabled = false;
-  }, choices ? 500 : 1000);
+  }, scopeList.length ? 500 : 1000);
   return { card, left, expires: q.expires };
 };
 
@@ -192,11 +176,14 @@ const takeAway = (kind, id, what) =>
 const render = (state) => {
   const now = state.now;
   renderQuestions(state.questions || [], now);
+  const programs = [...(state.commands || [])].sort((a, b) => (b.to_review > 0) - (a.to_review > 0));
+  $("review-section").hidden = !programs.length;
+  list($("review"), programs, "", reviewCard);
   list($("grants"), state.grants || [], "No agent is using a program.", (g) =>
     el("div", { class: "card row" },
       el("div", {},
         el("p", { class: "title" }, `${g.agent || "An agent"} → ${g.program || "a program"}`),
-        el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls · ${g.scope === "all" ? "all commands" : g.tools && g.tools.length ? g.tools.join(", ") : "each call asks"}`)),
+        el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls · ${g.tools && g.tools.length ? `for the session: ${g.tools.join(", ")}` : "approved commands only"}`)),
       takeAway("grant", g.id, `${g.agent} → ${g.program}`)));
   // Blocks: shown, lifted only from the Clak app hosting the hub.
   $("blocks").hidden = !(state.blocks || []).length;
@@ -222,6 +209,59 @@ const render = (state) => {
         el("p", { class: "title" }, a.label || a.name),
         el("p", { class: "meta" }, [a.exe, a.signer ? `signed by ${a.signer}` : "unsigned", `since ${ago(a.since, now)}`].join(" · "))),
       takeAway("app", a.key, a.label || a.name)));
+};
+
+/// Each program's commands as Clak keeps them, those with new or changed commands first:
+/// each opens to its commands, to approve, ask each time, turn off or on. Kept open across
+/// refreshes. An approval names the version on screen.
+const reviewing = new Map();
+
+const commandsOf = async (key) => {
+  const response = await post("/api/commands", { key });
+  if (response.status === 401) return showLogin("The session is over: log in again.");
+  return response.ok ? response.json() : null;
+};
+
+const decide = async (key, body) => {
+  const response = await post("/api/commands", { key, ...body });
+  if (response.status === 401) return showLogin("The session is over: log in again.");
+  reviewing.set(key, response.ok ? await response.json() : null);
+  refresh();
+};
+
+const STATUS = { approved: "approved", changed: "changed", new: "new", ask: "asks every time", off: "off" };
+
+const commandRow = (key, c) => {
+  const buttons = [];
+  if (!c.missing_since) {
+    if (c.status !== "approved" && c.state !== "off") buttons.push(el("button", { class: "primary", onclick: () => decide(key, { action: "approve", name: c.name, digest: c.digest }) }, c.status === "changed" ? "Approve the change" : "Approve"));
+    if (c.state !== "ask" && c.status !== "new") buttons.push(el("button", { onclick: () => decide(key, { action: "ask", name: c.name }) }, c.state === "off" ? "Turn on" : "Ask each time"));
+    if (c.state !== "off") buttons.push(el("button", { class: "deny", onclick: () => decide(key, { action: "off", name: c.name }) }, "Turn off"));
+  }
+  return el("div", { class: "review" },
+    el("p", {}, `${c.name} (${c.missing_since ? "no longer offered" : STATUS[c.status] || c.status})`, c.description ? ` — ${c.description}` : ""),
+    lines(c.changes),
+    buttons.length ? el("div", { class: "actions" }, buttons) : null);
+};
+
+const reviewCard = (program) => {
+  const open = reviewing.get(program.key);
+  const list = open?.commands || [];
+  const offered = list.filter((c) => !c.missing_since);
+  const missing = list.length - offered.length;
+  return el("div", { class: "card" },
+    el("p", { class: "title" }, `${program.label}: ${program.approved} approved` + (program.to_review ? ` · ${program.to_review} new or changed` : "")),
+    open
+      ? [
+        list.map((c) => commandRow(program.key, c)),
+        el("div", { class: "actions" },
+          program.to_review ? el("button", { class: "primary", onclick: () => decide(program.key, { action: "approve_all", commands: offered.map((c) => ({ name: c.name, digest: c.digest })) }) }, "Approve all") : null,
+          program.approved ? el("button", { onclick: () => decide(program.key, { action: "reset" }) }, "Reset approvals") : null,
+          missing ? el("button", { onclick: () => decide(program.key, { action: "forget_missing" }) }, "Forget the ones no longer offered") : null,
+          el("button", { onclick: () => { reviewing.delete(program.key); refresh(); } }, "Close")),
+      ]
+      : el("div", { class: "actions" },
+        el("button", { onclick: async () => { reviewing.set(program.key, await commandsOf(program.key)); refresh(); } }, "Commands")));
 };
 
 let timer = null;

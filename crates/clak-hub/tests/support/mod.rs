@@ -29,31 +29,31 @@ impl Question {
         let _ = self.answer.take().unwrap().send(reply);
     }
 
-    /// Yes: for a command, this call only.
+    /// Yes: to use a program, for the session; to a command, this call only.
     pub fn allow(self) {
         self.answer(Reply::YES);
     }
 
-    /// Yes to the command for the agent's session.
-    pub fn allow_command(self) {
+    /// Yes to a command for the agent's session.
+    pub fn allow_session(self) {
         self.answer(Reply::Allow {
-            scope: Scope::Command,
+            scope: Scope::Session,
             always: false,
         });
     }
 
-    /// Yes to all the program's commands for the agent's session.
-    pub fn allow_program(self) {
+    /// Yes to a command, approved in Clak for every agent.
+    pub fn approve(self) {
         self.answer(Reply::Allow {
-            scope: Scope::Program,
+            scope: Scope::Approve,
             always: false,
         });
     }
 
-    /// Yes to all the program's commands, with "Always allow" ticked.
+    /// Yes to use a program, with "Always allow" ticked.
     pub fn allow_always(self) {
         self.answer(Reply::Allow {
-            scope: Scope::Program,
+            scope: Scope::Once,
             always: true,
         });
     }
@@ -68,7 +68,7 @@ impl Question {
 }
 
 /// The user, faked: the hub's questions arrive here, and the test decides the answer. With
-/// `allow_all` it always says yes — to a command, for all the program's commands — and
+/// `allow_all` it always says yes — to use a program, and to a command, approving it — and
 /// counts.
 pub struct FakePrompt {
     pub allow_all: AtomicBool,
@@ -130,7 +130,7 @@ impl ConsentPrompt for FakePrompt {
         if self.allow_all.load(Ordering::SeqCst) {
             return Box::pin(async {
                 Ok(Reply::Allow {
-                    scope: Scope::Program,
+                    scope: Scope::Approve,
                     always: false,
                 })
             });

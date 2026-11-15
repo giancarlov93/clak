@@ -45,10 +45,10 @@ or asks for something done in a program or on a file you cannot edit directly, c
 If the program is there: `commands` (its instructions come first), then `run`. If it is missing, or lacks what you need, \
 do not look for other ways: tell the user what is missing and how to proceed (a program on the computer: open it and \
 connect it to Clak from inside it; a network service: connect its MCP server or REST API, which you can do with the \
-program `settings` once they agree), then ask whether to proceed another way. Each command asks the user for permission \
-in a Clak window, showing what you send, unless they allowed it, or all the program's commands, for your session; the \
-call waits: tell them before, and prefer one command that does the work to many small ones. If they refuse, or block \
-the program for you, do not retry until they ask.";
+program `settings` once they agree), then ask whether to proceed another way. The first use of a program asks the user \
+for permission in a Clak window, and so does each command they haven't approved, showing what you send; the call \
+waits: tell them before, and prefer one command that does the work to many small ones. If they refuse, or block the \
+program for you, do not retry until they ask.";
 
 /// This process's shim: stdin and stdout are the MCP channel, everything else goes to stderr.
 pub fn main() {
@@ -276,7 +276,7 @@ pub fn tools() -> Value {
                         "type": "string",
                         "enum": ["usable", "others", "all"],
                         "description": "usable (default): the programs you can use without asking the user; others: the \
-                                        other connected ones, whose commands ask the user; all: both.",
+                                        other connected ones, whose first use asks the user; all: both.",
                     },
                 },
             },

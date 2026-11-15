@@ -105,10 +105,11 @@ async fn request<R>(
     let _ = watcher.await;
 }
 
-/// The panel. It sees everything and can only *take away*: revoke a permission, disconnect
-/// an agent, forget a program. Never grant one: permissions are granted only in the
-/// questions the hub shows itself. Lifting a block, which lets an agent ask again, is only
-/// for the app hosting the hub (see [`panel_message`]).
+/// The panel. It sees everything and, on the channel, can only *take away*: revoke a
+/// permission, disconnect an agent, forget a program, reset approvals, turn a command off.
+/// Never grant one: permissions are granted in the questions the hub shows itself, and in
+/// the app hosting the hub, which may also approve commands and lift a block (see
+/// [`panel_message`]).
 async fn watch<R>(
     broker: &Broker,
     mut lines: BufReader<R>,
@@ -136,8 +137,35 @@ pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outb
             Some("forget_session") => c.forget_session(text("session_id"), "user"),
             Some("forget_app") => c.forget_app(text("key")),
             Some("forget_rule") => c.forget_rule(text("id")),
-            // An agent on the channel could otherwise lift its own block.
+            // An agent on the channel could otherwise lift its own block, or approve commands
+            // for itself.
             Some("unblock") if inside => c.unblock(text("id")),
+            Some("approve_all") if inside => {
+                // The commands as the user saw them: one that changed since isn't approved.
+                let shown: Vec<(String, String)> = message
+                    .get("commands")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|c| {
+                        Some((
+                            c.get("name")?.as_str()?.to_owned(),
+                            c.get("digest")?.as_str()?.to_owned(),
+                        ))
+                    })
+                    .collect();
+                c.approve_all_commands(text("key"), &shown)
+            }
+            // On the channel only "off": "ask" would let an agent turn one back on.
+            Some("command_state") if inside || text("state") == Some("off") => {
+                c.set_command_state(text("key"), text("name"), text("state"), text("digest"))
+            }
+            Some("reset_commands") => c.reset_commands(text("key")),
+            Some("forget_missing") => c.forget_missing_commands(text("key"), inside),
+            Some("commands") => {
+                reply.send(c.panel_commands(text("key")));
+                return;
+            }
             Some("describe") => {
                 reply.send(c.panel_tools(text("resource_id")));
                 return;

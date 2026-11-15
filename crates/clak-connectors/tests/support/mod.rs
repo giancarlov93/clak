@@ -19,10 +19,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-/// The fake user's yes: to a command, for all the program's commands of the session, as the
-/// questions to use a program were answered before each call asked.
+/// The fake user's yes: to use a program, and to a command, approved in Clak.
 const ALL: Reply = Reply::Allow {
-    scope: Scope::Program,
+    scope: Scope::Approve,
     always: false,
 };
 

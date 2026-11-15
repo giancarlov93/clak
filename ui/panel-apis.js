@@ -22,6 +22,14 @@
     return h ? el("div", { class: "quiet-text ed-state" + (h.failed ? " caution" : ""), title: "Since the agents' permissions began" }, h.text) : null;
   };
 
+  /// Its commands as Clak keeps them, also while it is off: a link to review them.
+  const commandsLink = (key) => {
+    const kept = (state.commands || []).find((p) => p.key === key);
+    if (!kept) return null;
+    const text = `Commands: ${kept.approved} approved` + (kept.to_review ? ` · ${kept.to_review} to review` : "");
+    return el("button", { class: "link small-link", title: "Which commands run without asking", onclick: () => Panel.show(`status:commands:${key}`) }, text);
+  };
+
   const card = (a, manage) => {
     const oauth = a.auth === "oauth" || a.auth === "oauth-app";
     // The OAuth sign-in must be redone: the tab says so, and the button redoes it.
@@ -64,6 +72,7 @@
           el("div", { class: "mono quiet ellipsis selectable", title: a.base_url }, a.base_url),
           el("div", { class: "quiet-text ed-state" }, D.apiState(a)),
           healthLine(a.resource_id, Date.now()),
+          commandsLink(`api:${a.id}`),
           users ? el("div", { class: "users" }, Kit.icon("people"), el("span", null, users)) : null),
         actions),
       bars.length ? el("div", { class: "indent ed-bars" }, bars) : null);

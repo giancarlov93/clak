@@ -1,13 +1,15 @@
-//! The permissions the user made standing, with "Always allow" in a command's question: an
-//! agent may run a command of a program, or all of them, without being asked again, in a
-//! folder or anywhere. Kept in `rules.json` in the hub's folder; removed from the panel.
+//! The permissions the user made standing, with "Always allow" in the question to use a
+//! program: an agent may use it without being asked again, in a folder or anywhere. Its
+//! commands are another matter: those the user hasn't approved (`commands`) still ask. Kept
+//! in `rules.json` in the hub's folder; removed from the panel.
 //!
 //! The agent is the one the operating system names, as `apps.json` remembers a program: the
 //! same executable and name, and the same signer, or — if it is unsigned — the same content.
 //! An unsigned agent that updates is a different one, and is asked again. The program is
 //! named as a preset names it (`launch::PresetProgram`): a known application by its key, which
 //! covers all its instances; a connector or an API by the name agents call it. One rule per
-//! agent, folder and program: a second "always" for another command adds it to the rule.
+//! agent, folder and program. A rule may list commands (as a preset does): then the others
+//! ask, even if approved.
 //!
 //! The folder is the one the agent says it works in: it narrows the rule, it does not prove
 //! anything.
@@ -137,15 +139,14 @@ impl Rules {
         allowed
     }
 
-    /// A rule from "always": all the program's commands (`command` none), or one more. The
-    /// same agent, folder and program already there takes it in.
+    /// A rule from "always": the agent may use the program. The same agent, folder and
+    /// program already there is widened to all the program.
     pub fn add(
         &mut self,
         agent_key: &str,
         agent: &AgentIdentity,
         folder: Option<&str>,
         app: &AppConn,
-        command: Option<String>,
     ) -> &Rule {
         let target = match &app.key {
             Some(key) => Target::App(key.clone()),
@@ -156,7 +157,7 @@ impl Rules {
             Some(_) => app.resource.app.clone(),
             None => app.name.clone(),
         };
-        let tools = command.map(|c| vec![c]);
+        let tools = None;
         let at = match self.list.iter().position(|r| {
             r.agent_key == agent_key && r.folder == folder && r.program.target == target
         }) {

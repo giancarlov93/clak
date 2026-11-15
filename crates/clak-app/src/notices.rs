@@ -105,6 +105,32 @@ pub fn between(before: Option<&Value>, after: &Value) -> Changes {
             ),
         });
     }
+    // Commands new or changed since the user approved them: once per program, until they are
+    // reviewed (a server whose descriptions keep changing doesn't keep notifying).
+    for program in list(after, "commands") {
+        let count = program
+            .get("to_review")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        // A program seen for the first time: its question (or its sign-up) showed them.
+        let Some(was) = list(before, "commands")
+            .iter()
+            .find(|p| p["key"] == program["key"])
+            .map(|p| p.get("to_review").and_then(Value::as_u64).unwrap_or(0))
+        else {
+            continue;
+        };
+        if count == 0 || was > 0 {
+            continue;
+        }
+        notices.push(Notice {
+            title: format!("{}: commands to review", text(program, "label")),
+            text: format!(
+                "{} new or changed since you approved them: they ask until you approve them, in Clak's Status tab.",
+                if count == 1 { "One command is".to_owned() } else { format!("{count} commands are") }
+            ),
+        });
+    }
     for (key, kind, tab) in [("connectors", "MCP server", "MCP"), ("apis", "API", "APIs")] {
         for item in list(after, key) {
             let Some(problem) = attention(item) else {
@@ -267,6 +293,29 @@ pub fn connected(state: &Value) -> usize {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn commands_to_review_notify_once_per_program() {
+        let state =
+            |n: u64| json!({"commands": [{"key": "app:k", "label": "Blender", "to_review": n}]});
+        let first = between(Some(&state(0)), &state(2));
+        assert_eq!(first.notices.len(), 1);
+        assert_eq!(first.notices[0].title, "Blender: commands to review");
+        assert!(
+            first.notices[0]
+                .text
+                .starts_with("2 commands are new or changed")
+        );
+        // Seen for the first time: no notice.
+        assert!(
+            between(Some(&json!({"commands": []})), &state(2))
+                .notices
+                .is_empty()
+        );
+        // Still to review: no new notice, however many more.
+        assert!(between(Some(&state(2)), &state(3)).notices.is_empty());
+        assert!(between(Some(&state(1)), &state(0)).notices.is_empty());
+    }
 
     #[test]
     fn the_hub_s_own_programs_and_connectors_are_not_connections() {

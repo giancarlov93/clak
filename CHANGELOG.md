@@ -157,18 +157,21 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
-- Each command an agent runs asks you, in Clak's window, instead of one question per program.
-  The window shows what the agent sends, one line per argument, cut short, with what looks
-  like a token, a password or a key masked. It asks how far a yes goes: only this call, that
-  command for the agent's session, or all the program's commands for it (those the window
-  showed: one added or changed later asks again). "Always allow" goes with the last two, for
-  one command or for all; a second "always" for another command joins the same rule. "Block"
-  closes the program to that agent until its process ends: its calls are refused at once, on
-  every instance of the application, and the panel shows the block and lifts it. One answer
-  settles the other open questions it covers. `clak list` says which programs are allowed in
-  full, in part or blocked; `clak-daemon --ask` and its web page offer the same answers. The
-  "Always allow" rules made before keep allowing all the program's commands; Clak's own
-  settings still ask once per session, since every change asks anyway.
+- Clak keeps each program's commands, and what you decided about each: approved (it runs,
+  as it is, for every agent you let use the program), asking at every call, or off. A
+  command that is new, or changed since you approved it, asks you at the call, showing what
+  the agent sends (secrets masked, long values cut and saying so) and, for a changed one,
+  what changed: you allow only this call, the command for the agent's session, or approve
+  it. Approving a command doesn't let an agent use the program: each agent still asks the
+  first time it uses each program, even when all its commands are approved ("Always allow"
+  there makes it standing). Both questions can block the program for that agent until its
+  process ends, on every instance of the application; the panel shows the block and lifts
+  it. When a program brings new or changed commands Clak tells you, and you review them in
+  the Status tab (or on `clak-daemon`'s web page): approve, ask each time, turn off, approve
+  all, reset. Allowing a program to connect can approve its commands at once. Presets choose
+  which programs an agent uses, not which commands are approved. The approvals are in the
+  backups. Programs you used before start with their commands to review; Clak's own
+  settings still ask once per session.
 - Releases: the Mac's installer is for Apple silicon only; the Intel Mac no longer has one,
   nor updates. It can still be built by hand (`node scripts/bundle.mjs --target
   x86_64-apple-darwin`).

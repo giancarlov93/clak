@@ -73,6 +73,8 @@ html.win .caption { text-transform: none; letter-spacing: 0; font-size: 12px; }
 .tool .name { font-family: var(--mono); font-weight: 600; }
 .tool .note { color: var(--caution); margin-left: 6px; }
 .tool .description { color: var(--quiet); font-size: 12px; }
+.tool .changes { margin: 6px 0 2px; font-size: 12px; grid-template-columns: minmax(80px, max-content) 1fr; }
+.tool .changes dd { overflow-wrap: anywhere; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 html button.chip {
@@ -120,6 +122,6 @@ html.mac .buttons button { min-width: 90px; min-height: 28px; }
 
 /* --- "Always allow": a yes that holds from now on, never ticked from the start ------- */
 
-.always { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0 22px; font-size: 13px; cursor: default; }
+.always { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; cursor: default; }
 .always input { margin-top: 2px; flex: none; }
 .queue { font-variant-numeric: tabular-nums; }

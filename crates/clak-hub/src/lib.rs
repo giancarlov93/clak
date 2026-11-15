@@ -12,6 +12,7 @@
 
 pub mod app_channel;
 pub mod cli_names;
+pub mod commands;
 pub mod consent;
 pub mod control_channel;
 pub mod core;
@@ -26,7 +27,7 @@ pub mod usage;
 pub mod wire;
 
 pub use consent::{
-    AgentIdentity, CallChoices, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt,
+    AgentIdentity, Choices, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt,
     ConsentRequest, ConsentTool, HubOptions, Platform, QuestionLink, Reply, Scope, SettingsChange,
     Verdict,
 };

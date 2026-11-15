@@ -12,6 +12,7 @@
 //! it: `progress` lines arrive before the response («waiting for the user…», «permission
 //! granted…»), so an agent knows what it is waiting for.
 
+use crate::commands::Status;
 use crate::consent::{AgentIdentity, Reply, Scope, Verdict};
 use crate::core::{Asked, Broker, CallTarget, Core, Gone, Progress, outcome};
 use crate::wire::{Malformed, ToolDef};
@@ -283,8 +284,17 @@ fn not_found(broker: &Broker, name: Option<&str>, suggest: bool) -> Map<String, 
     )
 }
 
-fn no_command(app_name: &str, name: Option<&str>, tools: &[ToolDef]) -> Map<String, Value> {
-    let near = names::closest(name, tools.iter().map(|t| t.name.as_str()));
+/// A command that is not there. The closest name is suggested, never one the user turned
+/// off.
+fn no_command(c: &Core, app: &crate::core::AppConn, name: Option<&str>) -> Map<String, Value> {
+    let app_name = &app.name;
+    let near = names::closest(
+        name,
+        app.tools
+            .iter()
+            .filter(|t| c.status_of(app, t) != Status::Off)
+            .map(|t| t.name.as_str()),
+    );
     error(
         "not_found",
         &format!(
@@ -302,10 +312,11 @@ async fn tools(cx: &Context<'_>, request: &Map<String, Value>) -> Result<Map<Str
     };
     let name = request.get("resource").and_then(Value::as_str);
     let query = request.get("query").and_then(Value::as_str);
+    let agent_key = agent_key(cx).await;
     let described = cx.broker.run(|c| {
         let app = c.app(name?)?;
         let conn_id = app.conn_id.clone();
-        c.describe(&key, &conn_id, query)
+        c.describe(&key, agent_key.as_deref(), cx.cwd, &conn_id, query)
     });
     Ok(match described {
         Some(body) => ok(body),
@@ -344,7 +355,7 @@ async fn call(
         .iter()
         .find(|t| Some(t.name.as_str()) == tool_name)
     else {
-        return Ok(Ok(no_command(&app_name, tool_name, &app.tools)));
+        return Ok(Ok(cx.broker.run(|c| no_command(c, &app, tool_name))));
     };
     let mut arguments = request.get("arguments").and_then(Value::as_object).cloned();
     if let Some(Value::Array(flags)) = request.get("flags") {
@@ -358,101 +369,121 @@ async fn call(
     if cx.broker.run(|c| c.blocks(&key, &app)) {
         return Ok(Ok(blocked(&app_name)));
     }
-    let current = || {
-        cx.broker
-            .run(|c| c.grant_of(&key, &conn_id).map(|g| g.id.clone()))
-    };
-    let mut waited = false;
-    let mut grant_id = current();
-    if grant_id.is_none() {
-        // Launched with a preset that covers the program: its commands need no question.
-        grant_id = cx.broker.run(|c| c.preset_grant(&key, &conn_id));
-    }
     // Who the agent is, for the standing rules: read outside the lock (an unsigned agent's
     // content is hashed), once per process.
     let agent_key = agent_key(cx).await;
-    if grant_id.is_none()
-        && let Some(agent_key) = &agent_key
-    {
-        // A rule the user made standing: its commands need no question either.
-        grant_id = cx
-            .broker
-            .run(|c| c.rule_grant(agent_key, cx.agent, cx.cwd, cx.via, &conn_id));
-    }
-    if grant_id.is_none() && app.is_hub() {
-        // Clak's settings: one question for the session, since every change asks anyway.
-        match use_settings(cx, &app).await? {
+    let mut waited = false;
+
+    // First, may the agent use the program at all? Asked the first time, even when all its
+    // commands are approved: approving a command doesn't choose who uses it.
+    let mut access = cx
+        .broker
+        .run(|c| c.may_use(&key, agent_key.as_deref(), cx.cwd, &app));
+    if access.is_none() {
+        let asked = if app.is_hub() {
+            use_settings(cx, &app).await?
+        } else {
+            ask_use(cx, &app, agent_key.clone()).await?
+        };
+        match asked {
             Ok(()) => waited = true,
             Err(answer) => return Ok(Ok(answer)),
         }
+        access = cx
+            .broker
+            .run(|c| c.may_use(&key, agent_key.as_deref(), cx.cwd, &app));
     }
+    // A preset or a rule: connected, and its permission on this instance, without a question.
+    let entered = cx.broker.run(|c| {
+        if c.session(cx.agent).is_none()
+            && let Some(agent_key) = &agent_key
+        {
+            c.rule_grant(agent_key, cx.agent, cx.cwd, cx.via, &conn_id);
+        }
+        c.enter(&key, &conn_id)
+    });
+    let (Some(access), Some(_)) = (access, entered) else {
+        return Ok(Ok(error(
+            "gone",
+            "The permission changed in the meantime: try again.",
+        )));
+    };
 
-    // Until the command runs or the user refuses: the command as the program has it now;
-    // whether the session allows it (or a preset, or a standing rule, does); otherwise this
-    // call asks the user. The same call (agent, program, command and arguments) asked twice
-    // waits for the same answer; "only this call" lets one of them run, the others ask again.
+    // Then the command: it runs if the user approved it as it is (and the agent's preset or
+    // rule doesn't leave it out), or allowed it for the agent's session; otherwise this call
+    // asks. The same call (agent, program, command and arguments) asked twice waits for the
+    // same answer; "only this call" lets one of them run, the others ask again.
     let arguments_digest = json::digest(&Value::Object(arguments.clone().unwrap_or_default()));
+    /// One look at the call, under one lock: what to do next.
+    enum Step {
+        Begun(String, tokio::sync::oneshot::Receiver<Value>, ToolDef),
+        Ask(Box<crate::core::AppConn>, ToolDef, Status, bool, String),
+        Answer(Map<String, Value>),
+    }
     let (routed, answer, tool) = loop {
-        let found = cx.broker.run(|c| {
-            let app = c.app_by_id(&conn_id)?.clone();
-            let tool = app
+        let step = cx.broker.run(|c| {
+            let Some(app) = c.app_by_id(&conn_id).cloned() else {
+                return Step::Answer(error("gone", &format!("'{app_name}' was closed.")));
+            };
+            if c.blocks(&key, &app) {
+                return Step::Answer(blocked(&app_name));
+            }
+            let Some(tool) = app
                 .tools
                 .iter()
-                .find(|t| Some(t.name.as_str()) == tool_name)?
-                .clone();
-            Some((app, tool))
+                .find(|t| Some(t.name.as_str()) == tool_name)
+                .cloned()
+            else {
+                return Step::Answer(no_command(c, &app, tool_name));
+            };
+            let status = c.status_of(&app, &tool);
+            if status == Status::Off {
+                return Step::Answer(error(
+                    "off",
+                    &format!(
+                        "The user turned off '{app_name} {}': it can't be run. Do not retry; tell the user if you need it.",
+                        tool.name
+                    ),
+                ));
+            }
+            let restricted = access.restricts(&tool.name);
+            let call_key = format!(
+                "call:{key}:{conn_id}:{}:{}:{arguments_digest}",
+                tool.name, tool.digest
+            );
+            let Some(grant_id) = c.grant_of(&key, &conn_id).map(|g| g.id.clone()) else {
+                return Step::Answer(error(
+                    "gone",
+                    "The permission was revoked in the meantime: ask again.",
+                ));
+            };
+            if c.runs(&key, &conn_id, &tool, restricted) || c.take_permit(&call_key) {
+                return match c.begin_call(&grant_id, &tool, arguments.take(), cx.tell.clone()) {
+                    Some((routed, answer)) => Step::Begun(routed, answer, tool),
+                    None => Step::Answer(error(
+                        "gone",
+                        "The permission or the command changed in the meantime: try again.",
+                    )),
+                };
+            }
+            Step::Ask(Box::new(app), tool, status, restricted, call_key)
         });
-        let Some((app, tool)) = found else {
-            let answer = cx.broker.run(|c| {
-                c.app_by_id(&conn_id)
-                    .map(|a| no_command(&a.name, tool_name, &a.tools))
-            });
-            return Ok(Ok(answer.unwrap_or_else(|| {
-                error("gone", &format!("'{app_name}' was closed."))
-            })));
+        let (app, tool, status, restricted, call_key) = match step {
+            Step::Begun(routed, answer, tool) => break (routed, answer, tool),
+            Step::Answer(answer) => return Ok(Ok(answer)),
+            Step::Ask(app, tool, status, restricted, call_key) => {
+                (app, tool, status, restricted, call_key)
+            }
         };
-        let call_key = format!(
-            "call:{key}:{conn_id}:{}:{}:{arguments_digest}",
-            tool.name, tool.digest
-        );
-        let begun = cx.broker.run(|c| {
-            let app = c.app_by_id(&conn_id)?;
-            if c.blocks(&key, app) {
-                return Some(Err(()));
-            }
-            let allowed = c
-                .grant_of(&key, &conn_id)
-                .is_some_and(|g| g.approves(&tool))
-                || c.standing(&key, agent_key.as_deref(), cx.cwd, &conn_id, &tool)
-                || (c.grant_of(&key, &conn_id).is_some() && c.take_permit(&call_key));
-            if !allowed {
-                return None;
-            }
-            let grant_id = c.grant_of(&key, &conn_id)?.id.clone();
-            c.begin_call(&grant_id, &tool, arguments.take(), cx.tell.clone())
-                .map(Ok)
-        });
-        match begun {
-            Some(Ok((routed, answer))) => break (routed, answer, tool),
-            Some(Err(())) => return Ok(Ok(blocked(&app_name))),
-            None => {}
-        }
-        let note = cx.broker.run(|c| match c.grant_of(&key, &conn_id) {
-            Some(g) if g.approved.contains_key(&tool.name) => Some("changed"),
-            Some(g) if g.all => Some("new"),
-            _ => None,
-        });
-        match ask_call(
-            cx,
-            &call_key,
-            &app,
-            &tool,
-            arguments.as_ref(),
-            note,
-            agent_key.clone(),
-        )
-        .await?
-        {
+        let call = CallAsk {
+            key: &call_key,
+            app: &app,
+            tool: &tool,
+            arguments: arguments.as_ref(),
+            status,
+            restricted,
+        };
+        match ask_call(cx, &call).await? {
             Ok(()) => waited = true,
             Err(answer) => return Ok(Ok(answer)),
         }
@@ -492,7 +523,7 @@ async fn call(
 }
 
 /// Clak's settings, once for the agent's session: the question that lets it see them and
-/// propose changes. Ok when the agent may go on.
+/// propose changes. Every change asks anyway. Ok when the agent may go on.
 async fn use_settings(
     cx: &Context<'_>,
     app: &crate::core::AppConn,
@@ -535,9 +566,11 @@ async fn use_settings(
             },
             move |c, reply| {
                 if reply.allows() && c.registered(&target) {
-                    let session = c.authorize(&agent, cwd.as_deref(), via);
+                    let session = c.allow_use(&agent, cwd.as_deref(), via, &target);
                     let shown = shown_then.get().map_or(&[][..], Vec::as_slice);
-                    c.allow_call(&session, &target, shown, true);
+                    if let Some(session) = session {
+                        c.allow_for_session(&session, &target, shown);
+                    }
                 }
             },
             None,
@@ -552,15 +585,11 @@ async fn use_settings(
     })
 }
 
-/// One call, asked of the user. Ok when it may run: the user allowed it (for this call, the
-/// command, or all the program's commands), or another answer covered it meanwhile.
-async fn ask_call(
+/// May the agent use this program? Asked the first time it does, for its session: all the
+/// instances of the application. Ok when it may.
+async fn ask_use(
     cx: &Context<'_>,
-    call_key: &str,
     app: &crate::core::AppConn,
-    tool: &ToolDef,
-    arguments: Option<&Map<String, Value>>,
-    note: Option<&'static str>,
     agent_key: Option<String>,
 ) -> Result<Result<(), Map<String, Value>>, Gone> {
     let key = cx.agent.key();
@@ -569,61 +598,141 @@ async fn ask_call(
     waiting(
         cx,
         &if new_session {
-            format!(
-                "whether this agent may connect and run '{app_name} {}'",
-                tool.name
-            )
+            format!("whether this agent may connect and use '{app_name}'")
         } else {
-            format!("for permission to run '{app_name} {}'", tool.name)
+            format!("for permission to use '{app_name}'")
         },
     );
     // "Always": offered only for an agent and a program that can be recognized next time:
     // an application by its key, a connector or an API by the name the user gave it.
     let agent_key = agent_key.filter(|_| app.key.is_some() || app.is_connector());
-    // "All the commands" allows those the question shows, as they are when it is asked
-    // (see `use_settings`).
-    let shown: Arc<OnceLock<Vec<(String, String)>>> = Arc::default();
-    let shown_then = shown.clone();
+    let standing = agent_key.is_some();
     let (agent, cwd, via, target) = (
         cx.agent.clone(),
         cx.cwd.map(str::to_owned),
         cx.via,
         app.conn_id.clone(),
     );
-    let (name, digest, call_for) = (tool.name.clone(), tool.digest.clone(), call_key.to_owned());
-    let standing = agent_key.clone();
-    let offer = standing.is_some();
     let conn_id = app.conn_id.clone();
+    // One question for all the instances of an application.
+    let program = match &app.key {
+        Some(app_key) => format!("app:{app_key}"),
+        None => format!("conn:{conn_id}"),
+    };
     let verdict = cx
         .broker
         .agent_consent(
-            call_key,
+            &format!("use:{key}:{program}"),
             |id, c| {
                 let app = c.app_by_id(&conn_id).unwrap_or(app);
-                let _ = shown.set(
-                    app.tools
-                        .iter()
-                        .map(|t| (t.name.clone(), t.digest.clone()))
-                        .collect(),
-                );
-                // The command as it is now: the one "all the commands" allows. If it changed
-                // since, "only this call" and "this command" don't match it, and it asks again.
+                let statuses = app.tools.iter().map(|t| c.status_of(app, t)).collect();
+                texts::use_app(
+                    id,
+                    &texts::UseQuestion {
+                        agent: cx.agent,
+                        cwd: cx.cwd,
+                        new_session,
+                        app,
+                        statuses,
+                        standing,
+                    },
+                )
+            },
+            move |c, reply| {
+                if !c.registered(&target) {
+                    return;
+                }
+                match reply {
+                    Reply::Block => c.block(&agent, &target),
+                    Reply::Allow { always, .. } => {
+                        c.allow_use(&agent, cwd.as_deref(), via, &target);
+                        if always && let Some(agent_key) = &agent_key {
+                            remember(c, agent_key, &agent, cwd.as_deref(), &target);
+                        }
+                    }
+                    Reply::Deny => {}
+                }
+            },
+            None,
+            cx.gone,
+        )
+        .await?;
+    let what = format!("use '{app_name}'");
+    Ok(match verdict {
+        Asked::Verdict(Verdict::Allowed) => Ok(()),
+        Asked::Verdict(Verdict::Blocked) => Err(blocked(&app_name)),
+        Asked::Verdict(verdict) => Err(refused(verdict, &what)),
+        Asked::Link(link) => Err(pending(&link, &what)),
+    })
+}
+
+/// A call the user is asked about.
+struct CallAsk<'a> {
+    /// The call: agent, program, command (as it is) and arguments.
+    key: &'a str,
+    app: &'a crate::core::AppConn,
+    tool: &'a ToolDef,
+    arguments: Option<&'a Map<String, Value>>,
+    status: Status,
+    restricted: bool,
+}
+
+/// One call of a command the user hasn't approved, asked of the user. Ok when it may run:
+/// the user allowed it (this call, the command for the session, or approved it in Clak), or
+/// another answer covered it meanwhile.
+async fn ask_call(
+    cx: &Context<'_>,
+    call: &CallAsk<'_>,
+) -> Result<Result<(), Map<String, Value>>, Gone> {
+    let (app, tool) = (call.app, call.tool);
+    let key = cx.agent.key();
+    let app_name = app.name.clone();
+    waiting(
+        cx,
+        &format!("for permission to run '{app_name} {}'", tool.name),
+    );
+    // The command as the question shows it: the one "Approve" approves.
+    let shown: Arc<OnceLock<ToolDef>> = Arc::default();
+    let shown_then = shown.clone();
+    let cache_key = cx.broker.run(|c| c.cache_key(app).map(|(key, ..)| key));
+    let (agent, target, call_for, cache_for) = (
+        cx.agent.clone(),
+        app.conn_id.clone(),
+        call.key.to_owned(),
+        cache_key.clone(),
+    );
+    let conn_id = app.conn_id.clone();
+    let (status, arguments, restricted) = (call.status, call.arguments, call.restricted);
+    let verdict = cx
+        .broker
+        .agent_consent(
+            call.key,
+            |id, c| {
+                let app = c.app_by_id(&conn_id).unwrap_or(app);
+                // The command as it is now: if it changed since, the answer is for this one,
+                // and the call asks again.
                 let tool = app
                     .tools
                     .iter()
                     .find(|t| t.name == tool.name)
                     .unwrap_or(tool);
+                let _ = shown.set(tool.clone());
+                let changes = cache_key
+                    .as_deref()
+                    .and_then(|k| c.commands.approved(k, &tool.name))
+                    .filter(|_| status == Status::Changed)
+                    .map(|before| crate::commands::diff(&before.definition, &tool.to_json()))
+                    .unwrap_or_default();
                 texts::call(
                     id,
                     &texts::CallQuestion {
                         agent: cx.agent,
                         cwd: cx.cwd,
-                        new_session,
                         app,
                         tool,
                         arguments,
-                        note,
-                        standing: offer,
+                        status,
+                        changes,
                     },
                 )
             },
@@ -631,7 +740,7 @@ async fn ask_call(
                 let Some(app) = c.app_by_id(&target) else {
                     return;
                 };
-                let Reply::Allow { scope, always } = reply else {
+                let Reply::Allow { scope, .. } = reply else {
                     if reply == Reply::Block {
                         c.block(&agent, &target);
                     }
@@ -641,28 +750,39 @@ async fn ask_call(
                 if c.blocks(&agent.key(), app) {
                     return;
                 }
-                let session = c.authorize(&agent, cwd.as_deref(), via);
-                let shown = shown_then.get().map_or(&[][..], Vec::as_slice);
+                let program = app.name.clone();
+                let Some(shown) = shown_then.get() else {
+                    return;
+                };
+                let session = agent.key();
                 match scope {
-                    Scope::Once => {
-                        // One run of this call: for the first of those waiting for this
-                        // answer or, on the web page, for the agent's next identical call.
-                        c.allow_call(&session, &target, &[], false);
-                        c.permit(&call_for);
+                    // One run of this call: for the first of those waiting for this answer
+                    // or, on the web page, for the agent's next identical call.
+                    Scope::Once => c.permit(&call_for),
+                    Scope::Session => {
+                        c.allow_for_session(
+                            &session,
+                            &target,
+                            &[(shown.name.clone(), shown.digest.clone())],
+                        );
                     }
-                    Scope::Command => {
-                        c.allow_call(&session, &target, &[(name.clone(), digest)], false);
+                    Scope::Approve => {
+                        if let Some(cache) = &cache_for {
+                            c.commands.approve(cache, shown, "question");
+                            c.log(format!("approved: “{}” of {program}", shown.name));
+                        }
+                        // The preset or the rule leaves it out: for this session too, or it
+                        // would ask again. Otherwise the approval alone, which the panel can
+                        // take back.
+                        if restricted {
+                            c.allow_for_session(
+                                &session,
+                                &target,
+                                &[(shown.name.clone(), shown.digest.clone())],
+                            );
+                        }
+                        c.settle_calls(None);
                     }
-                    Scope::Program => {
-                        c.allow_call(&session, &target, shown, true);
-                    }
-                }
-                if always
-                    && scope != Scope::Once
-                    && let Some(agent_key) = &agent_key
-                {
-                    let command = (scope == Scope::Command).then_some(name);
-                    remember(c, agent_key, &agent, cwd.as_deref(), &target, command);
                 }
             },
             Some(CallTarget {
@@ -670,8 +790,8 @@ async fn ask_call(
                 conn_id: app.conn_id.clone(),
                 tool: tool.name.clone(),
                 digest: tool.digest.clone(),
-                agent_key: standing,
-                cwd: cx.cwd.map(str::to_owned),
+                cache_key: cache_key.clone(),
+                restricted: call.restricted,
             }),
             cx.gone,
         )
@@ -685,30 +805,28 @@ async fn ask_call(
     })
 }
 
-/// "Always" ticked with a yes: the standing rule, for the command or for all of them.
+/// "Always" ticked with a yes to use a program: the standing rule.
 fn remember(
     c: &mut Core,
     agent_key: &str,
     agent: &AgentIdentity,
     cwd: Option<&str>,
     conn_id: &str,
-    command: Option<String>,
 ) {
     let Some(app) = c.app_by_id(conn_id).cloned() else {
         return;
     };
     let line = {
-        let rule = c.rules.add(agent_key, agent, cwd, &app, command);
-        let what = match &rule.program.tools {
-            Some(tools) => format!("«{}» ({})", rule.label, tools.join(", ")),
-            None => format!("«{}»", rule.label),
-        };
+        let rule = c.rules.add(agent_key, agent, cwd, &app);
         match &rule.folder {
             Some(folder) => format!(
-                "always allowed from now: {} on {what} in {folder}",
-                rule.agent
+                "always allowed from now: {} on «{}» in {folder}",
+                rule.agent, rule.label
             ),
-            None => format!("always allowed from now: {} on {what}", rule.agent),
+            None => format!(
+                "always allowed from now: {} on «{}»",
+                rule.agent, rule.label
+            ),
         }
     };
     c.log(line);

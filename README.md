@@ -14,12 +14,13 @@ each of them.
   chained by a program: `clak list` shows what an agent can use, `clak <program> -h` its
   commands, and their calls compose in scripts and pipes. What would take an agent several
   MCP turns takes one command line. Clak installs a skill that teaches agents this.
-- **You give the permissions.** A program connects only once you allow it. Each command an
-  agent runs asks you, showing what it sends: you allow that call, that command for the
-  agent's session, or all the program's commands, or you block the program for that agent.
-  A permission ends with the agent, with the program's connection, or when you revoke it.
-  Who is asking comes from the system (the process, its executable and its signature), not
-  from what a program says about itself.
+- **You give the permissions.** A program connects only once you allow it. Each agent asks
+  you the first time it uses each program. Clak keeps each program's commands: one you
+  haven't approved asks at each call, showing what the agent sends, and one that changes
+  after you approved it asks again, showing what changed. You can also block a program for
+  an agent. A permission ends with the agent, with the program's connection, or when you
+  revoke it. Who is asking comes from the system (the process, its executable and its
+  signature), not from what a program says about itself.
 - **Each system's own means.** The Windows tray and the Mac menu bar, the system
   notifications, Mica on Windows 11 and glass on the Mac; the hub listens on loopback only,
   behind a token; secrets are kept with DPAPI on Windows and in the keychain on the Mac. On

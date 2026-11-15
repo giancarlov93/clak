@@ -1,16 +1,18 @@
 //! The hub: who is connected, who has permission for what, and the only place where
 //! permission is enforced. It never interprets the content of a command.
 //!
-//! Three registries and one rule. Programs connect (and the user allows it once per
-//! executable); agents connect (and the user allows it once per process); an agent runs a
-//! command only if the user allows it: that call, that command for the agent's session, or
-//! all the program's commands for it. A command that is new or changed after a yes for the
-//! session asks again; a program the user blocked is closed to the agent.
+//! Three registries and two rules. Programs connect (and the user allows it once per
+//! executable); agents connect (and the user allows it once per process). An agent uses a
+//! program only if the user lets it, for its session (or always); and it runs a command
+//! without asking only if the user approved that command as it is (`commands`), or allowed
+//! it for the agent's session. A command that is new, or changed since, asks; a program the
+//! user blocked is closed to the agent.
 //!
 //! All state lives in [`Core`], under a single lock taken by [`Broker::run`]: nothing waits
 //! in there. The waits (a question to the user, a program's answer) are outside, in
 //! [`Broker::consent`], [`Broker::confirm`] and in whoever waits for an answer.
 
+use crate::commands::{CommandCache, Status};
 use crate::consent::{AgentIdentity, ConsentRequest, HubOptions, Reply, Verdict};
 use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
@@ -98,6 +100,8 @@ pub struct AppConn {
     /// The key of its application in `apps.json` (executable and signature), for a program
     /// that connected from a process: a preset names the application by it.
     pub key: Option<String>,
+    /// All the commands it declared, also those not active now (see [`Core::observe`]).
+    manifest: Vec<ToolDef>,
     outbox: Outbox,
 }
 
@@ -227,18 +231,16 @@ pub struct ToolStats {
     pub seconds: f64,
 }
 
-/// An agent's permission on a program: there since the user allowed a first call, with the
-/// commands allowed for the session verbatim.
+/// An agent's permission on an instance of a program: there since the agent may use the
+/// program, with the commands allowed for its session verbatim.
 pub struct GrantEntry {
     pub id: String,
     /// The agent's key (pid and start time).
     pub session_key: String,
     pub app_id: String,
-    /// Name → digest: the commands that run without asking. A changed command is no longer
-    /// the approved one; after "only this call" there may be none.
+    /// Name → digest: the commands the user allowed for the agent's session, not approved
+    /// in Clak. A changed command is no longer the allowed one.
     pub approved: HashMap<String, String>,
-    /// The user allowed all the program's commands (those there then): for the panel.
-    pub all: bool,
     pub since: f64,
     /// Includes calls in progress; [`GrantEntry::finished`] only the recorded ones.
     pub calls: u64,
@@ -290,9 +292,11 @@ pub struct CallTarget {
     pub conn_id: String,
     pub tool: String,
     pub digest: String,
-    /// The agent's identity and folder, for the standing rules.
-    pub agent_key: Option<String>,
-    pub cwd: Option<String>,
+    /// Where the program's commands are in the cache, if they are.
+    pub cache_key: Option<String>,
+    /// The agent's preset or rule lists the commands it may run, and not this one: approved
+    /// or not, it asks.
+    pub restricted: bool,
 }
 
 impl CallTarget {
@@ -312,37 +316,74 @@ struct Block {
     session_key: String,
     /// Who, to tell when it has gone without having been authorized.
     agent: AgentIdentity,
-    target: Blocked,
+    target: ProgramRef,
     /// The program, as the user knows it.
     label: String,
     since: f64,
 }
 
-/// What a block closes: all the instances of a known application, a connector by its name,
-/// or the instance of a program nobody could identify.
+/// A program as a permission names it (to use it, or a block): all the instances of a known
+/// application, a server or an API by its id (which a rename doesn't change), or the
+/// instance of a program nobody could identify.
 #[derive(Debug, Clone, PartialEq)]
-enum Blocked {
+enum ProgramRef {
     App(String),
-    Name(String),
+    Service(String),
     Conn(String),
 }
 
-impl Blocked {
-    fn of(app: &AppConn) -> Blocked {
+impl ProgramRef {
+    fn of(app: &AppConn) -> ProgramRef {
         match &app.key {
-            Some(key) => Blocked::App(key.clone()),
-            None if app.is_connector() || app.is_hub() => Blocked::Name(app.name.clone()),
-            None => Blocked::Conn(app.conn_id.clone()),
+            Some(key) => ProgramRef::App(key.clone()),
+            None if app.is_connector() || app.is_hub() => {
+                ProgramRef::Service(app.resource.instance_id.clone())
+            }
+            None => ProgramRef::Conn(app.conn_id.clone()),
         }
     }
 
     fn covers(&self, app: &AppConn) -> bool {
         match self {
-            Blocked::App(key) => app.key.as_deref() == Some(key.as_str()),
-            Blocked::Name(name) => {
-                app.key.is_none() && (app.is_connector() || app.is_hub()) && app.name == *name
+            ProgramRef::App(key) => app.key.as_deref() == Some(key.as_str()),
+            ProgramRef::Service(id) => {
+                app.key.is_none()
+                    && (app.is_connector() || app.is_hub())
+                    && app.resource.instance_id == *id
             }
-            Blocked::Conn(id) => app.conn_id == *id,
+            ProgramRef::Conn(id) => app.conn_id == *id,
+        }
+    }
+}
+
+/// How an agent may use a program (see [`Core::may_use`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Access {
+    /// The user said yes, for the agent's session.
+    Granted,
+    /// The preset it was launched with covers it; with the commands it lists, if it does.
+    Preset(Option<Vec<String>>),
+    /// A standing rule covers it; with the commands it lists, if it does.
+    Rule(Option<Vec<String>>),
+}
+
+impl Access {
+    /// Whether the preset or the rule lists the commands, and not this one: then it asks,
+    /// approved or not.
+    pub fn restricts(&self, tool: &str) -> bool {
+        match self {
+            Access::Granted => false,
+            Access::Preset(tools) | Access::Rule(tools) => tools
+                .as_ref()
+                .is_some_and(|tools| !tools.iter().any(|t| t == tool)),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Access::Granted => "granted",
+            Access::Preset(_) => "preset",
+            Access::Rule(_) => "rule",
         }
     }
 }
@@ -411,6 +452,8 @@ pub struct Core {
     denied: HashMap<String, Instant>,
     /// The programs the user blocked, by id.
     blocks: IndexMap<String, Block>,
+    /// The programs each agent may use, by its key: the user said yes, for its session.
+    uses: Vec<(String, ProgramRef)>,
     /// "Only this call", answered on the web page: the call it was for, until the agent asks
     /// again.
     permits: HashMap<String, Instant>,
@@ -422,6 +465,8 @@ pub struct Core {
     pub usage: Usage,
     /// The permissions the user made standing.
     pub rules: Rules,
+    /// The programs' commands, and which ones the user approved.
+    pub commands: CommandCache,
     /// Each agent's identity for the rules (see `rules::agent_key`), by its process: read
     /// once, since an unsigned agent's content is hashed.
     pub agent_keys: HashMap<String, Option<String>>,
@@ -481,6 +526,7 @@ impl Core {
                 "status": a.status,
                 "since": float(a.since),
                 "tools": a.tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+                "cache": self.cache_key(a).map(|(key, ..)| key),
                 "health": self.health(&a.conn_id),
             })).collect::<Vec<_>>(),
             "grants": self.grants.values().filter_map(|g| {
@@ -492,7 +538,6 @@ impl Core {
                     "session_id": session.id,
                     "since": float(g.since),
                     "tools": app.tools.iter().filter(|t| g.approves(t)).map(|t| t.name.clone()).collect::<Vec<_>>(),
-                    "scope": if g.all { "all" } else if g.approved.is_empty() { "calls" } else { "some" },
                     "calls": g.calls,
                     "errors": g.errors,
                     "finished": g.finished,
@@ -518,6 +563,7 @@ impl Core {
             })).collect::<Vec<_>>(),
             "connectors": self.connectors,
             "apis": self.apis,
+            "commands": self.commands.summary(),
         })
     }
 
@@ -673,6 +719,7 @@ impl Core {
             status: None,
             instructions: None,
             key: None,
+            manifest: Vec::new(),
             outbox,
         };
         let line = format!(
@@ -685,10 +732,110 @@ impl Core {
         app.send(
             json!({ "type": "registered", "name": app.name, "protocol": clak_wire::PROTOCOL }),
         );
+        let connector = app.is_connector();
+        let tools = app.tools.clone();
         self.apps.insert(conn_id.clone(), app);
         self.log(line);
+        if connector {
+            self.observe(&conn_id, &tools);
+        }
         self.touch();
         conn_id
+    }
+
+    /// Where a program's commands are kept in the cache: an application by its key (all its
+    /// instances), a server or an API by its id, a program nobody identified by its
+    /// connection; Clak's settings nowhere. With its kind, its name for the user and, for a
+    /// server or an API, where it is.
+    pub fn cache_key(
+        &self,
+        app: &AppConn,
+    ) -> Option<(String, &'static str, String, Option<String>)> {
+        if app.is_hub() {
+            return None;
+        }
+        if let Some(key) = &app.key {
+            let label = self
+                .permissions
+                .get(key)
+                .map(|e| e.label.clone().unwrap_or_else(|| e.name.clone()))
+                .unwrap_or_else(|| app.resource.app.clone());
+            return Some((format!("app:{key}"), "app", label, None));
+        }
+        if app.is_connector() {
+            let kind = if app.origin.get("protocol").and_then(Value::as_str) == Some("rest") {
+                "api"
+            } else {
+                "mcp"
+            };
+            let origin = app
+                .origin
+                .get("url")
+                .or_else(|| app.origin.get("command"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            return Some((
+                format!("{kind}:{}", app.resource.instance_id),
+                kind,
+                app.resource.app.clone(),
+                origin,
+            ));
+        }
+        Some((
+            format!("conn:{}", app.conn_id),
+            "conn",
+            app.name.clone(),
+            None,
+        ))
+    }
+
+    /// The program offers these commands (all of them, also those not active now): the
+    /// cache takes them in. An application updated without a signature (a new key, the same
+    /// executable and name) first takes the approvals of the old one, for the same versions.
+    pub fn observe(&mut self, conn_id: &str, manifest: &[ToolDef]) {
+        let Some(app) = self.apps.get(conn_id) else {
+            return;
+        };
+        let Some((key, kind, label, origin)) = self.cache_key(app) else {
+            return;
+        };
+        // What the other instances of the same program offer: not missing.
+        let elsewhere: Vec<String> = self
+            .apps
+            .values()
+            .filter(|a| a.conn_id != conn_id)
+            .filter(|a| self.cache_key(a).is_some_and(|(k, ..)| k == key))
+            .flat_map(|a| a.manifest.iter().map(|t| t.name.clone()))
+            .collect();
+        if self.commands.get(&key).is_none()
+            && let Some(entry) = app.key.as_deref().and_then(|k| self.permissions.get(k))
+            && let Some(sibling) = self.permissions.all().iter().find(|e| {
+                e.key != entry.key
+                    && e.name == entry.name
+                    && e.exe.to_lowercase() == entry.exe.to_lowercase()
+                    && self.commands.get(&format!("app:{}", e.key)).is_some()
+            })
+        {
+            let from = format!("app:{}", sibling.key);
+            self.commands.inherit(&from, &key);
+        }
+        let observed =
+            self.commands
+                .observe(&key, kind, &label, origin.as_deref(), manifest, &elsewhere);
+        if let Some(app) = self.apps.get_mut(conn_id) {
+            app.manifest = manifest.to_vec();
+        }
+        if !observed.new.is_empty() || !observed.changed.is_empty() {
+            let mut line = format!("{label}: to review,");
+            if !observed.new.is_empty() {
+                line.push_str(&format!(" new {}", quoted(&observed.new)));
+            }
+            if !observed.changed.is_empty() {
+                line.push_str(&format!(" changed {}", quoted(&observed.changed)));
+            }
+            self.log(line);
+        }
+        self.touch();
     }
 
     pub fn app(&self, name: &str) -> Option<&AppConn> {
@@ -729,7 +876,17 @@ impl Core {
         };
         let before: Vec<String> = app.tools.iter().map(|t| t.name.clone()).collect();
         let after: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
-        app.tools = tools;
+        let connector = app.is_connector();
+        if connector {
+            let manifest = tools.clone();
+            app.tools = tools;
+            self.observe(conn_id, &manifest);
+        } else {
+            app.tools = tools;
+        }
+        let Some(app) = self.apps.get(conn_id) else {
+            return;
+        };
         let name = app.name.clone();
         let added: Vec<&String> = after.iter().filter(|n| !before.contains(n)).collect();
         let removed: Vec<&String> = before.iter().filter(|n| !after.contains(n)).collect();
@@ -853,9 +1010,17 @@ impl Core {
         let Some(app) = self.apps.shift_remove(conn_id) else {
             return;
         };
+        self.commands.forget(&format!("conn:{conn_id}"));
+        // A server or an API closes when the user changes it (its token, its variables, its
+        // address) or turns it off: who may use it starts over. An application's other
+        // instances, and those it opens later, keep it.
+        let program = ProgramRef::of(&app);
+        if !matches!(program, ProgramRef::App(_)) {
+            self.uses.retain(|(_, p)| *p != program);
+        }
         self.grants.retain(|_, g| g.app_id != conn_id);
         self.blocks
-            .retain(|_, b| b.target != Blocked::Conn(conn_id.to_owned()));
+            .retain(|_, b| b.target != ProgramRef::Conn(conn_id.to_owned()));
         let routed: Vec<String> = self
             .calls
             .iter()
@@ -882,6 +1047,8 @@ impl Core {
         if let Some(key) = key
             && self.permissions.forget(key)
         {
+            // What the user approved of it goes too: allowed again, it is a new program.
+            self.commands.forget(&format!("app:{key}"));
             self.log("program removed from the allowed ones");
         }
         self.touch();
@@ -966,6 +1133,8 @@ impl Core {
         let shown = entry.label.clone().unwrap_or_else(|| entry.name.clone());
         self.permissions.moved(key, to, origin);
         self.rules.follow(key, to, &shown);
+        self.commands
+            .follow(&format!("app:{key}"), &format!("app:{to}"));
         let exe = origin.get("exe").and_then(Value::as_str).unwrap_or("");
         self.log(format!("application moved: {shown} → {exe}"));
         self.touch();
@@ -1078,6 +1247,7 @@ impl Core {
         if reason == "harness_gone" {
             self.blocks.retain(|_, b| b.session_key != key);
         }
+        self.uses.retain(|(session, _)| *session != key);
         self.permits
             .retain(|call, _| !call.starts_with(&format!("call:{key}:")));
         let ended: Vec<String> = self
@@ -1125,26 +1295,91 @@ impl Core {
         self.grants.get_mut(grant_id)
     }
 
-    /// The user said yes to a command: the agent's permission on the program (made if it
-    /// isn't there yet), and what the yes allows for the session, verbatim (name and digest)
-    /// as the question showed it: nothing more for "only this call", the command for
-    /// "this command", all the commands shown for "all". One added or changed while the
-    /// question was open asks on its own. Returns the permission's id.
-    pub fn allow_call(
+    /// How the agent may use the program, if it may: the user said yes for its session, or
+    /// the preset it was launched with, or a standing rule, covers it. With the commands it
+    /// may run, when the preset or the rule lists them (the others ask, even if approved).
+    pub fn may_use(
+        &self,
+        session_key: &str,
+        agent_key: Option<&str>,
+        cwd: Option<&str>,
+        app: &AppConn,
+    ) -> Option<Access> {
+        if self
+            .uses
+            .iter()
+            .any(|(session, program)| session == session_key && program.covers(app))
+        {
+            return Some(Access::Granted);
+        }
+        if let Some(program) = self.preset_program(session_key, &app.conn_id) {
+            return Some(Access::Preset(program.tools.clone()));
+        }
+        agent_key
+            .and_then(|k| self.rules.allowed(k, cwd, app))
+            .map(Access::Rule)
+    }
+
+    /// The user lets the agent use the program, for its session: all the instances of the
+    /// application. The agent is connected if it isn't yet, and gets its permission on this
+    /// instance. Returns the agent's key.
+    pub fn allow_use(
+        &mut self,
+        agent: &AgentIdentity,
+        cwd: Option<&str>,
+        via: &str,
+        conn_id: &str,
+    ) -> Option<String> {
+        let program = ProgramRef::of(self.apps.get(conn_id)?);
+        let session = self.authorize(agent, cwd, via);
+        if !self
+            .uses
+            .iter()
+            .any(|(s, p)| *s == session && *p == program)
+        {
+            self.uses.push((session.clone(), program));
+        }
+        self.enter(&session, conn_id);
+        Some(session)
+    }
+
+    /// The agent's permission on this instance of a program it may use, made if it isn't
+    /// there: the program is told who uses it. Returns its id.
+    pub fn enter(&mut self, session_key: &str, conn_id: &str) -> Option<String> {
+        self.grant_tools(session_key, conn_id, |_| false)
+    }
+
+    /// The user allowed these commands, as they were, for the agent's session.
+    pub fn allow_for_session(
         &mut self,
         session_key: &str,
         conn_id: &str,
         allowed: &[(String, String)],
-        all: bool,
     ) -> Option<String> {
-        let id = self.grant_tools(session_key, conn_id, |_| false)?;
+        let id = self.enter(session_key, conn_id)?;
         let grant = self.grants.get_mut(&id)?;
         for (name, digest) in allowed {
             grant.approved.insert(name.clone(), digest.clone());
         }
-        grant.all |= all;
         self.touch();
         Some(id)
+    }
+
+    /// Whether the command runs for this agent without asking, as it is now: approved in
+    /// Clak (and, if the agent's preset or rule lists commands, among them), or allowed for
+    /// the agent's session. Clak's settings: everything the session allowed.
+    pub fn runs(&self, session_key: &str, conn_id: &str, tool: &ToolDef, restricted: bool) -> bool {
+        let Some(app) = self.apps.get(conn_id) else {
+            return false;
+        };
+        let session = self
+            .grant_of(session_key, conn_id)
+            .is_some_and(|g| g.approves(tool));
+        let approved = !restricted
+            && self
+                .cache_key(app)
+                .is_some_and(|(key, ..)| self.commands.status(&key, tool) == Status::Approved);
+        session || approved
     }
 
     /// "Only this call", answered on the web page: the agent's next identical call runs once.
@@ -1167,7 +1402,7 @@ impl Core {
             return;
         };
         let session_key = agent.key();
-        let target = Blocked::of(app);
+        let target = ProgramRef::of(app);
         let label = match &app.key {
             Some(_) => app.resource.app.clone(),
             None => app.name.clone(),
@@ -1200,6 +1435,8 @@ impl Core {
                 app.send(json!({ "type": "revoked", "grant_id": grant.id, "reason": "blocked", "harness": who }));
             }
         }
+        self.uses
+            .retain(|(s, p)| !(*s == session_key && *p == target));
         let block = Block {
             id: new_id("block"),
             session_key,
@@ -1247,82 +1484,26 @@ impl Core {
         }
     }
 
-    /// Whether the preset the agent was launched with, or a standing rule, allows this
-    /// command although its permission doesn't yet: then it does from now on, as it is. Not
-    /// for a command it allowed in another version: a changed command asks.
-    fn covers(
-        &self,
-        session_key: &str,
-        agent_key: Option<&str>,
-        cwd: Option<&str>,
-        conn_id: &str,
-        tool: &str,
-    ) -> bool {
-        let Some(app) = self.apps.get(conn_id) else {
-            return false;
-        };
-        let grant = self.grant_of(session_key, conn_id);
-        if grant.is_none() || grant.is_some_and(|g| g.approved.contains_key(tool)) {
-            return false;
-        }
-        self.preset_program(session_key, conn_id)
-            .is_some_and(|p| p.covers(tool))
-            || agent_key
-                .and_then(|k| self.rules.allowed(k, cwd, app))
-                .is_some_and(|tools| tools.is_none_or(|t| t.iter().any(|n| n == tool)))
-    }
-
-    /// As [`Core::covers`], and the command joins the permission.
-    pub fn standing(
-        &mut self,
-        session_key: &str,
-        agent_key: Option<&str>,
-        cwd: Option<&str>,
-        conn_id: &str,
-        tool: &ToolDef,
-    ) -> bool {
-        if !self.covers(session_key, agent_key, cwd, conn_id, &tool.name) {
-            return false;
-        }
-        let Some(grant) = self
-            .grants
-            .values_mut()
-            .find(|g| g.session_key == session_key && g.app_id == conn_id)
-        else {
-            return false;
-        };
-        grant
-            .approved
-            .insert(tool.name.clone(), tool.digest.clone());
-        self.touch();
-        true
-    }
-
-    /// After an answer about one of the agent's commands: the other questions about its
-    /// calls that the answer covers are settled without the user — allowed if the command is
-    /// now allowed for the session (or by a rule the answer made), refused if the program is
-    /// now blocked — and their windows withdrawn.
-    pub fn settle_calls(&mut self, session_key: &str) {
+    /// After an answer about one of the agent's commands (or a command approved in the
+    /// panel, for every agent: `None`): the other questions about calls that are now
+    /// covered are settled without the user — allowed if the command now runs, refused if
+    /// the program is now blocked — and their windows withdrawn.
+    pub fn settle_calls(&mut self, session_key: Option<&str>) {
         let settled: Vec<(String, Verdict)> = self
             .pending
             .iter()
             .filter_map(|(key, p)| {
-                let call = p.call.as_ref().filter(|c| c.session_key == session_key)?;
+                let call = p
+                    .call
+                    .as_ref()
+                    .filter(|c| session_key.is_none_or(|s| c.session_key == s))?;
                 let app = self.apps.get(&call.conn_id)?;
-                if self.blocks(session_key, app) {
+                if self.blocks(&call.session_key, app) {
                     return Some((key.clone(), Verdict::Blocked));
                 }
-                let approved = self
-                    .grant_of(session_key, &call.conn_id)
-                    .is_some_and(|g| g.approved.get(&call.tool) == Some(&call.digest));
-                (approved
-                    || self.covers(
-                        session_key,
-                        call.agent_key.as_deref(),
-                        call.cwd.as_deref(),
-                        &call.conn_id,
-                        &call.tool,
-                    ))
+                let tool = app.tools.iter().find(|t| t.name == call.tool)?;
+                (tool.digest == call.digest
+                    && self.runs(&call.session_key, &call.conn_id, tool, call.restricted))
                 .then(|| (key.clone(), Verdict::Allowed))
             })
             .collect();
@@ -1358,7 +1539,6 @@ impl Core {
                 .filter(|t| approve(t))
                 .map(|t| (t.name.clone(), t.digest.clone()))
                 .collect(),
-            all: false,
             since: now(),
             calls: 0,
             errors: 0,
@@ -1405,15 +1585,31 @@ impl Core {
             session.label(),
             app.name
         );
-        let id = grant.id.clone();
+        let session_key = grant.session_key.clone();
         let label = session.label();
-        let unused = format!("call:{}:{}:", grant.session_key, grant.app_id);
-        self.permits.retain(|call, _| !call.starts_with(&unused));
+        // The agent may no longer use the program: on any of its instances, until it asks
+        // again.
+        let program = ProgramRef::of(app);
+        self.uses
+            .retain(|(s, p)| !(*s == session_key && *p == program));
+        let ended: Vec<String> = self
+            .grants
+            .values()
+            .filter(|g| {
+                g.session_key == session_key
+                    && self.apps.get(&g.app_id).is_some_and(|a| program.covers(a))
+            })
+            .map(|g| g.id.clone())
+            .collect();
         self.log(line);
-        if let Some(grant) = self.grants.shift_remove(&id)
-            && let Some(app) = self.apps.get(&grant.app_id)
-        {
-            app.send(json!({ "type": "revoked", "grant_id": grant.id, "reason": "user", "harness": label }));
+        for id in ended {
+            if let Some(grant) = self.grants.shift_remove(&id) {
+                let unused = format!("call:{}:{}:", grant.session_key, grant.app_id);
+                self.permits.retain(|call, _| !call.starts_with(&unused));
+                if let Some(app) = self.apps.get(&grant.app_id) {
+                    app.send(json!({ "type": "revoked", "grant_id": grant.id, "reason": "user", "harness": label }));
+                }
+            }
         }
         self.touch();
     }
@@ -1531,20 +1727,16 @@ impl Core {
         preset.program_for(self.apps.get(conn_id)?)
     }
 
-    /// The permission a preset gives on a program: its commands only (all, if it doesn't
-    /// list them). None if the session's preset doesn't cover the program.
+    /// The permission a preset gives on a program: the agent uses it without a question (the
+    /// commands it lists, if it lists them; approved or allowed for the session, the others
+    /// ask). None if the session's preset doesn't cover the program.
     pub fn preset_grant(&mut self, session_key: &str, conn_id: &str) -> Option<String> {
-        let program = self.preset_program(session_key, conn_id)?.clone();
-        let new = self.grant_of(session_key, conn_id).is_none();
-        let id = self.grant_tools(session_key, conn_id, |tool| program.covers(&tool.name))?;
-        if new && program.tools.is_none() {
-            self.grants.get_mut(&id)?.all = true;
-        }
-        Some(id)
+        self.preset_program(session_key, conn_id)?;
+        self.enter(session_key, conn_id)
     }
 
     /// The permission a standing rule gives: the agent (by `agent_key`, its identity) in its
-    /// folder on the program, without a question, the session authorized if it is new.
+    /// folder uses the program without a question, the session authorized if it is new.
     /// None if no rule covers them.
     pub fn rule_grant(
         &mut self,
@@ -1555,7 +1747,7 @@ impl Core {
         conn_id: &str,
     ) -> Option<String> {
         let app = self.apps.get(conn_id)?;
-        let allowed = self.rules.allowed(agent_key, cwd, app)?;
+        self.rules.allowed(agent_key, cwd, app)?;
         let label = self
             .rules
             .find(agent_key, cwd, app)
@@ -1563,20 +1755,15 @@ impl Core {
             .unwrap_or_default();
         let session = self.authorize(agent, cwd, via);
         let new = self.grant_of(&session, conn_id).is_none();
-        let grant = self.grant_tools(&session, conn_id, |tool| {
-            allowed
-                .as_ref()
-                .is_none_or(|tools| tools.contains(&tool.name))
-        })?;
-        if new && allowed.is_none() {
-            self.grants.get_mut(&grant)?.all = true;
+        let grant = self.enter(&session, conn_id)?;
+        if new {
+            let who = self
+                .sessions
+                .get(&session)
+                .map(SessionEntry::label)
+                .unwrap_or_default();
+            self.log(format!("{who} uses «{label}»: always allowed"));
         }
-        let who = self
-            .sessions
-            .get(&session)
-            .map(SessionEntry::label)
-            .unwrap_or_default();
-        self.log(format!("{who} uses «{label}»: always allowed"));
         Some(grant)
     }
 
@@ -1593,35 +1780,128 @@ impl Core {
     }
 
     // =====================================================================
+    // The commands, as the user decides about them in the panel
+    // =====================================================================
+
+    /// A program's commands for the panel: state, what changed, when approved.
+    pub fn panel_commands(&self, key: Option<&str>) -> Value {
+        let mut reply = self.commands.panel(key.unwrap_or(""));
+        reply["type"] = json!("commands");
+        reply
+    }
+
+    /// The user sets a command's state in the panel: approved (as the user saw it,
+    /// `digest`), asking every time, or off. Asking or off also takes it back from the
+    /// agents that had it for their session. The questions it now answers are settled.
+    pub fn set_command_state(
+        &mut self,
+        key: Option<&str>,
+        name: Option<&str>,
+        state: Option<&str>,
+        digest: Option<&str>,
+    ) {
+        let (Some(key), Some(name), Some(state)) =
+            (key, name, state.and_then(crate::commands::State::parse))
+        else {
+            return;
+        };
+        if !self.commands.set_state(key, name, state, digest) {
+            return;
+        }
+        if state != crate::commands::State::Approved {
+            self.take_back(key, Some(name));
+        }
+        let label = self
+            .commands
+            .get(key)
+            .map(|p| p.label.clone())
+            .unwrap_or_default();
+        self.log(format!(
+            "“{name}” of {label}: {} in the panel",
+            state.as_str()
+        ));
+        self.settle_calls(None);
+        self.touch();
+    }
+
+    /// The commands allowed for the session on the program's instances, taken back: one
+    /// (`name`), or all of them.
+    fn take_back(&mut self, key: &str, name: Option<&str>) {
+        let conns: Vec<String> = self
+            .apps
+            .values()
+            .filter(|a| self.cache_key(a).is_some_and(|(k, ..)| k == key))
+            .map(|a| a.conn_id.clone())
+            .collect();
+        for grant in self
+            .grants
+            .values_mut()
+            .filter(|g| conns.contains(&g.app_id))
+        {
+            match name {
+                Some(name) => {
+                    grant.approved.remove(name);
+                }
+                None => grant.approved.clear(),
+            }
+        }
+    }
+
+    /// The commands the user saw (`shown`: name and digest), approved in the panel.
+    pub fn approve_all_commands(&mut self, key: Option<&str>, shown: &[(String, String)]) {
+        let Some(key) = key else {
+            return;
+        };
+        let count = self.commands.approve_all(key, "panel", Some(shown));
+        let label = self
+            .commands
+            .get(key)
+            .map(|p| p.label.clone())
+            .unwrap_or_default();
+        self.log(format!("{label}: {count} commands approved in the panel"));
+        self.settle_calls(None);
+        self.touch();
+    }
+
+    /// All the program's approvals go, and what agents had for their session: every
+    /// command asks again.
+    pub fn reset_commands(&mut self, key: Option<&str>) {
+        if let Some(key) = key {
+            self.commands.reset(key);
+            self.take_back(key, None);
+            self.log(format!("{key}: approvals reset in the panel"));
+            self.touch();
+        }
+    }
+
+    /// The commands the program no longer offers are forgotten. From the channel, not the
+    /// ones turned off: forgotten, one would come back asking.
+    pub fn forget_missing_commands(&mut self, key: Option<&str>, inside: bool) {
+        if let Some(key) = key {
+            self.commands.forget_missing(key, !inside);
+            self.touch();
+        }
+    }
+
+    // =====================================================================
     // What an agent sees
     // =====================================================================
 
     /// The connected programs as an agent sees them, each with how it may use it (`access`):
-    /// `granted` (all its commands run without asking, for the session), `some` (some of
-    /// them do), `preset` (the preset it was launched with covers it), `rule` (an "Always
-    /// allow" covers it), `blocked` (the user closed it to the agent), or null (each command
-    /// asks the user). `agent_key` and `cwd` are the agent's, for the rules.
+    /// `granted` (the user let it, for its session), `preset` (the preset it was launched
+    /// with covers it), `rule` (an "Always allow" covers it), `blocked` (the user closed it
+    /// to the agent), or null (the first use asks the user). The commands the user hasn't
+    /// approved still ask. `agent_key` and `cwd` are the agent's, for the rules.
     pub fn listing(&self, session_key: &str, agent_key: Option<&str>, cwd: Option<&str>) -> Value {
         Value::Array(
             self.apps
                 .values()
                 .map(|a| {
-                    let grant = self.grant_of(session_key, &a.conn_id);
-                    let approved = |g: &GrantEntry| a.tools.iter().filter(|t| g.approves(t)).count();
                     let access = if self.blocks(session_key, a) {
                         Some("blocked")
-                    } else if let Some(g) = grant {
-                        match approved(g) {
-                            0 => None,
-                            n if n == a.tools.len() => Some("granted"),
-                            _ => Some("some"),
-                        }
-                    } else if self.preset_program(session_key, &a.conn_id).is_some() {
-                        Some("preset")
-                    } else if agent_key.is_some_and(|k| self.rules.find(k, cwd, a).is_some()) {
-                        Some("rule")
                     } else {
-                        None
+                        self.may_use(session_key, agent_key, cwd, a)
+                            .map(|access| access.as_str())
                     };
                     json!({
                         "name": a.name,
@@ -1632,8 +1912,8 @@ impl Core {
                             Some(status) => format!("{} — {status}", origin_short(&a.origin)),
                             None => origin_short(&a.origin),
                         },
-                        "tools": a.tools.len(),
-                        "allowed": matches!(access, Some("granted" | "some")),
+                        "tools": a.tools.iter().filter(|t| self.status_of(a, t) != Status::Off).count(),
+                        "allowed": matches!(access, Some("granted" | "preset" | "rule")),
                         "access": access,
                         "preset": (access == Some("preset"))
                             .then(|| self.sessions.get(session_key).and_then(|s| s.preset.as_ref()).map(|p| p.name.clone()))
@@ -1644,14 +1924,28 @@ impl Core {
         )
     }
 
+    /// The command as the user decided in Clak, for its version now. Clak's settings are
+    /// Clak's own: approved.
+    pub fn status_of(&self, app: &AppConn, tool: &ToolDef) -> Status {
+        match self.cache_key(app) {
+            Some((key, ..)) => self.commands.status(&key, tool),
+            None => Status::Approved,
+        }
+    }
+
+    /// A program's commands as the agent sees them, each with whether it runs without
+    /// asking (`approved`) and how Clak knows it (`status`). The ones the user turned off
+    /// aren't there. `agent_key` and `cwd` are the agent's, for the rules.
     pub fn describe(
         &self,
         session_key: &str,
+        agent_key: Option<&str>,
+        cwd: Option<&str>,
         conn_id: &str,
         query: Option<&str>,
     ) -> Option<Map<String, Value>> {
         let app = self.apps.get(conn_id)?;
-        let grant = self.grant_of(session_key, conn_id);
+        let access = self.may_use(session_key, agent_key, cwd, app);
         let terms: Vec<String> = query
             .unwrap_or("")
             .split(' ')
@@ -1662,6 +1956,7 @@ impl Core {
         let tools: Vec<Value> = app
             .tools
             .iter()
+            .filter(|t| self.status_of(app, t) != Status::Off)
             .filter(|t| {
                 let name = t.name.to_lowercase();
                 let description = t.description.to_lowercase();
@@ -1671,7 +1966,10 @@ impl Core {
             })
             .map(|t| {
                 let mut item = t.to_json();
-                item["approved"] = Value::Bool(grant.is_some_and(|g| g.approves(t)));
+                let restricted = access.as_ref().is_some_and(|a| a.restricts(&t.name));
+                item["approved"] =
+                    Value::Bool(access.is_some() && self.runs(session_key, conn_id, t, restricted));
+                item["status"] = Value::String(self.status_of(app, t).as_str().into());
                 item
             })
             .collect();
@@ -1679,7 +1977,7 @@ impl Core {
             "name": app.name,
             "app": app.resource.app,
             "title": app.resource.title,
-            "allowed": grant.is_some(),
+            "allowed": access.is_some() && !self.blocks(session_key, app),
             "instructions": app.instructions,
             "tools": tools,
         });
@@ -2004,6 +2302,7 @@ impl Broker {
             pending: IndexMap::new(),
             denied: HashMap::new(),
             blocks: IndexMap::new(),
+            uses: Vec::new(),
             permits: HashMap::new(),
             confirms: IndexMap::new(),
             monitors: IndexMap::new(),
@@ -2011,6 +2310,7 @@ impl Broker {
             dirty: false,
             usage: Usage::default(),
             rules: Rules::default(),
+            commands: CommandCache::default(),
             agent_keys: HashMap::new(),
             sink,
             connectors: json!([]),
@@ -2109,6 +2409,24 @@ impl Broker {
         });
         match self
             .consent_with(key, build, allow, None, gone, None)
+            .await?
+        {
+            Asked::Verdict(verdict) => Ok(verdict),
+            Asked::Link(_) => unreachable!("without a link the question is waited for"),
+        }
+    }
+
+    /// As [`Broker::consent`], with the user's reply: the question may offer more than yes
+    /// and no (a box to tick).
+    pub async fn consent_reply(
+        &self,
+        key: &str,
+        build: impl FnOnce(String, &Core) -> ConsentRequest,
+        allow: impl FnOnce(&mut Core, Reply) + Send + 'static,
+        gone: &CancellationToken,
+    ) -> Result<Verdict, Gone> {
+        match self
+            .consent_with(key, build, Box::new(allow), None, gone, None)
             .await?
         {
             Asked::Verdict(verdict) => Ok(verdict),
@@ -2296,13 +2614,19 @@ impl Broker {
                     return None;
                 }
                 let mut pending = c.pending.shift_remove(&key)?;
-                // Only a command's question can block.
+                // Only a question that offers it can block.
+                let offers_block = pending
+                    .request
+                    .choices
+                    .as_ref()
+                    .is_some_and(|c| c.block.is_some());
                 let (verdict, reply) = match verdict {
-                    Verdict::Blocked if pending.call.is_none() => {
-                        (Verdict::Denied, Some(Reply::Deny))
-                    }
+                    Verdict::Blocked if !offers_block => (Verdict::Denied, Some(Reply::Deny)),
                     _ => (verdict, reply),
                 };
+                // Only what the question offered: whoever showed it may have sent more.
+                let reply = reply
+                    .map(|r| crate::consent::Choices::allowed(pending.request.choices.as_ref(), r));
                 match (verdict, reply) {
                     (Verdict::Allowed | Verdict::Blocked, Some(reply)) => {
                         c.log(format!(
@@ -2338,7 +2662,7 @@ impl Broker {
                 if let Some(call) = &pending.call
                     && matches!(verdict, Verdict::Allowed | Verdict::Blocked)
                 {
-                    broker.run(|c| c.settle_calls(&call.session_key));
+                    broker.run(|c| c.settle_calls(Some(&call.session_key)));
                 }
             }
         });

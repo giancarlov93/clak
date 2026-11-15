@@ -14,10 +14,11 @@ use tokio_util::sync::CancellationToken;
 pub enum ConsentKind {
     /// An agent wants to connect to the hub: to see which programs are there.
     Session,
-    /// An agent wants to run a command of a program: every call asks, unless the user
-    /// allowed that command, or all the program's commands, for the agent's session.
+    /// An agent wants to run a command the user hasn't approved (new, changed, or set to ask
+    /// every time).
     Call,
-    /// An agent wants to use Clak's own settings, for its session: every change asks anyway.
+    /// An agent wants to use a program, for its session: asked the first time, even when
+    /// all the program's commands are approved. Also Clak's own settings.
     Use,
     /// A program wants to connect to the hub.
     App,
@@ -56,12 +57,14 @@ impl ConsentLine {
     }
 }
 
-/// A command as the agent will see it. `note` says whether it is new or changed.
-#[derive(Debug, Clone, PartialEq)]
+/// A command as the agent will see it. `note` says whether it is new or changed; `changes`
+/// what changed since the user approved it.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConsentTool {
     pub name: String,
     pub description: String,
     pub note: Option<String>,
+    pub changes: Vec<ConsentLine>,
 }
 
 /// A question for the user. The hub composes it, not whoever shows it: so the words are the
@@ -83,25 +86,47 @@ pub struct ConsentRequest {
     /// What the agent sends with a command, one line per argument, already cleaned and with
     /// what looks like a secret masked: only in a command's question.
     pub arguments: Vec<ConsentLine>,
-    /// The wider answers a command's question offers, in words.
-    pub choices: Option<CallChoices>,
+    /// What the question offers besides yes and no, in words.
+    pub choices: Option<Choices>,
 }
 
-/// What a command's question offers besides "only this call" and "deny". The window shows
-/// the scopes as a choice, "always" as a box to tick with the scope, and the block as a
-/// button of its own.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CallChoices {
-    /// «“get_text” for this session».
-    pub command: String,
-    /// «All 3 commands of Notion for this session».
-    pub program: String,
+/// What a question offers besides yes and no. The window shows the scopes as a choice (the
+/// first is the default), "always" as a box to tick, never ticked from the start, and the
+/// block as a button of its own.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Choices {
+    /// How far a yes goes: «Only this call», «For this agent's session», «Approve…».
+    pub scopes: Vec<(Scope, String)>,
+    /// The offer to make the yes standing, when it can be.
+    pub always: Option<String>,
     /// «Block Notion for Claude Code».
-    pub block: String,
-    /// The offer to make the command's yes standing, when it can be.
-    pub always_command: Option<String>,
-    /// The same for all the program's commands.
-    pub always_program: Option<String>,
+    pub block: Option<String>,
+}
+
+impl Choices {
+    /// The reply as the question allows it: a scope it doesn't offer is the first one,
+    /// "always" only if offered, a block only if offered.
+    pub fn allowed(choices: Option<&Choices>, reply: Reply) -> Reply {
+        let Some(choices) = choices else {
+            return if reply.allows() {
+                Reply::YES
+            } else {
+                Reply::Deny
+            };
+        };
+        match reply {
+            Reply::Block if choices.block.is_none() => Reply::Deny,
+            Reply::Allow { scope, always } => Reply::Allow {
+                scope: if choices.scopes.iter().any(|(s, _)| *s == scope) {
+                    scope
+                } else {
+                    choices.scopes.first().map_or(Scope::Once, |(s, _)| *s)
+                },
+                always: always && choices.always.is_some(),
+            },
+            reply => reply,
+        }
+    }
 }
 
 impl ConsentRequest {
@@ -119,16 +144,14 @@ impl ConsentRequest {
             "question": self.question,
             "who": lines(&self.who),
             "what": lines(&self.what),
-            "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note })).collect::<Vec<_>>(),
+            "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note, "changes": lines(&t.changes) })).collect::<Vec<_>>(),
             "warning": self.warning,
             "note": self.note,
             "arguments": lines(&self.arguments),
             "choices": self.choices.as_ref().map(|c| json!({
-                "command": c.command,
-                "program": c.program,
+                "scopes": c.scopes.iter().map(|(s, label)| json!({ "value": s.as_str(), "label": label })).collect::<Vec<_>>(),
+                "always": c.always,
                 "block": c.block,
-                "always_command": c.always_command,
-                "always_program": c.always_program,
             })),
         })
     }
@@ -140,17 +163,26 @@ pub enum Scope {
     /// This call only.
     Once,
     /// This command, as it is now, for the agent's session.
-    Command,
-    /// All the program's commands the question showed, for the agent's session.
-    Program,
+    Session,
+    /// This command, as it is now, approved in Clak: it runs for every agent the user lets
+    /// use the program, until it changes.
+    Approve,
 }
 
 impl Scope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Scope::Once => "once",
+            Scope::Session => "session",
+            Scope::Approve => "approve",
+        }
+    }
+
     pub fn parse(text: &str) -> Option<Scope> {
         match text {
             "once" => Some(Scope::Once),
-            "command" => Some(Scope::Command),
-            "program" => Some(Scope::Program),
+            "session" => Some(Scope::Session),
+            "approve" => Some(Scope::Approve),
             _ => None,
         }
     }

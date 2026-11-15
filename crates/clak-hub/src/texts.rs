@@ -2,8 +2,9 @@
 //! that connects: here they are cleaned up and shortened, because they end up in a window
 //! that asks for a permission.
 
+use crate::commands::Status;
 use crate::consent::{
-    AgentIdentity, CallChoices, ConsentKind, ConsentLine, ConsentRequest, ConsentTool,
+    AgentIdentity, Choices, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, Scope,
     SettingsChange,
 };
 use crate::core::{AppConn, slim};
@@ -24,7 +25,7 @@ pub fn session(id: String, agent: &AgentIdentity, cwd: Option<&str>) -> ConsentR
         what: vec![],
         tools: vec![],
         warning: None,
-        note: "Valid while this process stays open. Each command of a program will ask you on its own."
+        note: "Valid while this process stays open. Using a program will ask you on its own."
             .into(),
     }
 }
@@ -35,7 +36,7 @@ fn tools_of(app: &AppConn) -> Vec<ConsentTool> {
         .map(|t| ConsentTool {
             name: t.name.clone(),
             description: clean(Some(&t.description), 400),
-            note: None,
+            ..ConsentTool::default()
         })
         .collect()
 }
@@ -74,47 +75,118 @@ pub fn use_settings(
     }
 }
 
-/// What a command's question is about.
-pub struct CallQuestion<'a> {
+/// What the question to use a program is about.
+pub struct UseQuestion<'a> {
     pub agent: &'a AgentIdentity,
     pub cwd: Option<&'a str>,
     /// The agent isn't connected yet: a yes connects it too.
     pub new_session: bool,
     pub app: &'a AppConn,
-    pub tool: &'a ToolDef,
-    pub arguments: Option<&'a Map<String, Value>>,
-    /// Why the command asks although the user said yes before: it `changed` since they
-    /// allowed it, or it is `new` since they allowed all the program's commands.
-    pub note: Option<&'static str>,
+    /// Each command as Clak knows it: approved, or asking.
+    pub statuses: Vec<Status>,
     /// A yes can become a standing rule: the agent and the program can be recognized next
     /// time.
     pub standing: bool,
 }
 
-/// An agent wants to run a command: every call asks, and the answer says how far a yes goes.
+/// An agent wants to use a program: asked the first time, for its session, even when all
+/// the program's commands are approved. The commands that aren't still ask on their own.
+pub fn use_app(id: String, q: &UseQuestion) -> ConsentRequest {
+    let (agent, app) = (q.agent, q.app);
+    let program = clean(Some(&app.resource.app), 80);
+    let title = clean(Some(&app.resource.title), 80);
+    let approved = q
+        .statuses
+        .iter()
+        .filter(|s| **s == Status::Approved)
+        .count();
+    let off = q.statuses.iter().filter(|s| **s == Status::Off).count();
+    let asking = q.statuses.len() - approved - off;
+    let mut what = what(app);
+    let mut counts = vec![format!("{approved} approved")];
+    if asking > 0 {
+        counts.push(format!("{asking} will ask you"));
+    }
+    if off > 0 {
+        counts.push(format!("{off} turned off"));
+    }
+    what.push(ConsentLine::new("Its commands", counts.join(" · ")));
+    let tools = app
+        .tools
+        .iter()
+        .zip(&q.statuses)
+        .filter(|(_, s)| **s != Status::Off)
+        .map(|(t, s)| ConsentTool {
+            name: t.name.clone(),
+            description: clean(Some(&t.description), 400),
+            note: match s {
+                Status::Approved => None,
+                Status::Changed => Some("changed".into()),
+                Status::New => Some("new".into()),
+                Status::Ask | Status::Off => Some("asks".into()),
+            },
+            ..ConsentTool::default()
+        })
+        .collect();
+    let also = if q.new_session {
+        " If you allow, the agent also connects to Clak."
+    } else {
+        ""
+    };
+    let instances = if app.key.is_some() {
+        format!(", for all the instances of {program}")
+    } else {
+        String::new()
+    };
+    ConsentRequest {
+        id,
+        kind: ConsentKind::Use,
+        title: format!("{} wants to use {program}", agent.name),
+        question: format!("Allow {} to use {program} — {title}?", agent.name),
+        who: who(agent, q.cwd),
+        what,
+        tools,
+        warning: insecure(app),
+        note: format!(
+            "Valid while the agent's process stays open{instances}; you can revoke it from the panel. The commands you haven't approved will still ask you.{also}"
+        ),
+        arguments: vec![],
+        choices: Some(Choices {
+            scopes: vec![],
+            always: q.standing.then(|| always(agent, q.cwd, app)),
+            block: Some(format!("Block {program} for {}", agent.name)),
+        }),
+    }
+}
+
+/// What a command's question is about.
+pub struct CallQuestion<'a> {
+    pub agent: &'a AgentIdentity,
+    pub cwd: Option<&'a str>,
+    pub app: &'a AppConn,
+    pub tool: &'a ToolDef,
+    pub arguments: Option<&'a Map<String, Value>>,
+    /// The command as Clak knows it: new, changed since the user approved it, or set to ask
+    /// every time.
+    pub status: Status,
+    /// What changed since it was approved.
+    pub changes: Vec<ConsentLine>,
+}
+
+/// An agent wants to run a command the user hasn't approved: the answer says how far a yes
+/// goes — this call, the command for the agent's session, or the command approved in Clak
+/// for every agent allowed to use the program.
 pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
     let (agent, app, tool) = (q.agent, q.app, q.tool);
     let program = clean(Some(&app.resource.app), 80);
     let title = clean(Some(&app.resource.title), 80);
     let command = clean(Some(&tool.name), 64);
-    let names: Vec<String> = app.tools.iter().map(|t| clean(Some(&t.name), 64)).collect();
-    let mut what = what(app);
-    what.push(ConsentLine::new(
-        if names.len() == 1 {
-            "Its command"
-        } else {
-            "Its commands"
-        },
-        list(&names),
-    ));
     let warning = [
-        match q.note {
-            Some("changed") => Some(
-                "The description or parameters of this command changed since you allowed it: review them again.",
+        match q.status {
+            Status::Changed => Some(
+                "The description or parameters of this command changed since you approved it: see what changed.",
             ),
-            Some("new") => Some(
-                "This command wasn't there when you allowed all of the program's commands.",
-            ),
+            Status::New => Some("A command you haven't approved yet."),
             _ => None,
         }
         .map(str::to_owned),
@@ -123,16 +195,6 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
     .into_iter()
     .flatten()
     .collect::<Vec<_>>();
-    let also = if q.new_session {
-        " If you allow, the agent also connects to Clak."
-    } else {
-        ""
-    };
-    let lasts = if app.is_connector() {
-        "while the agent's process stays open and the connector stays active"
-    } else {
-        "while the agent's process stays open and this instance stays connected"
-    };
     ConsentRequest {
         id,
         kind: ConsentKind::Call,
@@ -142,53 +204,51 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
             agent.name
         ),
         who: who(agent, q.cwd),
-        what,
+        what: what(app),
         tools: vec![ConsentTool {
             name: command.clone(),
             description: clean(Some(&tool.description), 400),
-            note: q.note.map(str::to_owned),
+            note: match q.status {
+                Status::Changed => Some("changed".into()),
+                Status::New => Some("new".into()),
+                _ => Some("asks every time".into()),
+            },
+            changes: q.changes.clone(),
         }],
         warning: (!warning.is_empty()).then(|| warning.join(" ")),
-        note: format!(
-            "A yes for this session holds {lasts}; you can revoke it from the panel.{also}"
-        ),
+        note: "A yes for the session holds while the agent's process stays open. An approved command runs, as it is, for every agent you let use the program; if it changes, it asks again."
+            .into(),
         arguments: arguments(q.arguments, tool),
-        choices: Some(CallChoices {
-            command: format!("“{command}” for this session"),
-            program: format!("All the commands of {program} for this session"),
-            block: format!("Block {program} for {}", agent.name),
-            always_command: q
-                .standing
-                .then(|| always(agent, q.cwd, app, Some(&command))),
-            always_program: q.standing.then(|| always(agent, q.cwd, app, None)),
+        choices: Some(Choices {
+            scopes: vec![
+                (Scope::Once, "Only this call".into()),
+                (Scope::Session, format!("“{command}” for this agent's session")),
+                (
+                    Scope::Approve,
+                    format!("Approve “{command}”, as it is, for {program}"),
+                ),
+            ],
+            always: None,
+            block: Some(format!("Block {program} for {}", agent.name)),
         }),
     }
 }
 
-/// The offer under a command's question: make the yes standing, for this agent in this
-/// folder (anywhere, if it doesn't say where it works), for one command or for all.
-fn always(
-    agent: &AgentIdentity,
-    cwd: Option<&str>,
-    app: &AppConn,
-    command: Option<&str>,
-) -> String {
+/// The offer under the question to use a program: make the yes standing, for this agent in
+/// this folder (anywhere, if it doesn't say where it works).
+fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String {
     let program = if app.key.is_some() {
         format!("{} (all its instances)", clean(Some(&app.resource.app), 80))
     } else {
         app.name.clone()
     };
-    let what = match command {
-        Some(command) => format!("run “{command}” of {program}"),
-        None => format!("use {program}"),
-    };
     match cwd.filter(|c| !c.is_empty()) {
         Some(folder) => format!(
-            "Always allow {} to {what} in {}",
+            "Always allow {} to use {program} in {}",
             agent.name,
             clean(Some(folder), 200)
         ),
-        None => format!("Always allow {} to {what}", agent.name),
+        None => format!("Always allow {} to use {program}", agent.name),
     }
 }
 
@@ -332,15 +392,6 @@ fn unveiled(value: &Value) -> Value {
     }
 }
 
-/// Names in a line, the first 20 and how many more.
-fn list(names: &[String]) -> String {
-    if names.len() <= 20 {
-        names.join(", ")
-    } else {
-        format!("{} and {} more", names[..20].join(", "), names.len() - 20)
-    }
-}
-
 /// An MCP server asks for confirmation halfway through a command. The message is its own:
 /// it is cleaned up, and the hub says who launched it.
 pub fn confirm(
@@ -405,6 +456,7 @@ pub fn change(
                 name: clean(Some(&t.name), 64),
                 description: clean(Some(&t.description), 400),
                 note: t.note.clone(),
+                ..ConsentTool::default()
             })
             .collect(),
         warning: change.warning.clone(),
@@ -450,9 +502,32 @@ pub fn app(
     };
     let program = clean(Some(&resource.app), 80);
     let title = clean(Some(&resource.title), 80);
+    // Its commands can be approved at once, as they are, only for a program Clak will know
+    // again; never ticked from the start.
+    let choices = (remembered && !tools.is_empty()).then(|| Choices {
+        always: Some(format!(
+            "Also approve its {}, as {}: {} for the agents you let use {program}",
+            if tools.len() == 1 {
+                "command".to_owned()
+            } else {
+                format!("{} commands", tools.len())
+            },
+            if tools.len() == 1 {
+                "it is"
+            } else {
+                "they are"
+            },
+            if tools.len() == 1 {
+                "it will run"
+            } else {
+                "they will run"
+            },
+        )),
+        ..Choices::default()
+    });
     ConsentRequest {
         arguments: vec![],
-        choices: None,
+        choices,
         id,
         kind: ConsentKind::App,
         title: format!("{program} wants to connect to Clak"),
@@ -464,14 +539,14 @@ pub fn app(
             .map(|t| ConsentTool {
                 name: t.name.clone(),
                 description: clean(Some(&t.description), 400),
-                note: None,
+                ..ConsentTool::default()
             })
             .collect(),
         warning,
         note: if remembered {
-            "Clak will remember this for this executable; you can remove it from the panel. Each command an agent runs will still ask you.".into()
+            "Clak will remember this for this executable; you can remove it from the panel. Each agent will still have to ask to use it.".into()
         } else {
-            "Valid this time only. Each command an agent runs will still ask you.".into()
+            "Valid this time only. Each agent will still have to ask to use it.".into()
         },
     }
 }

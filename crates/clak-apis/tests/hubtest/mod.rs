@@ -19,10 +19,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-/// The fake user's yes: to a command, for all the program's commands of the session, as the
-/// questions to use a program were answered before each call asked.
+/// The fake user's yes: to use a program, and to a command, approved in Clak.
 const ALL: Reply = Reply::Allow {
-    scope: Scope::Program,
+    scope: Scope::Approve,
     always: false,
 };
 
@@ -66,6 +65,23 @@ impl FakePrompt {
             question.request.title
         );
         question
+    }
+
+    /// The call, with a yes to every question it brings (to use the program, to run the
+    /// command), whatever they are.
+    pub async fn allowing<T>(&self, call: impl std::future::Future<Output = T>) -> T {
+        tokio::pin!(call);
+        let mut receiver = self.receiver.lock().await;
+        loop {
+            tokio::select! {
+                out = &mut call => return out,
+                question = receiver.recv() => {
+                    if let Some(question) = question {
+                        question.allow();
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -1,9 +1,10 @@
 // The hub's question. The buttons light up after a moment, and neither of them is the
 // default: an Enter meant for another window must not answer here.
 //
-// A command's question shows what the agent sends, and asks how far a yes goes: this call
-// only (the default), the command for the agent's session, or all the program's commands.
-// "Always" goes with the last two; the block closes the program to the agent.
+// The question to use a program offers "always" and the block. A command's question shows
+// what the agent sends, and what changed since the user approved it, and asks how far a yes
+// goes: this call only (the default), the command for the agent's session, or approved in
+// Clak; it can block the program too.
 //
 // Up front only what decides the answer: who is asking (with its real icon and who signed
 // it), what it wants, the commands by name. Paths, pids and the process chain are under
@@ -108,7 +109,11 @@
     $("tools").replaceChildren(...tools.map((t) =>
       el("div", { class: "tool" },
         el("div", null, el("span", { class: "name" }, t.name), t.note ? el("span", { class: "note" }, t.note) : null),
-        t.description ? el("div", { class: "description" }, t.description) : null)));
+        t.description ? el("div", { class: "description" }, t.description) : null,
+        // What changed since the user approved it.
+        (t.changes || []).length
+          ? el("dl", { class: "lines changes" }, t.changes.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]))
+          : null)));
   } else {
     $("tools-heading").append(el("span", { class: "count" }, String(tools.length)));
     const text = el("div", { class: "chip-text quiet hidden" });
@@ -164,36 +169,29 @@
     document.title = "Clak — permission";
   }
 
-  // How far a yes goes, for a command: this call only, unless the user picks more.
-  let scope = "once";
-  const always = () => (scope === "command" ? choices?.always_command : scope === "program" ? choices?.always_program : null);
-  const showAlways = () => {
-    // A yes that holds from now on: offered by the hub only where it can recognize the
-    // agent and the program next time, and only with a scope for the session. Never ticked
-    // from the start, and unticked when the scope changes.
-    const text = always();
-    $("always").checked = false;
-    $("always-text").textContent = text || "";
-    $("always-row").classList.toggle("hidden", !text);
-  };
-  if (choices) {
-    const option = (value, text) => {
-      const input = el("input", { type: "radio", name: "scope", value });
-      input.checked = value === scope;
-      input.addEventListener("change", () => {
-        scope = value;
-        showAlways();
-      });
-      return el("label", null, input, el("span", null, text));
+  // How far a yes goes, for a command: the first choice (this call only), unless the user
+  // picks more. "Always", for the question to use a program: a yes that holds from now on,
+  // offered by the hub only where it can recognize the agent and the program next time,
+  // never ticked from the start. The block closes the program to the agent.
+  const scopes = choices?.scopes || [];
+  let scope = scopes[0]?.value || "once";
+  if (scopes.length) {
+    const option = (choice) => {
+      const input = el("input", { type: "radio", name: "scope", value: choice.value });
+      input.checked = choice.value === scope;
+      input.addEventListener("change", () => { scope = choice.value; });
+      return el("label", null, input, el("span", null, choice.label));
     };
-    $("scope").append(
-      option("once", "Only this call"),
-      option("command", choices.command),
-      option("program", choices.program));
+    $("scope").append(...scopes.map(option));
     $("scope").classList.remove("hidden");
+  }
+  if (choices?.always) {
+    $("always-text").textContent = choices.always;
+    $("always-row").classList.remove("hidden");
+  }
+  if (choices?.block) {
     $("block").textContent = choices.block;
     $("block").classList.remove("hidden");
-    showAlways();
   }
 
   // Several questions at once: which one this is.
@@ -209,7 +207,7 @@
   const answer = (allow, block = false) => {
     if (answered) return;
     answered = true;
-    invoke("consent_answer", { id, allow, always: allow && !!always() && $("always").checked, scope, block });
+    invoke("consent_answer", { id, allow, always: allow && !!choices?.always && $("always").checked, scope, block });
   };
   $("allow").addEventListener("click", () => answer(true));
   $("deny").addEventListener("click", () => answer(false));

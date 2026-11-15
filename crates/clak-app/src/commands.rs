@@ -14,12 +14,17 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
-    const ALLOWED: [&str; 9] = [
+    const ALLOWED: [&str; 14] = [
         "revoke",
         "forget_session",
         "forget_app",
         "forget_rule",
         "unblock",
+        "commands",
+        "command_state",
+        "approve_all",
+        "reset_commands",
+        "forget_missing",
         "describe",
         "history",
         "call",

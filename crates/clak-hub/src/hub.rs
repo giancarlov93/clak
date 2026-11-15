@@ -107,9 +107,11 @@ impl Hub {
         let broker = Broker::new(control.clone(), options, permissions, sink, stop.clone());
         let usage = crate::usage::Usage::load(home.join("usage.json"));
         let rules = crate::rules::Rules::load(home.join("rules.json"));
+        let commands = crate::commands::CommandCache::load(home.join("commands.json"));
         broker.run(|c| {
             c.usage = usage;
             c.rules = rules;
+            c.commands = commands;
         });
 
         let (listener_ws, ws_port) = app_channel::bind().await?;

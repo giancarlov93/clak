@@ -624,6 +624,8 @@ impl ConnectorHub {
         self.lock().entries.retain(|e| e.id != id);
         let line = format!("connector removed: {name}");
         self.broker.run(|c| {
+            // Its commands, and what the user decided about them, go with it.
+            c.commands.forget(&format!("mcp:{id}"));
             c.log(line);
             c.touch();
         });

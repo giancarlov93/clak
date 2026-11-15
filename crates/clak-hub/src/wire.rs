@@ -129,7 +129,8 @@ impl ResourceDef {
 
 /// A command as the program declared it. The digest covers name, description and schema
 /// verbatim: the description ends up in the model's context, so even a comma is attack
-/// surface, and a rule the program can get around with a synonym is not a rule.
+/// surface, and a rule the program can get around with a synonym is not a rule. It is the
+/// whole fingerprint, kept on disk with the commands the user approved (`commands`).
 #[derive(Debug, Clone)]
 pub struct ToolDef {
     pub name: String,
@@ -145,7 +146,7 @@ impl ToolDef {
     /// A command built by the hub itself (settings, REST APIs, connectors).
     pub fn new(name: &str, description: &str, schema: Value) -> ToolDef {
         let json = json!({ "name": name, "description": description, "input_schema": schema });
-        let digest = json::digest(&json);
+        let digest = json::fingerprint(&json);
         ToolDef {
             name: name.to_owned(),
             description: description.to_owned(),
