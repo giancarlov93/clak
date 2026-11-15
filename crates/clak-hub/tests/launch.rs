@@ -133,7 +133,7 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
     }
     assert_eq!(hub.prompt.count(), questions);
 
-    // A command outside the preset asks, as a new command does.
+    // A command outside the preset asks, as every command does.
     let call = |resource: &str, tool: &str| {
         Some(json!({ "resource": resource, "tool": tool, "arguments": { "text": "x" } }))
     };
@@ -144,7 +144,7 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
             call("test-notepad", "append_text"),
         )
         .await;
-    hub.prompt.next(ConsentKind::Tool).await.deny();
+    hub.prompt.next(ConsentKind::Call).await.deny();
 
     // A program outside the preset asks too.
     let _elsewhere = hub
@@ -154,7 +154,7 @@ async fn a_preset_gives_all_the_documents_of_its_application_and_only_its_comman
             call("other-editor", "get_text"),
         )
         .await;
-    hub.prompt.next(ConsentKind::Use).await.deny();
+    hub.prompt.next(ConsentKind::Call).await.deny();
 
     drop((first, second, other));
     hub.stop().await;
@@ -243,7 +243,7 @@ async fn a_name_names_a_connector_not_a_program_nobody_could_identify() {
     let (call, _) = tokio::join!(
         hub.call("Claude Code", "notion", "search", None, None),
         async {
-            hub.prompt.next(ConsentKind::Use).await.deny();
+            hub.prompt.next(ConsentKind::Call).await.deny();
         }
     );
     assert_eq!(code(&call), Some("denied"));

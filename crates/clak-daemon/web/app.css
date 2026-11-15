@@ -70,7 +70,10 @@ main { max-width: 720px; margin: 0 auto; padding: 0 16px 48px; }
 .warning { background: var(--warn-bg); color: var(--warn-text); border-radius: 6px; padding: 6px 10px; font-size: 14px; margin: 0 0 8px; }
 .note, .hint, .empty, .meta { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
 .question { font-weight: 600; margin: 8px 0; }
-.always { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 0 0 10px; }
+.always { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; margin: 0 0 10px 22px; }
+.always[hidden] { display: none; }
+.scopes { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
+.scope { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; }
 
 .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
 .row .meta { margin: 0; }

@@ -14,11 +14,12 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
-    const ALLOWED: [&str; 8] = [
+    const ALLOWED: [&str; 9] = [
         "revoke",
         "forget_session",
         "forget_app",
         "forget_rule",
+        "unblock",
         "describe",
         "history",
         "call",
@@ -58,7 +59,8 @@ pub fn consent_request(app: AppHandle, id: String) -> Option<Value> {
     bridge::of(&app).prompt().request(&id)
 }
 
-/// The user's answer. It only counts from that question's window.
+/// The user's answer. It only counts from that question's window. A command's question
+/// also says how far a yes goes (`scope`: once, command, program) and can block.
 #[tauri::command]
 pub fn consent_answer(
     app: AppHandle,
@@ -66,12 +68,26 @@ pub fn consent_answer(
     id: String,
     allow: bool,
     always: Option<bool>,
+    scope: Option<String>,
+    block: Option<bool>,
 ) {
-    if window.label() == crate::prompt::label(&id) {
-        bridge::of(&app)
-            .prompt()
-            .answer(&id, allow, always.unwrap_or(false));
+    if window.label() != crate::prompt::label(&id) {
+        return;
     }
+    let reply = if block == Some(true) {
+        clak_hub::Reply::Block
+    } else if allow {
+        clak_hub::Reply::Allow {
+            scope: scope
+                .as_deref()
+                .and_then(clak_hub::Scope::parse)
+                .unwrap_or(clak_hub::Scope::Once),
+            always: always.unwrap_or(false),
+        }
+    } else {
+        clak_hub::Reply::Deny
+    };
+    bridge::of(&app).prompt().answer(&id, reply);
 }
 
 #[tauri::command]

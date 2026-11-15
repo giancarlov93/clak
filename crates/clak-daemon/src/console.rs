@@ -1,5 +1,7 @@
 //! The hub's questions on the terminal, for `--ask`: one at a time, answered "y" or "n" on a
-//! line.
+//! line. A command's question takes how far the yes goes: "o" this call only, "c" the
+//! command for the agent's session, "a" all the program's commands; "n" denies it, "b"
+//! blocks the program for the agent. "Always" is only in the app's window.
 //!
 //! Only a line typed while a question is on screen answers it. What was typed before (for a
 //! question that has gone, or for none) is thrown away when the next one appears: otherwise a
@@ -8,7 +10,7 @@
 //! because its time ran out.
 
 use clak_hub::consent::BoxFuture;
-use clak_hub::{ConsentPrompt, ConsentRequest};
+use clak_hub::{ConsentPrompt, ConsentRequest, Reply, Scope};
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -101,7 +103,7 @@ impl ConsentPrompt for ConsolePrompt {
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<bool, String>> {
+    ) -> BoxFuture<Result<Reply, String>> {
         let lines = self.lines.clone();
         let screen = self.screen.clone();
         let timeout = self.timeout;
@@ -110,7 +112,7 @@ impl ConsentPrompt for ConsolePrompt {
             // One question at a time: whoever holds the receiver is the one on screen.
             let mut lines = tokio::select! {
                 lines = lines.lock() => lines,
-                _ = cancel.cancelled() => return Ok(false),
+                _ = cancel.cancelled() => return Ok(Reply::Deny),
             };
             // Typed before this question was on screen: not an answer to it.
             while lines.try_recv().is_ok() {}
@@ -130,12 +132,28 @@ impl ConsentPrompt for ConsolePrompt {
                     tool.name, tool.description
                 ));
             }
+            if !request.arguments.is_empty() {
+                text.push_str("    Arguments (sent by the agent):\n");
+                for line in &request.arguments {
+                    text.push_str(&format!("      {}: {}\n", line.label, line.value));
+                }
+            }
             if let Some(warning) = &request.warning {
                 text.push_str(&format!("    WARNING: {warning}\n"));
             }
+            let keys = match &request.choices {
+                Some(choices) => {
+                    text.push_str(&format!(
+                        "    o: only this call · c: {} · a: {} · n: no · b: {}\n",
+                        choices.command, choices.program, choices.block
+                    ));
+                    CALL_KEYS
+                }
+                None => "[y/n] ",
+            };
             let left = seconds(timeout.saturating_sub(asked.elapsed()));
             text.push_str(&format!(
-                "    {}\n    {left} s to answer.\n{} [y/n] ",
+                "    {}\n    {left} s to answer.\n{} {keys}",
                 request.note, request.question
             ));
             screen(&text);
@@ -149,27 +167,43 @@ impl ConsentPrompt for ConsolePrompt {
             loop {
                 let line = tokio::select! {
                     line = lines.recv() => line,
-                    _ = cancel.cancelled() => return Ok(false),
+                    _ = cancel.cancelled() => return Ok(Reply::Deny),
                 };
                 // No more input: nobody can say yes.
                 let Some(line) = line else {
                     shown.answered = true;
                     screen("\n    No more input: no.\n");
-                    return Ok(false);
+                    return Ok(Reply::Deny);
                 };
-                match line.trim().to_lowercase().as_str() {
-                    "y" | "yes" => {
+                match answer(&line, request.choices.is_some()) {
+                    Some(reply) => {
                         shown.answered = true;
-                        return Ok(true);
+                        return Ok(reply);
                     }
-                    "n" | "no" => {
-                        shown.answered = true;
-                        return Ok(false);
-                    }
-                    _ => screen("[y/n] "),
+                    None => screen(keys),
                 }
             }
         })
+    }
+}
+
+/// The keys of a command's question.
+const CALL_KEYS: &str = "[o/c/a/n/b] ";
+
+/// What a line answers, if anything. A plain yes is "only this call".
+fn answer(line: &str, call: bool) -> Option<Reply> {
+    let scope = |scope| Reply::Allow {
+        scope,
+        always: false,
+    };
+    match line.trim().to_lowercase().as_str() {
+        "y" | "yes" => Some(Reply::YES),
+        "n" | "no" => Some(Reply::Deny),
+        "o" | "once" if call => Some(Reply::YES),
+        "c" | "command" if call => Some(scope(Scope::Command)),
+        "a" | "all" if call => Some(scope(Scope::Program)),
+        "b" | "block" if call => Some(Reply::Block),
+        _ => None,
     }
 }
 
@@ -201,7 +235,7 @@ mod tests {
             }
         }
 
-        fn ask(&self, title: &str, cancel: &CancellationToken) -> BoxFuture<Result<bool, String>> {
+        fn ask(&self, title: &str, cancel: &CancellationToken) -> BoxFuture<Result<Reply, String>> {
             self.prompt.ask(request(title), cancel.clone())
         }
 
@@ -236,7 +270,8 @@ mod tests {
             tools: vec![],
             warning: None,
             note: "Until the agent exits.".into(),
-            always: None,
+            arguments: vec![],
+            choices: None,
         }
     }
 
@@ -252,7 +287,7 @@ mod tests {
         terminal.type_line("maybe");
         terminal.shows("[y/n] ", 2).await;
         terminal.type_line("n");
-        assert_eq!(answer.await.unwrap(), Ok(false));
+        assert_eq!(answer.await.unwrap(), Ok(Reply::Deny));
         let text = terminal.text();
         assert!(
             text.contains(
@@ -271,7 +306,7 @@ mod tests {
         let answer = tokio::spawn(terminal.ask("again", &cancel));
         terminal.shows("=== again", 1).await;
         terminal.type_line(" YES ");
-        assert_eq!(answer.await.unwrap(), Ok(true));
+        assert_eq!(answer.await.unwrap(), Ok(Reply::YES));
     }
 
     #[tokio::test]
@@ -284,14 +319,14 @@ mod tests {
         let next = tokio::spawn(terminal.ask("second", &second));
         terminal.shows("=== first", 1).await;
         first.cancel();
-        assert_eq!(answer.await.unwrap(), Ok(false));
+        assert_eq!(answer.await.unwrap(), Ok(Reply::Deny));
         terminal
             .shows("Withdrawn, whoever asked has gone: first.", 1)
             .await;
         terminal.shows("=== second", 1).await;
         // The second, on screen below the notice, takes the next line.
         terminal.type_line("n");
-        assert_eq!(next.await.unwrap(), Ok(false));
+        assert_eq!(next.await.unwrap(), Ok(Reply::Deny));
 
         // The hub drops a question it no longer needs, without waiting for it: still said.
         let gone = CancellationToken::new();
@@ -309,7 +344,7 @@ mod tests {
         let answer = tokio::spawn(terminal.ask("fourth", &CancellationToken::new()));
         terminal.shows("=== fourth", 1).await;
         terminal.type_line("n");
-        assert_eq!(answer.await.unwrap(), Ok(false));
+        assert_eq!(answer.await.unwrap(), Ok(Reply::Deny));
     }
 
     #[tokio::test]
@@ -320,11 +355,64 @@ mod tests {
         terminal.shows("=== late", 1).await;
         tokio::time::sleep(Duration::from_millis(650)).await;
         limit.cancel();
-        assert_eq!(answer.await.unwrap(), Ok(false));
+        assert_eq!(answer.await.unwrap(), Ok(Reply::Deny));
         terminal
             .shows("Expired, no answer within 1 s: late.", 1)
             .await;
         assert!(!terminal.text().contains("Withdrawn"));
+    }
+
+    #[tokio::test]
+    async fn a_command_question_takes_how_far_the_yes_goes() {
+        let terminal = Terminal::new(MINUTE);
+        let mut asked = request("run");
+        asked.kind = ConsentKind::Call;
+        asked.arguments = vec![ConsentLine::new("text", "milk")];
+        asked.choices = Some(clak_hub::CallChoices {
+            command: "“get_text” for this session".into(),
+            program: "All the commands of notes for this session".into(),
+            block: "Block notes for Claude Code".into(),
+            always_command: None,
+            always_program: None,
+        });
+        let cancel = CancellationToken::new();
+        let shown = asked.clone();
+        let answer = tokio::spawn(terminal.prompt.ask(shown, cancel.clone()));
+        terminal.shows(CALL_KEYS, 1).await;
+        // "y" alone is only this call; an unknown key asks again.
+        terminal.type_line("x");
+        terminal.shows(CALL_KEYS, 2).await;
+        terminal.type_line("c");
+        assert_eq!(
+            answer.await.unwrap(),
+            Ok(Reply::Allow {
+                scope: Scope::Command,
+                always: false
+            })
+        );
+        let text = terminal.text();
+        assert!(text.contains("      text: milk\n"), "{text}");
+        assert!(text.contains("b: Block notes for Claude Code"), "{text}");
+        for (line, reply) in [
+            ("y", Reply::YES),
+            (
+                "a",
+                Reply::Allow {
+                    scope: Scope::Program,
+                    always: false,
+                },
+            ),
+            ("b", Reply::Block),
+        ] {
+            let before = terminal.text().matches("=== run").count();
+            let answer = tokio::spawn(terminal.prompt.ask(asked.clone(), cancel.clone()));
+            terminal.shows("=== run", before + 1).await;
+            terminal.type_line(line);
+            assert_eq!(answer.await.unwrap(), Ok(reply), "{line}");
+        }
+        // A plain question has no scopes.
+        assert_eq!(super::answer("c", false), None);
+        assert_eq!(super::answer("y", false), Some(Reply::YES));
     }
 
     #[tokio::test]
@@ -336,7 +424,7 @@ mod tests {
         } = Terminal::new(MINUTE);
         drop(keys);
         let answer = prompt.ask(request("alone"), CancellationToken::new()).await;
-        assert_eq!(answer, Ok(false));
+        assert_eq!(answer, Ok(Reply::Deny));
         let text = screen.lock().unwrap().clone();
         assert!(text.ends_with("\n    No more input: no.\n"), "{text}");
         assert!(!text.contains("Withdrawn"));

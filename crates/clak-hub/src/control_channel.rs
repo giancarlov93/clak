@@ -107,7 +107,8 @@ async fn request<R>(
 
 /// The panel. It sees everything and can only *take away*: revoke a permission, disconnect
 /// an agent, forget a program. Never grant one: permissions are granted only in the
-/// questions the hub shows itself.
+/// questions the hub shows itself. Lifting a block, which lets an agent ask again, is only
+/// for the app hosting the hub (see [`panel_message`]).
 async fn watch<R>(
     broker: &Broker,
     mut lines: BufReader<R>,
@@ -135,6 +136,8 @@ pub fn panel_message(broker: &Broker, message: &Map<String, Value>, reply: &Outb
             Some("forget_session") => c.forget_session(text("session_id"), "user"),
             Some("forget_app") => c.forget_app(text("key")),
             Some("forget_rule") => c.forget_rule(text("id")),
+            // An agent on the channel could otherwise lift its own block.
+            Some("unblock") if inside => c.unblock(text("id")),
             Some("describe") => {
                 reply.send(c.panel_tools(text("resource_id")));
                 return;

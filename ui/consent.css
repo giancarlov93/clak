@@ -84,6 +84,18 @@ html button.chip:hover:not(:disabled) { background: var(--control-hover); border
 html button.chip.on { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .chip-text { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--subtle); max-height: 120px; overflow-y: auto; }
 
+/* --- a command's arguments, and how far the yes goes --------------------------------- */
+
+#arguments-block h2 { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
+.arguments { margin: 0; padding: 8px 14px; font-size: 12px; grid-template-columns: minmax(60px, max-content) 1fr; max-height: 160px; overflow-y: auto; }
+.arguments dt { font-family: var(--mono); }
+.arguments dd { font-family: var(--mono); overflow-wrap: anywhere; }
+
+.scope { border: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.scope legend { padding: 0; margin-bottom: 4px; font-size: 12px; color: var(--quiet); }
+.scope label { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: default; }
+.scope input { margin-top: 2px; flex: none; }
+
 /* --- the details, folded ----------------------------------------------------------- */
 
 details { margin-top: 12px; }
@@ -99,6 +111,8 @@ footer {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 16px 24px 20px;
 }
+footer .left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+footer .left button { align-self: flex-start; font-size: 12px; text-align: left; }
 html.mac footer { padding: 6px 22px 18px; }
 .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .buttons button { min-width: 126px; }
@@ -106,6 +120,6 @@ html.mac .buttons button { min-width: 90px; min-height: 28px; }
 
 /* --- "Always allow": a yes that holds from now on, never ticked from the start ------- */
 
-.always { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; cursor: default; }
+.always { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 0 22px; font-size: 13px; cursor: default; }
 .always input { margin-top: 2px; flex: none; }
 .queue { font-variant-numeric: tabular-nums; }

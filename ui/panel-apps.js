@@ -125,7 +125,7 @@
       el("div", { class: "lines" },
         el("div", { class: "name" }, el("strong", null, `${r.agent} → ${r.program}`)),
         el("div", { class: "mono quiet ellipsis selectable", title: r.folder || "" }, r.folder || "In any folder"),
-        el("div", { class: "quiet" }, `Always allowed since ${D.ago(r.since, now)}`)),
+        el("div", { class: "quiet" }, `${r.commands ? `Always allowed: ${r.commands.join(", ")}` : "Always allowed: all commands"} · since ${D.ago(r.since, now)}`)),
       el("div", { class: "actions" },
         el("button", { title: "It will ask again the next time it starts", onclick: () => Panel.send({ type: "forget_rule", id: r.id }) }, "Remove")));
 
@@ -140,9 +140,9 @@
     Kit.replace(list,
       Kit.section("Allowed", { count: apps.length, help: "Remembered by executable: same path and same developer or, if unsigned, same content" }),
       apps.length === 0 ? Kit.empty("apps", "None allowed") : group(rows),
-      Kit.section("Always allowed", { count: rules.length, help: "An agent that may use a program without asking: made with “Always allow” in a consent window" }),
+      Kit.section("Always allowed", { count: rules.length, help: "An agent that may run a program's commands without asking, one or all: made with “Always allow” in a command's question" }),
       rules.length === 0
-        ? Kit.empty("shield", "None", "Tick “Always allow” in a consent window: that agent won't ask again for that program")
+        ? Kit.empty("shield", "None", "Tick “Always allow” in a command's question: that agent won't ask again for that command, or that program")
         : group(ruleRows));
   };
 

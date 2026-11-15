@@ -1,6 +1,10 @@
 // The hub's question. The buttons light up after a moment, and neither of them is the
 // default: an Enter meant for another window must not answer here.
 //
+// A command's question shows what the agent sends, and asks how far a yes goes: this call
+// only (the default), the command for the agent's session, or all the program's commands.
+// "Always" goes with the last two; the block closes the program to the agent.
+//
 // Up front only what decides the answer: who is asking (with its real icon and who signed
 // it), what it wants, the commands by name. Paths, pids and the process chain are under
 // "Details".
@@ -11,6 +15,8 @@
   const id = new URLSearchParams(location.search).get("id");
   const $ = (x) => document.getElementById(x);
   const ARMING_MS = 800;
+  // A command asks often: the wait is shorter, still longer than a keypress.
+  const CALL_ARMING_MS = 400;
 
   const request = await invoke("consent_request", { id });
   if (!request) {
@@ -22,6 +28,8 @@
   const who = request.who || [];
   const what = request.what || [];
   const tools = request.tools || [];
+  const args = request.arguments || [];
+  const choices = request.choices;
   const value = (lines, label) => lines.find((l) => l.label === label)?.value;
   const file = (path) => String(path || "").split(/[\\/]/).pop();
   const isPath = (text) => /^(\/|[A-Za-z]:\\)/.test(text || "");
@@ -80,7 +88,7 @@
     } else if (value(what, "Program")) {
       const service = value(what, "Service");
       const exe = value(what, "Executable");
-      rows.push(party(kind === "confirm" ? "Asking" : "Wants to use", value(what, "Program"), exe, null,
+      rows.push(party(kind === "confirm" ? "Asking" : kind === "call" ? "Wants to run a command of" : "Wants to use", value(what, "Program"), exe, null,
         service || (isPath(exe) ? file(exe) : exe), "#007aff"));
     }
   }
@@ -93,6 +101,7 @@
   // The commands: few, or new and changed ones, in full; many, as names to tap.
   $("tools-block").classList.toggle("hidden", tools.length === 0);
   if (kind === "change") $("tools-heading").textContent = "Endpoints";
+  if (kind === "call") $("tools-heading").textContent = "Command";
   const full = tools.length <= 2 || tools.some((t) => t.note);
   if (full) {
     $("tools").className = "card tools-full";
@@ -135,6 +144,12 @@
 
   $("note").textContent = request.note || "";
 
+  // What the agent sends with the command, as the hub cleaned it (secrets masked).
+  if (args.length) {
+    $("arguments").replaceChildren(...args.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]));
+    $("arguments-block").classList.remove("hidden");
+  }
+
   if (kind === "confirm") {
     // Not a permission: the answer to a server's question, for this command only.
     document.title = "Clak — confirmation";
@@ -149,11 +164,36 @@
     document.title = "Clak — permission";
   }
 
-  // A yes that holds from now on: offered by the hub only where it can recognize the agent
-  // and the program next time. Never ticked from the start.
-  if (request.always) {
-    $("always-text").textContent = request.always;
-    $("always-row").classList.remove("hidden");
+  // How far a yes goes, for a command: this call only, unless the user picks more.
+  let scope = "once";
+  const always = () => (scope === "command" ? choices?.always_command : scope === "program" ? choices?.always_program : null);
+  const showAlways = () => {
+    // A yes that holds from now on: offered by the hub only where it can recognize the
+    // agent and the program next time, and only with a scope for the session. Never ticked
+    // from the start, and unticked when the scope changes.
+    const text = always();
+    $("always").checked = false;
+    $("always-text").textContent = text || "";
+    $("always-row").classList.toggle("hidden", !text);
+  };
+  if (choices) {
+    const option = (value, text) => {
+      const input = el("input", { type: "radio", name: "scope", value });
+      input.checked = value === scope;
+      input.addEventListener("change", () => {
+        scope = value;
+        showAlways();
+      });
+      return el("label", null, input, el("span", null, text));
+    };
+    $("scope").append(
+      option("once", "Only this call"),
+      option("command", choices.command),
+      option("program", choices.program));
+    $("scope").classList.remove("hidden");
+    $("block").textContent = choices.block;
+    $("block").classList.remove("hidden");
+    showAlways();
   }
 
   // Several questions at once: which one this is.
@@ -166,13 +206,14 @@
   Clak.listen("consent-queue", (q) => q?.id === id && showQueue(q));
 
   let answered = false;
-  const answer = (allow) => {
+  const answer = (allow, block = false) => {
     if (answered) return;
     answered = true;
-    invoke("consent_answer", { id, allow, always: allow && $("always").checked });
+    invoke("consent_answer", { id, allow, always: allow && !!always() && $("always").checked, scope, block });
   };
   $("allow").addEventListener("click", () => answer(true));
   $("deny").addEventListener("click", () => answer(false));
+  $("block").addEventListener("click", () => answer(false, true));
 
   // The window takes the height of the content.
   const fit = () => invoke("consent_resize", { id, height: Math.ceil(document.body.scrollHeight) + (Clak.mac ? 28 : 40) });
@@ -180,9 +221,11 @@
   fit();
 
   const shown = Date.now();
+  const arming = kind === "call" ? CALL_ARMING_MS : ARMING_MS;
   const tick = () => {
-    const armed = Date.now() - shown >= ARMING_MS;
-    $("allow").disabled = $("deny").disabled = $("always").disabled = !armed || answered;
+    const armed = Date.now() - shown >= arming;
+    $("allow").disabled = $("deny").disabled = $("always").disabled = $("block").disabled = !armed || answered;
+    for (const input of $("scope").querySelectorAll("input")) input.disabled = answered;
     const left = Math.max(0, Math.ceil(request.expires - Date.now() / 1000));
     $("countdown").textContent = `Withdrawn in ${left} s`;
   };

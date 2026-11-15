@@ -276,7 +276,7 @@ const WHEN: &str = r#"## When
 
 Whenever the user names a program or service, or asks for something done in a program or on a file you cannot edit directly:
 
-1. Run `clak list` before anything else: the programs you can use. If the one you need isn't there, `clak list --others` shows the other connected ones, whose first command asks the user.
+1. Run `clak list` before anything else: the programs you can use. If the one you need isn't there, `clak list --others` shows the other connected ones, whose commands ask the user.
 2. The program is there: run `clak <program> -h` the first time, then use its commands.
 3. It is missing, or lacks what you need: do not look for other ways. Tell the user what is missing and how to proceed, then ask whether to proceed another way.
    - A program on this computer: open it and connect it to Clak from inside it.
@@ -286,7 +286,7 @@ Whenever the user names a program or service, or asks for something done in a pr
 
 ```
 clak list                                 the programs you can use
-clak list --others                        the other connected programs (the first use asks)
+clak list --others                        the other connected programs (their commands ask)
 clak <program> -h                         its instructions and commands
 clak <program> search <word>              only the commands about <word>
 clak <program> <command> -h               a command's parameters
@@ -297,7 +297,7 @@ clak -h                                   everything else
 
 ## Rules
 
-- The first use of Clak, and of each program, asks the user for permission in a Clak window; the command waits. Tell the user before. Exit code 3 (refused): do not retry until they ask. Exit code 7 (no answer): ask them to look at the window.
+- Each command asks the user for permission in a Clak window, showing what you send, unless they allowed it, or all the program's commands, for your session; the command waits. Tell the user before, and prefer one command that does the work to many small ones. Exit code 3 (refused, or the program blocked for you): do not retry until they ask. Exit code 7 (no answer): ask them to look at the window.
 - Long, multi-line or accented text: write it to a UTF-8 file and pass `--param @file`.
 - Long results and files (images, PDFs) are written to disk, and clak prints the path: read them from there."#;
 

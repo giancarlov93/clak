@@ -27,9 +27,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use clak_hub::consent::BoxFuture;
-use clak_hub::{Broker, ConsentPrompt, ConsentRequest, Outbox};
+use clak_hub::{Broker, ConsentPrompt, ConsentRequest, Outbox, Reply, Scope};
 use serde_json::{Map, Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
@@ -65,8 +65,6 @@ pub struct WebPrompt(Arc<Questions>);
 
 struct Questions {
     open: Mutex<Vec<Open>>,
-    /// Answered yes with "Always allow" ticked, until the hub reads it.
-    always: Mutex<HashSet<String>>,
     /// The hub's time for an answer: for the page to say how long is left.
     timeout: Duration,
 }
@@ -74,7 +72,7 @@ struct Questions {
 struct Open {
     request: ConsentRequest,
     asked: f64,
-    answer: Option<oneshot::Sender<bool>>,
+    answer: Option<oneshot::Sender<Reply>>,
 }
 
 /// Takes a question off the page when the hub no longer waits for it, however that goes.
@@ -98,7 +96,6 @@ impl WebPrompt {
     pub fn new(timeout: Duration) -> WebPrompt {
         WebPrompt(Arc::new(Questions {
             open: Mutex::new(Vec::new()),
-            always: Mutex::new(HashSet::new()),
             timeout,
         }))
     }
@@ -117,41 +114,40 @@ impl WebPrompt {
     }
 
     /// The user's answer. False if the question is no longer there (answered elsewhere,
-    /// withdrawn, expired).
-    pub fn answer(&self, id: &str, allow: bool, always: bool) -> bool {
+    /// withdrawn, expired). Only what the question offers counts: a scope, "always" or a
+    /// block only for a command's question, and "always" only where it can be made.
+    pub fn answer(&self, id: &str, reply: Reply) -> bool {
         let sender = {
             let mut open = self.0.open.lock().unwrap_or_else(|e| e.into_inner());
             let Some(question) = open.iter_mut().find(|q| q.request.id == id) else {
                 return false;
             };
-            // Only where the question offers it.
-            if allow && always && question.request.always.is_some() {
-                self.0
-                    .always
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(id.to_owned());
-            }
-            question.answer.take()
+            let reply = match (&question.request.choices, reply) {
+                (None, Reply::Allow { .. }) => Reply::YES,
+                (None, _) => Reply::Deny,
+                (Some(choices), Reply::Allow { scope, always }) => Reply::Allow {
+                    scope,
+                    always: always
+                        && match scope {
+                            Scope::Once => false,
+                            Scope::Command => choices.always_command.is_some(),
+                            Scope::Program => choices.always_program.is_some(),
+                        },
+                },
+                (Some(_), reply) => reply,
+            };
+            question.answer.take().map(|sender| (sender, reply))
         };
-        sender.is_some_and(|sender| sender.send(allow).is_ok())
+        sender.is_some_and(|(sender, reply)| sender.send(reply).is_ok())
     }
 }
 
 impl ConsentPrompt for WebPrompt {
-    fn always(&self, id: &str) -> bool {
-        self.0
-            .always
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
-    }
-
     fn ask(
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<bool, String>> {
+    ) -> BoxFuture<Result<Reply, String>> {
         let (sender, receiver) = oneshot::channel();
         let gone = Asked {
             questions: self.0.clone(),
@@ -171,8 +167,8 @@ impl ConsentPrompt for WebPrompt {
         Box::pin(async move {
             let _gone = gone;
             tokio::select! {
-                answer = receiver => Ok(answer.unwrap_or(false)),
-                _ = cancel.cancelled() => Ok(false),
+                answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
+                _ = cancel.cancelled() => Ok(Reply::Deny),
             }
         })
     }
@@ -443,9 +439,23 @@ async fn answer(
         return refused;
     }
     let id = body.get("id").and_then(Value::as_str).unwrap_or_default();
-    let allow = body.get("allow").and_then(Value::as_bool) == Some(true);
-    let always = body.get("always").and_then(Value::as_bool) == Some(true);
-    if !page.prompt.answer(id, allow, always) {
+    let flag = |key: &str| body.get(key).and_then(Value::as_bool) == Some(true);
+    // {allow, scope, always} or {block}: the question decides what of it counts.
+    let reply = if flag("block") {
+        Reply::Block
+    } else if flag("allow") {
+        Reply::Allow {
+            scope: body
+                .get("scope")
+                .and_then(Value::as_str)
+                .and_then(Scope::parse)
+                .unwrap_or(Scope::Once),
+            always: flag("always"),
+        }
+    } else {
+        Reply::Deny
+    };
+    if !page.prompt.answer(id, reply) {
         return refuse(
             StatusCode::NOT_FOUND,
             "This question is no longer open: answered, withdrawn or expired.",
@@ -507,7 +517,17 @@ fn permissions(snapshot: &Value) -> Value {
                 "program": find(&resources, &g["resource_id"], "name"),
                 "since": g["since"],
                 "tools": g["tools"],
+                "scope": g["scope"],
                 "calls": g["calls"],
+            })
+        })
+        .collect();
+    // Shown, not lifted: only the app hosting the hub lifts a block.
+    let blocks: Vec<Value> = list("blocks")
+        .iter()
+        .map(|b| {
+            json!({
+                "id": b["id"], "agent": b["agent"], "program": b["program"], "since": b["since"],
             })
         })
         .collect();
@@ -522,6 +542,7 @@ fn permissions(snapshot: &Value) -> Value {
         .collect();
     json!({
         "grants": grants,
+        "blocks": blocks,
         "agents": agents,
         "rules": list("rules"),
         "apps": list("apps"),
@@ -531,7 +552,10 @@ fn permissions(snapshot: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clak_hub::{AgentIdentity, ConsentKind, ConsentLine, Hub, HubOptions, Platform};
+    use clak_hub::{
+        AgentIdentity, CallChoices, ConsentKind, ConsentLine, Hub, HubOptions, Platform,
+    };
+    use std::collections::HashSet;
 
     struct NoSystem;
 
@@ -644,18 +668,26 @@ mod tests {
         }
     }
 
+    /// A command's question; with `always`, it can be made standing.
     fn question(id: &str, always: bool) -> ConsentRequest {
         ConsentRequest {
             id: id.into(),
-            kind: ConsentKind::Use,
-            title: "Claude Code wants to use <b>notes</b>".into(),
+            kind: ConsentKind::Call,
+            title: "Claude Code wants to run “read” in <b>notes</b>".into(),
             question: "Allow it?".into(),
             who: vec![ConsentLine::new("Agent", "Claude Code")],
             what: vec![ConsentLine::new("Program", "notes")],
             tools: vec![],
             warning: None,
             note: "Until the agent exits.".into(),
-            always: always.then(|| "Always allow Claude Code to use notes".into()),
+            arguments: vec![ConsentLine::new("line", "2")],
+            choices: Some(CallChoices {
+                command: "“read” for this session".into(),
+                program: "All the commands of notes for this session".into(),
+                block: "Block notes for Claude Code".into(),
+                always_command: always.then(|| "Always allow Claude Code to run “read”".into()),
+                always_program: always.then(|| "Always allow Claude Code to use notes".into()),
+            }),
         }
     }
 
@@ -768,7 +800,12 @@ mod tests {
         // As text: the page puts it in the DOM as such.
         assert_eq!(
             questions[0]["title"],
-            "Claude Code wants to use <b>notes</b>"
+            "Claude Code wants to run “read” in <b>notes</b>"
+        );
+        assert_eq!(questions[0]["arguments"][0]["value"], "2");
+        assert_eq!(
+            questions[0]["choices"]["block"],
+            "Block notes for Claude Code"
         );
         let left = questions[0]["expires"].as_f64().unwrap() - state["now"].as_f64().unwrap();
         assert!((590.0..=600.0).contains(&left), "{left}");
@@ -784,16 +821,20 @@ mod tests {
         let yes = served
             .post(
                 "/api/answer",
-                json!({ "id": "ask_1", "allow": true, "always": true }),
+                json!({ "id": "ask_1", "allow": true, "scope": "command", "always": true }),
             )
             .header("cookie", &cookie)
             .send()
             .await
             .unwrap();
         assert_eq!(yes.status(), 200);
-        assert_eq!(asked.await.unwrap(), Ok(true));
-        assert!(served.prompt.always("ask_1"));
-        assert!(!served.prompt.always("ask_1"));
+        assert_eq!(
+            asked.await.unwrap(),
+            Ok(Reply::Allow {
+                scope: Scope::Command,
+                always: true
+            })
+        );
         assert_eq!(served.state(&cookie).await["questions"], json!([]));
 
         // Answered already: nothing to answer.
@@ -814,15 +855,43 @@ mod tests {
         while served.prompt.list().is_empty() {
             tokio::task::yield_now().await;
         }
-        assert!(served.prompt.answer("ask_2", true, true));
-        assert_eq!(asked.await.unwrap(), Ok(true));
-        assert!(!served.prompt.always("ask_2"));
+        assert!(served.prompt.answer(
+            "ask_2",
+            Reply::Allow {
+                scope: Scope::Program,
+                always: true
+            }
+        ));
+        assert_eq!(
+            asked.await.unwrap(),
+            Ok(Reply::Allow {
+                scope: Scope::Program,
+                always: false
+            })
+        );
+        // A block, through the page.
+        let asked = tokio::spawn(
+            served
+                .prompt
+                .ask(question("ask_5", false), CancellationToken::new()),
+        );
+        while served.prompt.list().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let blocked = served
+            .post("/api/answer", json!({ "id": "ask_5", "block": true }))
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), 200);
+        assert_eq!(asked.await.unwrap(), Ok(Reply::Block));
 
         let cancel = CancellationToken::new();
         let asked = tokio::spawn(served.prompt.ask(question("ask_3", false), cancel.clone()));
         assert_eq!(served.prompt.list().len(), 1);
         cancel.cancel();
-        assert_eq!(asked.await.unwrap(), Ok(false));
+        assert_eq!(asked.await.unwrap(), Ok(Reply::Deny));
         assert!(served.prompt.list().is_empty());
         // Dropped without ever running: gone too.
         drop(

@@ -26,8 +26,9 @@ pub mod usage;
 pub mod wire;
 
 pub use consent::{
-    AgentIdentity, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt, ConsentRequest,
-    ConsentTool, HubOptions, Platform, QuestionLink, SettingsChange, Verdict,
+    AgentIdentity, CallChoices, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt,
+    ConsentRequest, ConsentTool, HubOptions, Platform, QuestionLink, Reply, Scope, SettingsChange,
+    Verdict,
 };
 pub use core::{AppConn, Asked, Broker, Core, Gone, Outbox, Progress, failure};
 pub use hub::{Hub, LogSink};

@@ -14,7 +14,9 @@ AI agents (Claude Code, Codex, Cursor and others) find them with the `clak` comm
 and call them. The hub sits in the middle and asks the user before anything happens:
 
 - before a program can connect at all (once per executable, remembered);
-- before each agent can use a program (once per agent and per open program).
+- before each command an agent runs: the user allows that call, that command for the
+  agent's session, or all the program's commands for it, or blocks the program for that
+  agent.
 
 The program never decides who may use it: it is told (`granted`, `revoked`).
 
@@ -30,7 +32,7 @@ for it ends.
 | resource | What one connection represents: one opening of one document. |
 | tool, command | Something an agent can call, with a name, a description and a JSON Schema for its arguments. |
 | agent, harness | An AI agent running on the same computer, using the `clak` command line. |
-| grant | The permission one agent has to use one resource. |
+| grant | The permission one agent has on one resource: born with the first call the user allows, it holds the commands allowed for the agent's session. |
 
 ## 1. Finding the hub
 
@@ -283,8 +285,10 @@ denied without asking. Don't reconnect on your own: wait for the user to try aga
 {"type": "granted", "grant_id": "grant_6fb2ce07232e", "harness": "Claude Code · shopping"}
 ```
 
-An agent may now use the resource. `harness` names it for the user, as the agent and the folder
-it works in: showing who is using the document is good practice.
+An agent may now use the resource: the user allowed its first call (or a preset, or an "Always
+allow", did). Each of its commands still asks the user, unless they allowed it, or all of them,
+for the agent's session. `harness` names the agent for the user, as the agent and the folder it
+works in: showing who is using the resource is good practice.
 
 ### `revoked`
 
@@ -292,8 +296,8 @@ it works in: showing who is using the document is good practice.
 {"type": "revoked", "grant_id": "grant_6fb2ce07232e", "reason": "user", "harness": "Claude Code · shopping"}
 ```
 
-An agent can no longer use the resource: the user revoked it (`user`) or the agent's
-process ended (`harness_gone`).
+An agent can no longer use the resource: the user revoked it (`user`), blocked the program for
+that agent (`blocked`), or the agent's process ended (`harness_gone`).
 
 ### `call`
 
@@ -353,11 +357,11 @@ integer, `--force` becomes `true`, and a value for an `object` or `array` proper
 as JSON. Give every property a `type` and a `description`, list the `required` ones, and
 use `enum` and `default` where they apply: the agent sees all of it in `clak <name> -h`.
 
-**Approval covers the exact text.** When a user lets an agent use a resource, the
-permission covers each command's name, description and schema exactly as they were. A
-command that is added or changed afterwards (even by a comma) needs that agent's
-permission again, which the hub asks for the first time the agent calls it. Keep
-descriptions stable; don't put changing data in them.
+**Approval covers the exact text.** When a user allows a command for an agent's session, or
+all of a resource's commands, the permission covers each command's name, description and
+schema exactly as the question showed them. A command that is added or changed afterwards
+(even by a comma) asks the user again the next time that agent calls it. Keep descriptions
+stable; don't put changing data in them.
 
 **Active commands.** `tools` lists everything the extension can do; `active` lists what
 makes sense right now. A command that isn't active doesn't exist for agents and calling it
@@ -425,11 +429,13 @@ a plugin in Rhino) is identified as that application: the user sees "blender.exe
 precise `app` name: allowing one plugin of a host doesn't allow another with a different
 `app`.
 
-**Agents.** Every agent needs its own permission for every resource, asked by the hub.
-The one exception is an agent the user launched from Clak with a preset: the user chose
-its programs beforehand, so its grants arrive without a question (still as `granted`), for all
-the program's commands or only those the preset lists. Grants end when the agent's process ends, when the
-user revokes them, or when the connection closes.
+**Agents.** Every command an agent runs on a resource asks the user, in the hub's own window,
+unless the user allowed that command, or all the resource's commands, for the agent's session,
+or ticked "Always allow". The question shows the arguments the agent sends. An agent the user
+launched from Clak with a preset is the other exception: the user chose its programs
+beforehand, so its grants arrive without a question (still as `granted`), for all the
+program's commands or only those the preset lists. Grants end when the agent's process ends,
+when the user revokes them or blocks the program, or when the connection closes.
 
 **The token.** The hub listens on a loopback port that any local process, and any web
 page, could try. The token, in the user's `daemon.json`, is what keeps them out.

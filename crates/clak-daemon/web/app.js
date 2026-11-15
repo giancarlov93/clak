@@ -62,9 +62,39 @@ const lines = (items) =>
   items && items.length ? el("dl", { class: "lines" }, items.map((l) => [el("dt", {}, l.label), el("dd", {}, l.value)])) : null;
 
 const questionCard = (q) => {
-  const always = q.always ? el("input", { type: "checkbox" }) : null;
+  // A command's question: how far a yes goes (this call by default), "always" with a scope
+  // for the session, and the block.
+  const choices = q.choices;
+  let scope = "once";
+  const alwaysText = () => (scope === "command" ? choices?.always_command : scope === "program" ? choices?.always_program : null);
+  const always = el("input", { type: "checkbox" });
+  const alwaysLabel = el("span", {});
+  const alwaysRow = el("label", { class: "always" }, always, alwaysLabel);
+  const showAlways = () => {
+    const text = alwaysText();
+    always.checked = false;
+    alwaysLabel.textContent = text || "";
+    alwaysRow.hidden = !text;
+  };
+  const option = (value, text) => {
+    const input = el("input", { type: "radio", name: `scope-${q.id}`, value });
+    input.checked = value === scope;
+    input.addEventListener("change", () => {
+      scope = value;
+      showAlways();
+    });
+    return el("label", { class: "scope" }, input, text);
+  };
+  const scopes = choices
+    ? el("div", { class: "scopes" },
+        option("once", "Only this call"),
+        option("command", choices.command),
+        option("program", choices.program))
+    : null;
+  showAlways();
   const allow = el("button", { class: "primary", disabled: true }, "Allow");
   const deny = el("button", { class: "deny", disabled: true }, "Deny");
+  const block = choices ? el("button", { class: "deny", disabled: true }, choices.block) : null;
   const left = el("p", { class: "meta" });
   const card = el(
     "div",
@@ -75,24 +105,37 @@ const questionCard = (q) => {
     q.tools && q.tools.length
       ? el("ul", { class: "tools" }, q.tools.map((t) => el("li", {}, t.note ? `${t.name} (${t.note})` : t.name, t.description ? ` — ${t.description}` : "")))
       : null,
+    q.arguments && q.arguments.length ? [el("p", { class: "meta" }, "Arguments, sent by the agent:"), lines(q.arguments)] : null,
     q.warning ? el("p", { class: "warning" }, q.warning) : null,
     q.note ? el("p", { class: "note" }, q.note) : null,
     el("p", { class: "question" }, q.question),
-    always ? el("label", { class: "always" }, always, q.always) : null,
-    el("div", { class: "row" }, el("div", { class: "actions" }, allow, deny), left),
+    scopes,
+    alwaysRow,
+    el("div", { class: "row" }, el("div", { class: "actions" }, allow, deny, block), left),
   );
-  const answer = async (yes) => {
+  const answer = async (yes, blocked = false) => {
     allow.disabled = deny.disabled = true;
-    const response = await post("/api/answer", { id: q.id, allow: yes, always: !!(yes && always && always.checked) });
+    if (block) block.disabled = true;
+    const response = await post("/api/answer", {
+      id: q.id,
+      allow: yes,
+      scope,
+      always: !!(yes && alwaysText() && always.checked),
+      block: blocked,
+    });
     if (response.status === 401) return showLogin("The session is over: log in again.");
     if (!response.ok) notice((await response.json().catch(() => ({}))).error || "The answer didn't go through.");
-    else notice(yes ? `Allowed: ${q.title}` : `Denied: ${q.title}`);
+    else notice(blocked ? `Blocked: ${q.title}` : yes ? `Allowed: ${q.title}` : `Denied: ${q.title}`);
     refresh();
   };
   allow.addEventListener("click", () => answer(true));
   deny.addEventListener("click", () => answer(false));
+  block?.addEventListener("click", () => answer(false, true));
   // A moment before the buttons work: a tap meant for something else doesn't answer.
-  setTimeout(() => (allow.disabled = deny.disabled = false), 1000);
+  setTimeout(() => {
+    allow.disabled = deny.disabled = false;
+    if (block) block.disabled = false;
+  }, choices ? 500 : 1000);
   return { card, left, expires: q.expires };
 };
 
@@ -153,8 +196,14 @@ const render = (state) => {
     el("div", { class: "card row" },
       el("div", {},
         el("p", { class: "title" }, `${g.agent || "An agent"} → ${g.program || "a program"}`),
-        el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls${g.tools && g.tools.length ? ` · ${g.tools.join(", ")}` : ""}`)),
+        el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls · ${g.scope === "all" ? "all commands" : g.tools && g.tools.length ? g.tools.join(", ") : "each call asks"}`)),
       takeAway("grant", g.id, `${g.agent} → ${g.program}`)));
+  // Blocks: shown, lifted only from the Clak app hosting the hub.
+  $("blocks").hidden = !(state.blocks || []).length;
+  list($("blocks"), state.blocks || [], "", (b) =>
+    el("div", { class: "card" },
+      el("p", { class: "title" }, `${b.agent || "An agent"} ⊘ ${b.program || "a program"}`),
+      el("p", { class: "meta" }, `blocked ${ago(b.since, now)} · its calls are refused until it exits`)));
   list($("agents"), state.agents || [], "No agent connected.", (a) =>
     el("div", { class: "card row" },
       el("div", {},

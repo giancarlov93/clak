@@ -7,11 +7,13 @@
 //! of them is the default. Closing it is a no. Several questions at once stack up, and each
 //! says which it is of how many ("1 of 3").
 //!
-//! A yes can come with "Always allow" ticked, when the question offers it: the hub then makes
+//! A command's question says how far a yes goes: this call, the command for the agent's
+//! session, or all the program's commands; it can also block the program for the agent. A
+//! yes can come with "Always allow" ticked, when the question offers it: the hub then makes
 //! it a standing rule (`clak_hub::rules`).
 
 use clak_hub::consent::BoxFuture;
-use clak_hub::{ConsentPrompt, ConsentRequest};
+use clak_hub::{ConsentPrompt, ConsentRequest, Reply, Scope};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -27,7 +29,7 @@ const GAP: f64 = 12.0;
 struct Open {
     request: Value,
     expires: f64,
-    answer: Option<oneshot::Sender<bool>>,
+    answer: Option<oneshot::Sender<Reply>>,
     height: f64,
 }
 
@@ -36,8 +38,6 @@ struct Questions {
     open: HashMap<String, Open>,
     /// In order of arrival: the first sits closest to the corner.
     order: Vec<String>,
-    /// The questions answered yes with "Always allow" ticked, until the hub reads it.
-    always: std::collections::HashSet<String>,
 }
 
 /// The questions open now, and who is showing them.
@@ -84,23 +84,38 @@ impl WindowPrompt {
         Some(request)
     }
 
-    /// The user's answer. Only one: the others don't count. `always` only where the question
-    /// offered it.
-    pub fn answer(&self, id: &str, allow: bool, always: bool) {
+    /// The user's answer. Only one: the others don't count. Only what the question offered:
+    /// a scope, "always" or a block only in a command's question, "always" only where it can
+    /// be made.
+    pub fn answer(&self, id: &str, reply: Reply) {
         let sender = {
             let mut questions = self.questions();
-            let open = questions.open.get_mut(id);
-            let offered = open
-                .as_ref()
-                .is_some_and(|o| !o.request["always"].is_null());
-            let sender = open.and_then(|o| o.answer.take());
-            if sender.is_some() && allow && always && offered {
-                questions.always.insert(id.to_owned());
-            }
-            sender
+            questions.open.get_mut(id).and_then(|open| {
+                let choices = &open.request["choices"];
+                let reply = match reply {
+                    _ if choices.is_null() => {
+                        if reply.allows() {
+                            Reply::YES
+                        } else {
+                            Reply::Deny
+                        }
+                    }
+                    Reply::Allow { scope, always } => Reply::Allow {
+                        scope,
+                        always: always
+                            && match scope {
+                                Scope::Once => false,
+                                Scope::Command => !choices["always_command"].is_null(),
+                                Scope::Program => !choices["always_program"].is_null(),
+                            },
+                    },
+                    reply => reply,
+                };
+                open.answer.take().map(|sender| (sender, reply))
+            })
         };
-        if let Some(sender) = sender {
-            let _ = sender.send(allow);
+        if let Some((sender, reply)) = sender {
+            let _ = sender.send(reply);
         }
         self.close(id);
     }
@@ -141,7 +156,7 @@ impl WindowPrompt {
             questions.open.remove(&id).and_then(|mut o| o.answer.take())
         };
         if let Some(sender) = sender {
-            let _ = sender.send(false);
+            let _ = sender.send(Reply::Deny);
         }
         self.stack();
     }
@@ -258,15 +273,11 @@ fn queue(questions: &Questions, id: &str) -> Value {
 }
 
 impl ConsentPrompt for WindowPrompt {
-    fn always(&self, id: &str) -> bool {
-        self.questions().always.remove(id)
-    }
-
     fn ask(
         &self,
         request: ConsentRequest,
         cancel: CancellationToken,
-    ) -> BoxFuture<Result<bool, String>> {
+    ) -> BoxFuture<Result<Reply, String>> {
         let this = self.clone();
         Box::pin(async move {
             let id = request.id.clone();
@@ -289,11 +300,12 @@ impl ConsentPrompt for WindowPrompt {
                 return Err(problem);
             }
             tokio::select! {
-                answer = receiver => Ok(answer.unwrap_or(false)),
+                answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
                 _ = cancel.cancelled() => {
-                    // Whoever was asking is no longer waiting: the question vanishes without an answer.
+                    // Whoever was asking is no longer waiting, or another answer covered it:
+                    // the question vanishes without an answer.
                     this.close(&id);
-                    Ok(false)
+                    Ok(Reply::Deny)
                 }
             }
         })

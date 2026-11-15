@@ -157,6 +157,18 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Changed
 
+- Each command an agent runs asks you, in Clak's window, instead of one question per program.
+  The window shows what the agent sends, one line per argument, cut short, with what looks
+  like a token, a password or a key masked. It asks how far a yes goes: only this call, that
+  command for the agent's session, or all the program's commands for it (those the window
+  showed: one added or changed later asks again). "Always allow" goes with the last two, for
+  one command or for all; a second "always" for another command joins the same rule. "Block"
+  closes the program to that agent until its process ends: its calls are refused at once, on
+  every instance of the application, and the panel shows the block and lifts it. One answer
+  settles the other open questions it covers. `clak list` says which programs are allowed in
+  full, in part or blocked; `clak-daemon --ask` and its web page offer the same answers. The
+  "Always allow" rules made before keep allowing all the program's commands; Clak's own
+  settings still ask once per session, since every change asks anyway.
 - Releases: the Mac's installer is for Apple silicon only; the Intel Mac no longer has one,
   nor updates. It can still be built by hand (`node scripts/bundle.mjs --target
   x86_64-apple-darwin`).
@@ -192,9 +204,6 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
-- Allowing an agent to use a program allows the commands the question showed, as it showed
-  them. One the program added or changed while the question was open asks on its own, as a
-  command added later does.
 - `clak settings`: an agent can no longer give a program on this computer a variable that
   makes it load other code (`PATH`, `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`…), whose
   value the confirmation doesn't show; you still can, on the MCP page. Every change to the

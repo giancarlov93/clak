@@ -281,7 +281,7 @@ async fn changing_the_variables_restarts_and_revokes_permissions_renaming_does_n
     hub.connector(&entry.id, phase::ACTIVE).await;
     let call = hub.call("claude", "browser", "env", Some(json!({"name": "COLOR"})));
     let (called, ()) = tokio::join!(call, async {
-        hub.prompt.next(ConsentKind::Use).await.allow()
+        hub.prompt.next(ConsentKind::Call).await.allow()
     });
     assert_eq!(content(&called), "blue");
     assert!(hub.log_text().contains("environment COLOR"));

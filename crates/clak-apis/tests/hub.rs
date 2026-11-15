@@ -103,7 +103,7 @@ async fn an_imported_api_answers_agents_with_its_access() {
         }
     };
     let question = async {
-        let question = hub.prompt.next(ConsentKind::Use).await;
+        let question = hub.prompt.next(ConsentKind::Call).await;
         assert!(
             question.request.what.iter().any(|l| l.label == "Service"
                 && l.value
@@ -231,7 +231,7 @@ async fn a_hand_made_api_with_bearer_basic_and_a_form() {
     hub.api(&entry.id, |a| a["cli"] == "svc" && a["auth"] == "basic")
         .await;
     let call = hub.call("claude", "svc", "search", json!({"q": "x"}));
-    let allow = async { hub.prompt.next(ConsentKind::Use).await.allow() };
+    let allow = async { hub.prompt.next(ConsentKind::Call).await.allow() };
     tokio::join!(call, allow);
     assert_eq!(rest.last().headers["authorization"], "Basic YWRhOnB3");
     assert!(
@@ -292,7 +292,7 @@ async fn renaming_an_api_keeps_permissions_and_another_host_gets_no_secret() {
             .any(|l| l == "API Ping: renamed “Ping Pong”, command “pp”, 2 endpoints")
     );
     let call = hub.call("claude", "pp", "pong", json!({}));
-    let allow = async { hub.prompt.next(ConsentKind::Tool).await.allow() };
+    let allow = async { hub.prompt.next(ConsentKind::Call).await.allow() };
     tokio::join!(call, allow);
 
     // A redirect to another host isn't followed: the secret would go along with it.
@@ -326,7 +326,7 @@ async fn renaming_an_api_keeps_permissions_and_another_host_gets_no_secret() {
     .await;
     assert!(!hub.apis.has_secret(&entry.id));
     let call = hub.call("claude", "pp", "ping", json!({}));
-    let allow = async { hub.prompt.next(ConsentKind::Use).await.allow() };
+    let allow = async { hub.prompt.next(ConsentKind::Call).await.allow() };
     tokio::join!(call, allow);
     assert!(!other.last().headers.contains_key("x-key"));
 

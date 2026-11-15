@@ -88,12 +88,31 @@
     return `Started ${D.ago(b.since, now)} · pid ${b.pid}` + (b.can_ask ? "" : " · no interface: can't grant permissions") + (hosting() ? "" : " · separate process");
   };
 
+  /// How far the permission goes, for the session: all the commands, some, or none (each
+  /// call asks).
+  const scopeOf = (g) =>
+    g.scope === "all" ? "all commands allowed"
+      : (g.tools || []).length ? D.plural(g.tools.length, "command allowed", "commands allowed")
+        : "each command asks";
+
+  /// A program the user blocked for an agent: refused without a question until lifted
+  /// here, or until the agent exits.
+  const blockRow = (b, now) =>
+    el("div", { class: "grant", "data-id": b.id },
+      el("span", { class: "row-body" }, Kit.tile("shield", 24, "#ff3b30"),
+        el("span", { class: "lines" }, el("strong", { class: "ellipsis" }, b.program),
+          el("span", { class: "quiet ellipsis" }, `blocked ${D.ago(b.since, now)}${b.session_id ? "" : ` for ${b.agent} (pid ${b.pid})`}`))),
+      // Only the app hosting the hub lifts a block: on the channel an agent could too.
+      hosting() && !ctx.readonly
+        ? el("button", { class: "small", title: "The agent may ask again", onclick: () => Panel.send({ type: "unblock", id: b.id }) }, "Unblock")
+        : null);
+
   const grantRow = (g, now) => {
     const r = D.resourceOf(state, g.resource_id);
     const title = r ? D.resourceTitle(r) : g.resource_id;
     const content = el("span", { class: "row-body" }, Kit.tile(glyphOf(r), 24, null, exeOf(r)),
       el("span", { class: "lines" }, el("strong", { class: "ellipsis" }, title),
-        el("span", { class: "quiet ellipsis", title: "" }, `${D.grantDetail(g, now)} · ${D.plural((g.tools || []).length, "command allowed", "commands allowed")}`)),
+        el("span", { class: "quiet ellipsis", title: "" }, `${D.grantDetail(g, now)} · ${scopeOf(g)}`)),
       g.errors > 0 ? Kit.badge(D.plural(g.errors, "error", "errors"), "err") : null);
     const show = D.showable(r) ? Kit.iconButton("show", `Brings ${title} to the front`, (e) => Kit.bringToFront(e.currentTarget, "resource", r.id)) : null;
     return el("div", { class: "grant", "data-id": g.id },
@@ -104,6 +123,7 @@
 
   const agentCard = (s, now) => {
     const grants = byAge((state.grants || []).filter((g) => g.session_id === s.id));
+    const blocks = (state.blocks || []).filter((b) => b.session_id === s.id);
     const mcp = s.via === "mcp";
     return el("div", { class: "card agent", "data-id": s.id },
       el("div", { class: "head" }, Kit.tile(mcp ? "chat" : "terminal", 40, "#ff9500", s.exe),
@@ -114,9 +134,9 @@
         el("div", { class: "actions" },
           el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "session", s.id) }, "Show"),
           el("button", { title: "Ends all its permissions", onclick: () => Panel.send({ type: "forget_session", session_id: s.id }) }, "Disconnect"))),
-      grants.length === 0
+      grants.length === 0 && blocks.length === 0
         ? el("div", { class: "quiet indent" }, "No programs in use")
-        : el("div", { class: "inset indent" }, grants.map((g) => grantRow(g, now))));
+        : el("div", { class: "inset indent" }, grants.map((g) => grantRow(g, now)), blocks.map((b) => blockRow(b, now))));
   };
 
   const programCard = (r, now) => {
@@ -134,6 +154,7 @@
     const programs = resources.filter((r) => r.origin?.kind !== "hub").length; // the settings are always there: they don't count
     const grants = (state.grants || []).length;
     const pending = state.pending || [];
+    const loose = (state.blocks || []).filter((b) => !b.session_id);
     return [
       Kit.title("Status"),
       el("div", { class: "card hero" }, el("span", { class: "tile round " + (on ? "ok" : "err") }, Kit.icon("status")),
@@ -152,6 +173,8 @@
         : null,
       Kit.section("Agents", { count: sessions.length }),
       sessions.length ? sessions.map((s) => agentCard(s, now)) : Kit.empty("agents", "None"),
+      // Blocked before they ever connected: no card of their own.
+      loose.length ? el("div", { class: "card" }, el("div", { class: "inset" }, loose.map((b) => blockRow(b, now)))) : null,
       Kit.section("Connected programs", { count: programs }),
       resources.length
         ? el("div", { class: "programs" }, resources.map((r) => programCard(r, now)))

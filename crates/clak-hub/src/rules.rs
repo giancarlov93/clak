@@ -1,12 +1,13 @@
-//! The permissions the user made standing, with "Always allow" in a consent window: an agent
-//! may use a program without being asked again, in a folder or anywhere. Kept in
-//! `rules.json` in the hub's folder; removed from the panel.
+//! The permissions the user made standing, with "Always allow" in a command's question: an
+//! agent may run a command of a program, or all of them, without being asked again, in a
+//! folder or anywhere. Kept in `rules.json` in the hub's folder; removed from the panel.
 //!
 //! The agent is the one the operating system names, as `apps.json` remembers a program: the
 //! same executable and name, and the same signer, or — if it is unsigned — the same content.
 //! An unsigned agent that updates is a different one, and is asked again. The program is
 //! named as a preset names it (`launch::PresetProgram`): a known application by its key, which
-//! covers all its documents; a connector or an API by the name agents call it.
+//! covers all its instances; a connector or an API by the name agents call it. One rule per
+//! agent, folder and program: a second "always" for another command adds it to the rule.
 //!
 //! The folder is the one the agent says it works in: it narrows the rule, it does not prove
 //! anything.
@@ -115,44 +116,73 @@ impl Rules {
         &self.list
     }
 
-    /// The rule that lets this agent, in this folder, use this program.
+    /// A rule that lets this agent, in this folder, use this program (some of its commands,
+    /// or all).
     pub fn find(&self, agent_key: &str, cwd: Option<&str>, app: &AppConn) -> Option<&Rule> {
         self.list.iter().find(|r| r.covers(agent_key, cwd, app))
     }
 
-    /// A new rule; the same agent, folder and program already there is replaced.
+    /// What the rules for this agent, in this folder, on this program allow together: all
+    /// the commands (`None`), or these. Nothing if no rule covers them.
+    pub fn allowed(
+        &self,
+        agent_key: &str,
+        cwd: Option<&str>,
+        app: &AppConn,
+    ) -> Option<Option<Vec<String>>> {
+        let mut allowed: Option<Option<Vec<String>>> = None;
+        for rule in self.list.iter().filter(|r| r.covers(agent_key, cwd, app)) {
+            allowed = Some(merged(allowed, rule.program.tools.clone()));
+        }
+        allowed
+    }
+
+    /// A rule from "always": all the program's commands (`command` none), or one more. The
+    /// same agent, folder and program already there takes it in.
     pub fn add(
         &mut self,
         agent_key: &str,
         agent: &AgentIdentity,
         folder: Option<&str>,
         app: &AppConn,
+        command: Option<String>,
     ) -> &Rule {
-        let program = PresetProgram {
-            target: match &app.key {
-                Some(key) => Target::App(key.clone()),
-                None => Target::Name(app.name.clone()),
-            },
-            tools: None,
+        let target = match &app.key {
+            Some(key) => Target::App(key.clone()),
+            None => Target::Name(app.name.clone()),
         };
         let folder = folder.filter(|f| !f.is_empty()).map(str::to_owned);
-        self.list
-            .retain(|r| !(r.agent_key == agent_key && r.folder == folder && r.program == program));
-        self.list.push(Rule {
-            id: new_id("rule"),
-            agent_key: agent_key.to_owned(),
-            agent: agent.name.clone(),
-            exe: agent.exe.clone().unwrap_or_default(),
-            folder,
-            program,
-            label: match &app.key {
-                Some(_) => app.resource.app.clone(),
-                None => app.name.clone(),
-            },
-            since: now(),
-        });
+        let label = match &app.key {
+            Some(_) => app.resource.app.clone(),
+            None => app.name.clone(),
+        };
+        let tools = command.map(|c| vec![c]);
+        let at = match self.list.iter().position(|r| {
+            r.agent_key == agent_key && r.folder == folder && r.program.target == target
+        }) {
+            Some(at) => {
+                let rule = &mut self.list[at];
+                rule.program.tools = merged(Some(rule.program.tools.take()), tools);
+                rule.label = label;
+                rule.since = now();
+                at
+            }
+            None => {
+                self.list.push(Rule {
+                    id: new_id("rule"),
+                    agent_key: agent_key.to_owned(),
+                    agent: agent.name.clone(),
+                    exe: agent.exe.clone().unwrap_or_default(),
+                    folder,
+                    program: PresetProgram { target, tools },
+                    label,
+                    since: now(),
+                });
+                self.list.len() - 1
+            }
+        };
         self.save();
-        self.list.last().expect("just pushed")
+        &self.list[at]
     }
 
     /// The user renamed an application, or pointed it to where it has moved: its rules follow
@@ -172,12 +202,24 @@ impl Rules {
     }
 
     /// A rule from a backup, as it was: false if the same agent, folder and program already
-    /// have one. It gets an id of its own if its old one is taken.
+    /// have one that allows as much. A rule there that allows less takes in its commands. It
+    /// gets an id of its own if its old one is taken.
     pub fn restore(&mut self, mut rule: Rule) -> bool {
-        if self.list.iter().any(|r| {
-            r.agent_key == rule.agent_key && r.folder == rule.folder && r.program == rule.program
+        if let Some(there) = self.list.iter_mut().find(|r| {
+            r.agent_key == rule.agent_key
+                && r.folder == rule.folder
+                && r.program.target == rule.program.target
         }) {
-            return false;
+            let tools = merged(
+                Some(there.program.tools.clone()),
+                rule.program.tools.clone(),
+            );
+            if tools == there.program.tools {
+                return false;
+            }
+            there.program.tools = tools;
+            self.save();
+            return true;
         }
         if self.list.iter().any(|r| r.id == rule.id) {
             rule.id = new_id("rule");
@@ -202,6 +244,23 @@ impl Rules {
         let draft = path.with_extension("json.tmp");
         if std::fs::write(&draft, wire::encode_pretty(&content)).is_ok() {
             let _ = std::fs::rename(&draft, path);
+        }
+    }
+}
+
+/// Two lists of commands together; `None` is all of them. `known` is `None` when there is
+/// nothing yet.
+fn merged(known: Option<Option<Vec<String>>>, more: Option<Vec<String>>) -> Option<Vec<String>> {
+    match (known, more) {
+        (None, more) => more,
+        (Some(None), _) | (_, None) => None,
+        (Some(Some(mut list)), Some(more)) => {
+            for tool in more {
+                if !list.contains(&tool) {
+                    list.push(tool);
+                }
+            }
+            Some(list)
         }
     }
 }
