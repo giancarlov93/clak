@@ -175,6 +175,9 @@
         ? el("div", { title: Clak.mac ? "The question is in a window at the top right" : "The question is in a window at the bottom right" },
           Kit.bar("warn", [el("strong", null, "Waiting for your answer"), ...pending.map((p) => el("div", null, p.title))]))
         : null,
+      state.commands_error
+        ? Kit.bar("err", `What you decide about commands can't be saved, and would be lost when Clak starts again: ${state.commands_error}`)
+        : null,
       review.length
         ? Kit.bar("warn", [el("strong", null, "Commands to review"),
           ...review.map((p) => el("div", null, el("button", { class: "link", onclick: () => go({ page: "commands", key: p.key, title: p.label }) },
@@ -279,7 +282,7 @@
       Kit.clickRow(el("span", { class: "row-body" }, Kit.icon("shield"),
         el("span", { class: "lines" }, el("strong", null, "Approved commands"), el("span", { class: "quiet" }, text)),
         kept.to_review ? Kit.badge("To review", "warn") : null),
-      () => go({ page: "commands", key: kept.key, title: kept.label }), "Which commands run without asking", "Approved commands"));
+      () => go({ page: "commands", key: kept.key, title: kept.label }), "Which commands run without asking", `Approved commands: ${text}`));
   };
 
   // --- a program's commands, as the user decides about them ---------------------------

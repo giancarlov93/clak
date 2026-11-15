@@ -297,7 +297,7 @@ clak -h                                   everything else
 
 ## Rules
 
-- The first use of Clak, and of each program, asks the user for permission in a Clak window, and so does each command they haven't approved (marked `*` in `-h`), showing what you send; the command waits. Tell the user before, and prefer one command that does the work to many small ones. Exit code 3 (refused, blocked or turned off for you): do not retry until they ask. Exit code 7 (no answer): ask them to look at the window.
+- The first use of Clak, and of each program, asks the user for permission in a Clak window, and so does each command they haven't approved (marked `*` in `-h`: it asks at each call), showing what you send; the command waits. Tell the user before, and prefer one command that does the work to many small ones. Exit code 3 (refused, blocked or turned off for you): do not retry until they ask. Exit code 7 (no answer): ask them to look at the window.
 - Long, multi-line or accented text: write it to a UTF-8 file and pass `--param @file`.
 - Long results and files (images, PDFs) are written to disk, and clak prints the path: read them from there."#;
 

@@ -187,21 +187,43 @@ pub async fn restore(plan: &Plan, chosen: &HashSet<String>, to: &Targets<'_>) ->
             restored.insert(format!("app:{old}"), format!("app:{key}"));
         }
     }
+    // A server or an API here by its address, the same name first; each one taken once,
+    // so two at the same address (two accounts) don't both land on the first.
+    let mut taken: HashSet<String> = HashSet::new();
+    let mut pick = |candidates: Vec<(String, bool)>| -> Option<String> {
+        let free = |c: &&(String, bool)| !taken.contains(&c.0);
+        let id = candidates
+            .iter()
+            .filter(free)
+            .find(|c| c.1)
+            .or_else(|| candidates.iter().find(free))?
+            .0
+            .clone();
+        taken.insert(id.clone());
+        Some(id)
+    };
     let connectors_here = to.connectors.entries();
     for item in picked(Kind::Connector).filter(added) {
         let old = &plan.contents.connectors[item.index].entry;
-        if let Some(here) = connectors_here
+        let candidates = connectors_here
             .iter()
-            .find(|e| e.url == old.url && e.launch == old.launch)
-        {
-            restored.insert(format!("mcp:{}", old.id), format!("mcp:{}", here.id));
+            .filter(|e| e.url == old.url && e.launch == old.launch)
+            .map(|e| (e.id.clone(), e.name == old.name))
+            .collect();
+        if let Some(here) = pick(candidates) {
+            restored.insert(format!("mcp:{}", old.id), format!("mcp:{here}"));
         }
     }
     let apis_here = to.apis.map(ApiHub::entries).unwrap_or_default();
     for item in picked(Kind::Api).filter(added) {
         let old = &plan.contents.apis[item.index].entry;
-        if let Some(here) = apis_here.iter().find(|e| e.base_url == old.base_url) {
-            restored.insert(format!("api:{}", old.id), format!("api:{}", here.id));
+        let candidates = apis_here
+            .iter()
+            .filter(|e| e.base_url == old.base_url)
+            .map(|e| (e.id.clone(), e.name == old.name))
+            .collect();
+        if let Some(here) = pick(candidates) {
+            restored.insert(format!("api:{}", old.id), format!("api:{here}"));
         }
     }
     for program in &plan.contents.commands {

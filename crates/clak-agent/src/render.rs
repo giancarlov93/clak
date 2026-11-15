@@ -30,10 +30,11 @@ pub enum Which {
 /// Whether the agent may use it now without being asked first (its commands not approved
 /// still ask). A hub that doesn't say `access` says `allowed`.
 pub fn usable(resource: &Object) -> bool {
+    if flag(resource, "blocked") {
+        return false;
+    }
     match resource.get("access") {
-        Some(Value::String(access)) => {
-            matches!(access.as_str(), "granted" | "some" | "preset" | "rule")
-        }
+        Some(Value::String(access)) => matches!(access.as_str(), "granted" | "preset" | "rule"),
         _ => flag(resource, "allowed"),
     }
 }
@@ -48,6 +49,13 @@ pub fn programs(response: &Object, style: Style, which: Which) -> String {
             .into();
     }
     let (mine, others): (Vec<&Object>, Vec<&Object>) = list.iter().partition(|r| usable(r));
+    let blocked = others.iter().filter(|r| flag(r, "blocked")).count();
+    let asking = others.len() - blocked;
+    let blocked_note = if blocked > 0 {
+        format!(" Blocked for you by the user: {blocked}.")
+    } else {
+        String::new()
+    };
     let others_call = match style {
         Style::Cli => "clak list --others",
         Style::Mcp => r#"programs {"which": "others"}"#,
@@ -64,8 +72,7 @@ pub fn programs(response: &Object, style: Style, which: Which) -> String {
     if which == Which::Usable {
         if !others.is_empty() {
             text.push_str(&format!(
-                "\nOther connected programs: {}. The first use of each asks the user for permission. List them: {others_call}\n",
-                others.len()
+                "\nOther connected programs: {asking}. The first use of each asks the user for permission.{blocked_note} List them: {others_call}\n"
             ));
         }
     } else {
@@ -76,7 +83,7 @@ pub fn programs(response: &Object, style: Style, which: Which) -> String {
             text.push_str("No other connected program.\n");
         } else {
             text.push_str(&format!(
-                "Other connected programs ({}): the first use of each asks the user for permission.\n\n",
+                "Other connected programs ({}): the first use of each asks the user for permission.{blocked_note}\n\n",
                 others.len()
             ));
             text.push_str(&rows(&others));
@@ -106,17 +113,14 @@ fn rows(list: &[&Object]) -> String {
             .unwrap_or(0);
         let name = str_of(r, "name").unwrap_or("");
         let access = match str_of(r, "access") {
+            _ if flag(r, "blocked") => "blocked by the user for you: don't use it".to_owned(),
             Some("granted") => "you may use it".to_owned(),
-            Some("some") => {
-                "some commands allowed for this session; the others ask the user".to_owned()
-            }
             Some("preset") => match str_of(r, "preset") {
                 Some(preset) => format!("allowed by the preset «{preset}»"),
                 None => "allowed by the preset you were launched with".to_owned(),
             },
             Some("rule") => "always allowed by the user".to_owned(),
-            Some("blocked") => "blocked by the user for you: don't use it".to_owned(),
-            _ if flag(r, "allowed") => "permission granted".to_owned(),
+            _ if flag(r, "allowed") => "you may use it".to_owned(),
             _ => "the first use asks the user for permission".to_owned(),
         };
         text.push_str(&format!(
@@ -179,7 +183,9 @@ pub fn commands(response: &Object, style: Style, help: bool) -> String {
     let allowed = flag(response, "allowed");
     let mut changed = false;
     for tool in &tools {
-        let mark = if allowed && !flag(tool, "approved") {
+        // A hub that says each command's `status` says `approved` before the first use too.
+        let known = allowed || tool.get("status").is_some();
+        let mark = if known && !flag(tool, "approved") {
             "*"
         } else {
             ""
@@ -201,9 +207,14 @@ pub fn commands(response: &Object, style: Style, help: bool) -> String {
     }
     text.push('\n');
     if !allowed {
-        text.push_str("Using it asks the user for permission first, in a Clak window; then each command they haven't approved asks too.\n");
-    } else if changed {
-        text.push_str("* not approved (new, or changed since): running it asks the user.\n");
+        text.push_str("Using it asks the user for permission first, in a Clak window.\n");
+    }
+    if changed {
+        text.push_str(
+            "* asks the user at each call (not approved, changed since, or set to ask).\n",
+        );
+    } else if !allowed && !tools.iter().any(|t| t.get("status").is_some()) {
+        text.push_str("Then each command they haven't approved asks too.\n");
     }
     text.push_str(&match style {
         Style::Cli => format!("Details of a command: clak {name} <command> -h"),
@@ -500,19 +511,17 @@ mod tests {
                 {"name":"word","app":"Word","title":"a.docx","origin":"winword.exe","tools":3,"allowed":true,"access":"granted"},
                 {"name":"excel","app":"Excel","title":"b.xlsx","origin":"excel.exe","tools":2,"allowed":false,"access":"preset","preset":"Shopping"},
                 {"name":"notion","app":"Notion","title":"MCP","origin":"mcp.notion.com","tools":9,"allowed":false,"access":"rule"},
-                {"name":"jira","app":"Jira","title":"MCP","origin":"mcp.atlassian.com","tools":5,"allowed":true,"access":"some"},
-                {"name":"mail","app":"Mail","title":"MCP","origin":"mail.example.com","tools":2,"allowed":false,"access":"blocked"},
+                {"name":"mail","app":"Mail","title":"MCP","origin":"mail.example.com","tools":2,"allowed":false,"access":null,"blocked":true},
                 {"name":"revit","app":"Revit","title":"m.rvt","origin":"revit.exe","tools":4,"allowed":false,"access":null}]}"#,
         ));
         let mine = programs(&response, Style::Cli, Which::Usable);
-        assert!(mine.starts_with("Programs you can use (4):"), "{mine}");
+        assert!(mine.starts_with("Programs you can use (3):"), "{mine}");
         assert!(mine.contains("you may use it"));
         assert!(mine.contains("allowed by the preset «Shopping»"));
         assert!(mine.contains("always allowed by the user"));
-        assert!(mine.contains("some commands allowed for this session; the others ask the user"));
         assert!(!mine.contains("revit  Revit"));
         assert!(!mine.contains("mail  Mail"));
-        assert!(mine.contains("Other connected programs: 2. The first use of each asks the user for permission. List them: clak list --others"));
+        assert!(mine.contains("Other connected programs: 1. The first use of each asks the user for permission. Blocked for you by the user: 1. List them: clak list --others"));
         let others = programs(&response, Style::Cli, Which::Others);
         assert!(others.contains("revit  Revit — m.rvt"));
         assert!(others.contains("blocked by the user for you: don't use it"));
@@ -580,7 +589,7 @@ mod tests {
         }));
         let cli = commands(&response, Style::Cli, false);
         assert!(cli.starts_with("Word — a.docx  (clak word)\n\n  append_text* — Adds text.\n      clak word append_text\n"));
-        assert!(cli.contains("* not approved (new, or changed since)"));
+        assert!(cli.contains("* asks the user at each call"));
         let mcp = commands(&response, Style::Mcp, false);
         assert!(mcp.contains("      parameters: {\"type\":\"object\"}\n"));
         assert!(mcp.ends_with(

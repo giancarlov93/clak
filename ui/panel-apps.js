@@ -92,7 +92,7 @@
           moved ? Kit.link("Undo", null, () => { draft.exe = draft.was; draw(); }) : null)),
       el("div", { class: "quiet hint" }, moved
         ? "Remembered by the file at the new location, its developer or, if unsigned, its content. Its copy at the old location will ask again."
-        : "Agents see the name and use the application with the command; a second open document gets -2. Empty: its own."),
+        : "Agents see the name and use the application with the command; a second open instance gets -2. Empty: its own."),
       draft.error ? Kit.bar("err", draft.error) : null,
       el("div", { class: "buttons" },
         el("button", { onclick: closeEditor }, "Cancel"),

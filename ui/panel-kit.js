@@ -258,12 +258,15 @@ const Kit = (() => {
   const groups = (store, list) => list.map((g) => {
     const open = !closedGroups(store).has(g.key);
     const body = el("div", { class: "group-body" }, g.items);
+    // The heading holds the button (not the other way round): a screen reader finds the
+    // group among the headings, and its button says whether it is open.
     const head = el("button", { class: "group-head", "aria-expanded": String(open), title: g.help },
       icon("chevron", "group-chevron"),
-      el("h2", null, g.title),
+      el("span", { class: "group-name" }, g.title),
       el("span", { class: "count" }, String(g.items.length)),
       g.alert ? badge(g.alert === 1 ? "1 needs you" : `${g.alert} need you`, "err") : null);
-    const node = el("section", { class: "group" + (open ? "" : " closed"), "data-id": `group:${g.key}` }, head, body);
+    const node = el("section", { class: "group" + (open ? "" : " closed"), "data-id": `group:${g.key}` },
+      el("h2", { class: "group-heading" }, head), body);
     head.addEventListener("click", () => {
       const closed = closedGroups(store);
       const opening = closed.has(g.key);

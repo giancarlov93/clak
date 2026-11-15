@@ -123,7 +123,7 @@ pub fn use_app(id: String, q: &UseQuestion) -> ConsentRequest {
                 Status::Approved => None,
                 Status::Changed => Some("changed".into()),
                 Status::New => Some("new".into()),
-                Status::Ask | Status::Off => Some("asks".into()),
+                Status::Ask | Status::Off => Some("asks every time".into()),
             },
             ..ConsentTool::default()
         })
@@ -171,6 +171,11 @@ pub struct CallQuestion<'a> {
     pub status: Status,
     /// What changed since it was approved.
     pub changes: Vec<ConsentLine>,
+    /// Clak keeps the program's commands: approving is offered (not for Clak's settings).
+    pub approvable: bool,
+    /// The agent's preset or rule lists the commands it runs without a question, and not
+    /// this one: it asks, approved or not.
+    pub restricted: bool,
 }
 
 /// An agent wants to run a command the user hasn't approved: the answer says how far a yes
@@ -207,27 +212,43 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
         what: what(app),
         tools: vec![ConsentTool {
             name: command.clone(),
-            description: clean(Some(&tool.description), 400),
+            description: clean(Some(&tool.description), FULL_TEXT),
             note: match q.status {
                 Status::Changed => Some("changed".into()),
                 Status::New => Some("new".into()),
+                _ if q.restricted => Some("not in the preset's list".into()),
                 _ => Some("asks every time".into()),
             },
             changes: q.changes.clone(),
+            parameters: parameters(tool),
         }],
         warning: (!warning.is_empty()).then(|| warning.join(" ")),
-        note: "A yes for the session holds while the agent's process stays open. An approved command runs, as it is, for every agent you let use the program; if it changes, it asks again."
-            .into(),
+        note: if q.restricted {
+            "The preset or the rule this agent uses lists the commands it runs without asking, and not this one: it asks even when approved. A yes for the session holds while the agent's process stays open."
+                .into()
+        } else {
+            "A yes for the session holds while the agent's process stays open. An approved command runs, as it is, for every agent you let use the program; if it changes, it asks again."
+                .into()
+        },
         arguments: arguments(q.arguments, tool),
         choices: Some(Choices {
-            scopes: vec![
-                (Scope::Once, "Only this call".into()),
-                (Scope::Session, format!("“{command}” for this agent's session")),
-                (
-                    Scope::Approve,
-                    format!("Approve “{command}”, as it is, for {program}"),
-                ),
-            ],
+            scopes: [
+                Some((Scope::Once, "Only this call".to_owned())),
+                Some((
+                    Scope::Session,
+                    format!("“{command}” for this agent's session"),
+                )),
+                // Approving wouldn't make it run here: the preset or the rule leaves it out.
+                (q.approvable && !q.restricted).then(|| {
+                    (
+                        Scope::Approve,
+                        format!("Approve “{command}”, as it is, for {program}"),
+                    )
+                }),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
             always: None,
             block: Some(format!("Block {program} for {}", agent.name)),
         }),
@@ -250,6 +271,48 @@ fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String {
         ),
         None => format!("Always allow {} to use {program}", agent.name),
     }
+}
+
+/// How much of a command's description a question shows: all of it, short of a flood. What
+/// is approved is what the user read.
+const FULL_TEXT: usize = 4000;
+
+/// A command's parameters as the user reads them: name, type, required, description.
+pub fn parameters(tool: &ToolDef) -> Vec<ConsentLine> {
+    let schema = tool.schema();
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|r| r.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return vec![];
+    };
+    properties
+        .iter()
+        .map(|(name, p)| {
+            let kind = match p.get("type") {
+                Some(Value::String(t)) => t.clone(),
+                Some(other) => serde_json::to_string(other).unwrap_or_default(),
+                None => "any".into(),
+            };
+            let mut text = kind;
+            if required.contains(&name.as_str()) {
+                text.push_str(", required");
+            }
+            if let Some(values) = p.get("enum") {
+                text.push_str(&format!(
+                    ", one of {}",
+                    serde_json::to_string(values).unwrap_or_default()
+                ));
+            }
+            if let Some(description) = p.get("description").and_then(Value::as_str) {
+                text.push_str(" — ");
+                text.push_str(description);
+            }
+            ConsentLine::new(clean(Some(name), 64), clean(Some(&text), FULL_TEXT))
+        })
+        .collect()
 }
 
 /// How many arguments a question shows with their value; the others are named.
@@ -504,7 +567,8 @@ pub fn app(
     let title = clean(Some(&resource.title), 80);
     // Its commands can be approved at once, as they are, only for a program Clak will know
     // again; never ticked from the start.
-    let choices = (remembered && !tools.is_empty()).then(|| Choices {
+    let full = remembered && !tools.is_empty();
+    let choices = full.then(|| Choices {
         always: Some(format!(
             "Also approve its {}, as {}: {} for the agents you let use {program}",
             if tools.len() == 1 {
@@ -538,7 +602,9 @@ pub fn app(
             .iter()
             .map(|t| ConsentTool {
                 name: t.name.clone(),
-                description: clean(Some(&t.description), 400),
+                // Approving them is offered: in full, with what they take.
+                description: clean(Some(&t.description), if full { FULL_TEXT } else { 400 }),
+                parameters: if full { parameters(t) } else { vec![] },
                 ..ConsentTool::default()
             })
             .collect(),

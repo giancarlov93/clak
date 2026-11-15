@@ -357,13 +357,19 @@ async fn call(
     else {
         return Ok(Ok(cx.broker.run(|c| no_command(c, &app, tool_name))));
     };
-    let mut arguments = request.get("arguments").and_then(Value::as_object).cloned();
-    if let Some(Value::Array(flags)) = request.get("flags") {
+    let given = request.get("arguments").and_then(Value::as_object).cloned();
+    let flags_given = match request.get("flags") {
+        Some(Value::Array(flags)) => Some(flags.clone()),
+        _ => None,
+    };
+    let mut arguments = given.clone();
+    if let Some(flags) = &flags_given {
         match flags::apply(asked, arguments.as_ref(), flags) {
             Ok(applied) => arguments = Some(applied),
             Err(problem) => return Ok(Ok(error("bad_request", &problem))),
         }
     }
+    let asked_digest = asked.digest.clone();
 
     // A program the user blocked for this agent: refused, without a question.
     if cx.broker.run(|c| c.blocks(&key, &app)) {
@@ -458,7 +464,18 @@ async fn call(
                 ));
             };
             if c.runs(&key, &conn_id, &tool, restricted) || c.take_permit(&call_key) {
-                return match c.begin_call(&grant_id, &tool, arguments.take(), cx.tell.clone()) {
+                // The command changed while the user decided: the parameters given on the
+                // command line are read again with its schema now.
+                let sent = match &flags_given {
+                    Some(flags) if tool.digest != asked_digest => {
+                        match flags::apply(&tool, given.as_ref(), flags) {
+                            Ok(applied) => Some(applied),
+                            Err(problem) => return Step::Answer(error("bad_request", &problem)),
+                        }
+                    }
+                    _ => arguments.take(),
+                };
+                return match c.begin_call(&grant_id, &tool, sent, cx.tell.clone()) {
                     Some((routed, answer)) => Step::Begun(routed, answer, tool),
                     None => Step::Answer(error(
                         "gone",
@@ -691,6 +708,17 @@ async fn ask_call(
         cx,
         &format!("for permission to run '{app_name} {}'", tool.name),
     );
+    // One window at a time per agent and program: this call waits for the one open, then
+    // is looked at again (the answer may cover it). On the web page nobody waits.
+    if cx.broker.options().question_link.is_none()
+        && let Some(mut other) = cx.broker.run(|c| c.open_call(&key, &app.conn_id, call.key))
+    {
+        tokio::select! {
+            _ = other.wait_for(Option::is_some) => {}
+            _ = cx.gone.cancelled() => return Err(Gone),
+        }
+        return Ok(Ok(()));
+    }
     // The command as the question shows it: the one "Approve" approves.
     let shown: Arc<OnceLock<ToolDef>> = Arc::default();
     let shown_then = shown.clone();
@@ -733,6 +761,8 @@ async fn ask_call(
                         arguments,
                         status,
                         changes,
+                        approvable: cache_key.is_some(),
+                        restricted,
                     },
                 )
             },
@@ -771,10 +801,10 @@ async fn ask_call(
                             c.commands.approve(cache, shown, "question");
                             c.log(format!("approved: “{}” of {program}", shown.name));
                         }
-                        // The preset or the rule leaves it out: for this session too, or it
-                        // would ask again. Otherwise the approval alone, which the panel can
-                        // take back.
-                        if restricted {
+                        // Nothing to keep it in, or the preset or the rule leaves it out: for
+                        // this session, or it would ask again. Otherwise the approval alone,
+                        // which the panel can take back.
+                        if restricted || cache_for.is_none() {
                             c.allow_for_session(
                                 &session,
                                 &target,

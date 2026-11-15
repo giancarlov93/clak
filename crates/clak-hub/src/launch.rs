@@ -91,13 +91,6 @@ impl PresetProgram {
             }
         }
     }
-
-    /// Whether the preset approves this command of the program.
-    pub fn covers(&self, tool: &str) -> bool {
-        self.tools
-            .as_ref()
-            .is_none_or(|tools| tools.iter().any(|t| t == tool))
-    }
 }
 
 /// The preset a session was launched with.
@@ -226,9 +219,5 @@ mod tests {
             assert_eq!(program.to_json(), value);
         }
         assert_eq!(PresetProgram::from_json(&json!({ "tools": [] })), None);
-        let some = PresetProgram::from_json(&json!({ "name": "n", "tools": ["a"] })).unwrap();
-        assert!(some.covers("a") && !some.covers("b"));
-        let all = PresetProgram::from_json(&json!({ "name": "n" })).unwrap();
-        assert!(all.covers("anything"));
     }
 }

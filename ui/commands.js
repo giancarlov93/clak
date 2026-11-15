@@ -31,7 +31,9 @@ const Commands = (() => {
   const approvedLine = (c, now) => {
     if (!c.approved) return null;
     const how = { question: "from a question", panel: "here", connect: "when it connected", restored: "from a backup", inherited: "from the previous version" }[c.approved.how] || "";
-    return el("div", { class: "quiet" }, `Approved ${D.ago(c.approved.at, now)} ${how}`.trim());
+    // Approved once but asking now (or changed since): when it was, not that it is.
+    const word = c.status === "approved" ? "Approved" : "Last approved";
+    return el("div", { class: "quiet" }, `${word} ${D.ago(c.approved.at, now)} ${how}`.trim());
   };
 
   /// One command: its state, what it does, what changed, and what can be done about it.
@@ -74,7 +76,7 @@ const Commands = (() => {
     const missing = list.length - offered.length;
     const actions = [
       canApprove && toReview
-        ? el("button", { class: "accent", title: "Every command shown here, as it is", onclick: () => send({ type: "approve_all", key, commands: offered.map((c) => ({ name: c.name, digest: c.digest })) }) }, "Approve all")
+        ? el("button", { class: "accent", title: "The new and changed commands shown here, as they are", onclick: () => send({ type: "approve_all", key, commands: offered.filter((c) => c.status === "new" || c.status === "changed").map((c) => ({ name: c.name, digest: c.digest })) }) }, "Approve the new and changed")
         : null,
       approved ? el("button", { title: "Every command asks again", onclick: () => send({ type: "reset_commands", key }) }, "Reset approvals") : null,
       missing ? el("button", { onclick: () => send({ type: "forget_missing", key }) }, "Forget the ones no longer offered") : null,

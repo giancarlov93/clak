@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 const PROGRAM_WARNING: &str = "Clak starts this program on this computer, with your permissions, every time it starts: add it only if you trust it.";
 
 /// The warning on every confirmation that gives a program environment variables.
-const ENV_WARNING: &str = "Clak gives these variables to the program every time it starts; their values come from the agent and aren't shown here: allow only if you expected them.";
+const ENV_WARNING: &str = "Clak gives these variables to the program every time it starts; their values come from the agent (those that look like secrets aren't shown): allow only if you expected them.";
 
 impl HubSettings {
     pub(crate) async fn add_server(
@@ -597,16 +597,55 @@ fn warning(program: bool, env: Option<&BTreeMap<String, String>>) -> Option<Stri
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
-/// The variable names, for the confirmation: not the values, they're often keys.
+/// The variables, for the confirmation: a value is shown, cut short, unless the name says
+/// it is a secret (a key, a token, a password…): a folder or an address the agent sets is
+/// what the user must see.
 fn env_names(env: &BTreeMap<String, String>) -> String {
     if env.is_empty() {
-        "none".to_owned()
-    } else {
-        let names: Vec<&str> = env.keys().map(String::as_str).collect();
-        format!(
-            "{} (values given by the agent, saved encrypted)",
-            some(&names)
-        )
+        return "none".to_owned();
+    }
+    let shown: Vec<String> = env
+        .iter()
+        .map(|(name, value)| {
+            if secret_name(name) {
+                name.clone()
+            } else {
+                format!("{name}={}", clean(&truncate(value, 120)))
+            }
+        })
+        .collect();
+    format!(
+        "{} (values given by the agent, saved encrypted; secrets not shown)",
+        some(&shown)
+    )
+}
+
+/// A variable whose name says its value is a secret.
+fn secret_name(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    [
+        "KEY",
+        "TOKEN",
+        "SECRET",
+        "PASSWORD",
+        "PASSWD",
+        "PASS",
+        "AUTH",
+        "CREDENTIAL",
+        "COOKIE",
+        "SESSION",
+        "PRIVATE",
+        "BEARER",
+        "JWT",
+    ]
+    .iter()
+    .any(|word| upper.contains(word))
+}
+
+fn truncate(value: &str, limit: usize) -> String {
+    match value.char_indices().nth(limit) {
+        Some((cut, _)) => format!("{}…", &value[..cut]),
+        None => value.to_owned(),
     }
 }
 

@@ -12,8 +12,10 @@ pub fn hub_hello(app: AppHandle) -> Value {
 }
 
 /// Revoke, forget, describe, history, a call in full: the replies arrive as a `hub` event.
+/// What gives (approving commands, lifting a block, turning one back on) only from the
+/// panel: the question windows show text programs and agents wrote.
 #[tauri::command]
-pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
+pub fn hub_send(app: AppHandle, window: WebviewWindow, message: Map<String, Value>) {
     const ALLOWED: [&str; 14] = [
         "revoke",
         "forget_session",
@@ -30,11 +32,14 @@ pub fn hub_send(app: AppHandle, message: Map<String, Value>) {
         "call",
         "usage",
     ];
-    if message
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|t| ALLOWED.contains(&t))
-    {
+    let kind = message.get("type").and_then(Value::as_str);
+    let gives = matches!(kind, Some("unblock" | "approve_all"))
+        || (kind == Some("command_state")
+            && message.get("state").and_then(Value::as_str) != Some("off"));
+    if gives && window.label() != "panel" {
+        return;
+    }
+    if kind.is_some_and(|t| ALLOWED.contains(&t)) {
         bridge::of(&app).send(message);
     }
 }
@@ -65,7 +70,8 @@ pub fn consent_request(app: AppHandle, id: String) -> Option<Value> {
 }
 
 /// The user's answer. It only counts from that question's window. A command's question
-/// also says how far a yes goes (`scope`: once, command, program) and can block.
+/// also says how far a yes goes (`scope`: once, session, approve); the questions about a
+/// program can block it.
 #[tauri::command]
 pub fn consent_answer(
     app: AppHandle,

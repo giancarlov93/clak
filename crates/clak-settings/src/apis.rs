@@ -737,7 +737,7 @@ fn line(e: &ApiEndpoint, note: Option<&str>) -> ConsentTool {
             }
         ),
         note: note.map(str::to_owned),
-        changes: vec![],
+        ..ConsentTool::default()
     }
 }
 

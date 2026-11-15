@@ -103,7 +103,9 @@
   $("tools-block").classList.toggle("hidden", tools.length === 0);
   if (kind === "change") $("tools-heading").textContent = "Endpoints";
   if (kind === "call") $("tools-heading").textContent = "Command";
-  const full = tools.length <= 2 || tools.some((t) => t.note);
+  // In full when few, when one is new or changed, and when approving them is offered: the
+  // user approves what they read, parameters included.
+  const full = tools.length <= 2 || tools.some((t) => t.note || (t.parameters || []).length) || !!choices?.always;
   if (full) {
     $("tools").className = "card tools-full";
     $("tools").replaceChildren(...tools.map((t) =>
@@ -113,6 +115,10 @@
         // What changed since the user approved it.
         (t.changes || []).length
           ? el("dl", { class: "lines changes" }, t.changes.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]))
+          : null,
+        // What it takes.
+        (t.parameters || []).length
+          ? el("dl", { class: "lines parameters" }, t.parameters.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]))
           : null)));
   } else {
     $("tools-heading").append(el("span", { class: "count" }, String(tools.length)));
@@ -195,7 +201,14 @@
   }
 
   // Several questions at once: which one this is.
+  // When the buttons start counting toward working.
+  let shown = Date.now();
+  // Moved in the stack (another question answered): the buttons wait again, so a second
+  // click meant for the one that went doesn't answer this one.
+  let position = request.queue?.position;
   const showQueue = (q) => {
+    if (q && position !== undefined && q.position !== position) shown = Date.now();
+    if (q) position = q.position;
     const many = q && q.total > 1;
     $("queue").textContent = many ? `${q.position} of ${q.total} · ` : "";
     $("queue").classList.toggle("hidden", !many);
@@ -214,11 +227,11 @@
   $("block").addEventListener("click", () => answer(false, true));
 
   // The window takes the height of the content.
-  const fit = () => invoke("consent_resize", { id, height: Math.ceil(document.body.scrollHeight) + (Clak.mac ? 28 : 40) });
+  // As tall as the content wants: the window is capped to the screen, and the content scrolls.
+  const fit = () => invoke("consent_resize", { id, height: Math.ceil($("content").scrollHeight + document.querySelector("footer").offsetHeight) + (Clak.mac ? 28 : 40) });
   new ResizeObserver(fit).observe(document.body);
   fit();
 
-  const shown = Date.now();
   const arming = kind === "call" ? CALL_ARMING_MS : ARMING_MS;
   const tick = () => {
     const armed = Date.now() - shown >= arming;

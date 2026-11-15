@@ -814,7 +814,9 @@ async fn an_agent_adds_a_stdio_program_and_the_variables_do_not_leak() {
             );
             assert_eq!(
                 change.what("Environment"),
-                Some("API_KEY, DEBUG (values given by the agent, saved encrypted)")
+                Some(
+                    "API_KEY, DEBUG=1 (values given by the agent, saved encrypted; secrets not shown)"
+                )
             );
             assert_eq!(change.what("Command"), Some("clak browser"));
             assert!(
@@ -859,11 +861,14 @@ async fn an_agent_adds_a_stdio_program_and_the_variables_do_not_leak() {
             assert_eq!(
                 change.what("Environment"),
                 Some(
-                    "API_KEY (values given by the agent, saved encrypted) (replacing the saved ones)"
+                    "API_KEY (values given by the agent, saved encrypted; secrets not shown) (replacing the saved ones)"
                 )
             );
             let warning = change.request.warning.as_deref().unwrap();
-            assert!(warning.contains("aren't shown here"), "{warning}");
+            assert!(
+                warning.contains("their values come from the agent"),
+                "{warning}"
+            );
             assert!(
                 !warning.contains("every time it starts: add it"),
                 "{warning}"

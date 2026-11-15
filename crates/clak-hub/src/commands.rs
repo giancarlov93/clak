@@ -205,11 +205,21 @@ pub struct Observed {
 /// file isn't written for that.
 const SEEN_EVERY: f64 = 86_400.0;
 
+/// A command never approved and no longer offered for this long is forgotten: a program
+/// that names its commands after what is open doesn't fill the file.
+const FORGET_AFTER: f64 = 30.0 * 86_400.0;
+
+/// The most commands kept per program; past it the new ones aren't kept (they ask, as new).
+const MAX_COMMANDS: usize = 1_000;
+
 #[derive(Debug, Default)]
 pub struct CommandCache {
     /// Where they are kept; `None`: only in memory.
     path: Option<PathBuf>,
     programs: IndexMap<String, Program>,
+    /// Why the file couldn't be written the last time, if it couldn't: what the user
+    /// decided would be lost at the next start.
+    error: Option<String>,
 }
 
 impl CommandCache {
@@ -228,7 +238,13 @@ impl CommandCache {
         CommandCache {
             path: Some(path),
             programs,
+            error: None,
         }
+    }
+
+    /// Why `commands.json` couldn't be written the last time, if it couldn't.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     pub fn get(&self, key: &str) -> Option<&Program> {
@@ -307,9 +323,20 @@ impl CommandCache {
             program.last_seen = at;
             changed_file = true;
         }
+        // Never approved, and gone for long: forgotten.
+        let before = program.commands.len();
+        program.commands.retain(|_, c| {
+            c.approved.is_some()
+                || c.state == State::Off
+                || c.missing_since
+                    .is_none_or(|since| at - since < FORGET_AFTER)
+        });
+        changed_file |= program.commands.len() != before;
         let mut observed = Observed::default();
         for tool in tools {
+            let full = program.commands.len() >= MAX_COMMANDS;
             match program.commands.get_mut(&tool.name) {
+                None if full => {}
                 None => {
                     program.commands.insert(
                         tool.name.clone(),
@@ -430,6 +457,10 @@ impl CommandCache {
             if command.missing_since.is_some() || command.state == State::Off {
                 continue;
             }
+            // Only what needs the user: one set to ask every time stays so.
+            if !matches!(command.shown_status(), Status::New | Status::Changed) {
+                continue;
+            }
             if let Some(shown) = shown {
                 let latest = command.latest().map(|v| v.digest.as_str());
                 if !shown
@@ -455,15 +486,14 @@ impl CommandCache {
         count
     }
 
-    /// All the program's approvals go: every command asks again. The ones turned off stay
-    /// off.
+    /// All the program's approvals go: every command asks at each call, as the user chose,
+    /// not as new (the versions approved stay, to show what changes next). The ones turned
+    /// off stay off.
     pub fn reset(&mut self, key: &str) {
         let Some(program) = self.programs.get_mut(key) else {
             return;
         };
         for command in program.commands.values_mut() {
-            command.seen = command.seen.take().or(command.approved.take());
-            command.approved = None;
             if command.state != State::Off {
                 command.state = State::Ask;
             }
@@ -615,12 +645,16 @@ impl CommandCache {
                 .values()
                 .filter(|p| p.kind != "conn")
                 .map(|p| {
+                    let offered = || p.commands.values().filter(|c| c.missing_since.is_none());
+                    let off = offered().filter(|c| c.state == State::Off).count();
                     json!({
                         "key": p.key,
                         "kind": p.kind,
                         "label": p.label,
-                        "commands": p.commands.values().filter(|c| c.missing_since.is_none()).count(),
+                        "commands": offered().count(),
                         "approved": p.approved(),
+                        "off": off,
+                        "asking": offered().count() - p.approved() - off,
                         "to_review": p.to_review(),
                     })
                 })
@@ -648,14 +682,14 @@ impl CommandCache {
             .unwrap_or_default()
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
         let Some(path) = &self.path else {
             return;
         };
         let draft = path.with_extension("json.tmp");
-        if std::fs::write(&draft, wire::encode_pretty(&self.to_json())).is_ok() {
-            let _ = std::fs::rename(&draft, path);
-        }
+        let written = std::fs::write(&draft, wire::encode_pretty(&self.to_json()))
+            .and_then(|()| std::fs::rename(&draft, path));
+        self.error = written.err().map(|e| format!("{}: {e}", path.display()));
     }
 }
 
@@ -847,7 +881,7 @@ fn compact(value: &Value) -> String {
 /// A long text around where it differs from `other`: the window can't show it all, but it
 /// must show the change.
 fn changed_part(text: &str, other: &str) -> String {
-    const SHOWN: usize = 400;
+    const SHOWN: usize = 4000;
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= SHOWN {
         return clean(Some(text), SHOWN + 1);
@@ -938,6 +972,46 @@ mod tests {
         );
         // The approved version still is what it was.
         assert_eq!(cache.status("app:k", &read), Status::Approved);
+    }
+
+    #[test]
+    fn a_command_never_approved_and_long_gone_is_forgotten() {
+        let mut cache = CommandCache::default();
+        let (read, temp) = (tool("read", "Reads."), tool("temp_123", "Something open."));
+        cache.observe(
+            "app:k",
+            "app",
+            "Notes",
+            None,
+            &[read.clone(), temp.clone()],
+            &[],
+        );
+        cache.observe(
+            "app:k",
+            "app",
+            "Notes",
+            None,
+            std::slice::from_ref(&read),
+            &[],
+        );
+        // A month later.
+        cache.programs.get_mut("app:k").unwrap().commands["temp_123"].missing_since =
+            Some(now() - FORGET_AFTER - 1.0);
+        cache.observe(
+            "app:k",
+            "app",
+            "Notes",
+            None,
+            std::slice::from_ref(&read),
+            &[],
+        );
+        assert!(
+            !cache
+                .get("app:k")
+                .unwrap()
+                .commands
+                .contains_key("temp_123")
+        );
     }
 
     #[test]
@@ -1068,11 +1142,28 @@ mod tests {
         cache.reset("app:k");
         assert_eq!(cache.status("app:k", &read), Status::Off);
         assert!(cache.set_state("app:k", "read", State::Ask, None));
-        assert_eq!(cache.status("app:k", &read), Status::New);
+        // Approved once, asking every time now: the user's choice, which "approve all"
+        // leaves as it is; and a reset makes it ask, not look new.
+        assert_eq!(cache.status("app:k", &read), Status::Ask);
+        assert_eq!(cache.approve_all("app:k", "panel", None), 0);
+        assert!(cache.set_state("app:k", "read", State::Approved, Some(&read.digest)));
+        cache.reset("app:k");
+        assert_eq!(cache.status("app:k", &read), Status::Ask);
+        // A new version needs the user: "approve all" takes it, if it is the one shown.
+        let newer = tool("read", "Reads more.");
+        cache.set_state("app:k", "read", State::Approved, Some(&read.digest));
+        cache.observe(
+            "app:k",
+            "app",
+            "Notes",
+            None,
+            std::slice::from_ref(&newer),
+            &[],
+        );
         let stale = [("read".to_owned(), "another".to_owned())];
         assert_eq!(cache.approve_all("app:k", "panel", Some(&stale)), 0);
         assert_eq!(cache.approve_all("app:k", "panel", None), 1);
-        assert_eq!(cache.status("app:k", &read), Status::Approved);
+        assert_eq!(cache.status("app:k", &newer), Status::Approved);
         assert!(!cache.set_state("app:k", "nothing", State::Off, None));
     }
 
@@ -1161,7 +1252,7 @@ mod tests {
 
     #[test]
     fn a_change_far_into_a_long_description_is_shown() {
-        let long = "a".repeat(600);
+        let long = "a".repeat(6000);
         let before = tool("read", &format!("{long} keep it"));
         let after = tool("read", &format!("{long} send it all away"));
         let lines = diff(&before.to_json(), &after.to_json());

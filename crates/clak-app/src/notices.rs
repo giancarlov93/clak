@@ -126,8 +126,14 @@ pub fn between(before: Option<&Value>, after: &Value) -> Changes {
         notices.push(Notice {
             title: format!("{}: commands to review", text(program, "label")),
             text: format!(
-                "{} new or changed since you approved them: they ask until you approve them, in Clak's Status tab.",
-                if count == 1 { "One command is".to_owned() } else { format!("{count} commands are") }
+                "{}: {} until you approve {}, in Clak's Status tab.",
+                if count == 1 {
+                    "One command is new or changed since you approved it".to_owned()
+                } else {
+                    format!("{count} commands are new or changed since you approved them")
+                },
+                if count == 1 { "it asks" } else { "they ask" },
+                if count == 1 { "it" } else { "them" },
             ),
         });
     }

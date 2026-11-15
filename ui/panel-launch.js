@@ -668,7 +668,7 @@ const Launch = (() => {
     let waiting = 0;
     for (const [, p] of draft.programs) {
       const kept = (state.commands || []).find((c) => c.key === keyOf(p));
-      if (kept) waiting += kept.commands - kept.approved;
+      if (kept) waiting += kept.asking ?? kept.commands - kept.approved - (kept.off || 0);
     }
     return waiting ? Kit.bar("warn", `${D.plural(waiting, "command", "commands")} of these programs ${waiting === 1 ? "isn't" : "aren't"} approved: ${waiting === 1 ? "it asks" : "they ask"} until you approve ${waiting === 1 ? "it" : "them"}, in the Status tab.`) : null;
   };
@@ -758,7 +758,9 @@ const Launch = (() => {
       : null;
     return el("div", { class: "pick-row", "data-id": c.id }, head,
       el("label", { class: "pick indent-pick", title: c.tools.length ? "" : "Its commands can be chosen while it is connected" },
-        all, el("span", null, c.tools.length || chosen.tools ? "All commands" : "All commands (connect it to choose some)")),
+        all, el("span", null, c.tools.length || chosen.tools
+          ? "No question for any approved command (untick to choose which)"
+          : "No question for any approved command (connect it to choose which)")),
       tools);
   };
 
@@ -842,7 +844,7 @@ const Launch = (() => {
         all.length
           ? el("div", { class: "picks" }, all.map(programPick))
           : el("div", { class: "quiet" }, "No program known yet: allow an application, or add an MCP server or an API.")),
-      el("div", { class: "quiet hint" }, "Launched with this preset, the agent uses these programs without being asked first. A preset doesn't approve commands: those you haven't approved still ask, as do other programs."),
+      el("div", { class: "quiet hint" }, "Launched with this preset, the agent uses these programs without being asked first. A preset doesn't approve commands: those you haven't approved still ask, as do other programs. If you choose which commands, only those run without a question; the others ask, even if approved."),
       unapprovedHint(),
       draft.error ? Kit.bar("err", draft.error) : null,
       el("div", { class: "buttons" },

@@ -196,7 +196,8 @@ impl WindowPrompt {
             let Some(window) = self.app.get_webview_window(&label(id)) else {
                 continue;
             };
-            let height = height * scale;
+            // Never taller than the screen: the page scrolls, its buttons stay in sight.
+            let height = (height * scale).min((bottom - top) - 2.0 * gap);
             let _ = window.set_size(PhysicalSize::new(width as u32, height as u32));
             let y = if cfg!(target_os = "macos") {
                 let y = edge;

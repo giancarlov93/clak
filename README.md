@@ -1,7 +1,7 @@
 # Clak
 
 Clak lets the AI agents on your computer (Claude Code, Codex, Gemini CLI, OpenCode…) use your
-programs and services: the document open in a desktop program, an MCP server, a REST API.
+programs and services: what is open in a desktop program, an MCP server, a REST API.
 Nothing happens without your say: you decide which programs connect, and which agent may use
 each of them.
 

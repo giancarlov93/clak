@@ -490,7 +490,8 @@ async fn commands(
 }
 
 /// What can be taken away, as the panel does: a permission, a connected agent, an "Always
-/// allow", an allowed application. Never given: that happens only in the questions.
+/// allow", an allowed application; and a block lifted, which only lets the agent ask again.
+/// Never given: that happens only in the questions, and in the commands review.
 async fn revoke(
     State(page): State<Arc<Page>>,
     headers: HeaderMap,
@@ -505,6 +506,7 @@ async fn revoke(
         Some("agent") => json!({ "type": "forget_session", "session_id": id }),
         Some("rule") => json!({ "type": "forget_rule", "id": id }),
         Some("app") => json!({ "type": "forget_app", "key": id }),
+        Some("block") => json!({ "type": "unblock", "id": id }),
         _ => {
             return refuse(
                 StatusCode::BAD_REQUEST,
@@ -515,8 +517,11 @@ async fn revoke(
     let Value::Object(message) = message else {
         unreachable!("an object above")
     };
+    // Behind the password the page is the user's: it may lift a block, as the app hosting
+    // the hub may (on the channel an agent could lift its own).
+    let inside = message.get("type").and_then(Value::as_str) == Some("unblock");
     let (outbox, _replies) = Outbox::channel();
-    clak_hub::control_channel::panel_message(&page.broker, &message, &outbox, false);
+    clak_hub::control_channel::panel_message(&page.broker, &message, &outbox, inside);
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -979,6 +984,7 @@ mod tests {
             ("agent", 200),
             ("rule", 200),
             ("app", 200),
+            ("block", 200),
             ("everything", 400),
         ] {
             let response = served

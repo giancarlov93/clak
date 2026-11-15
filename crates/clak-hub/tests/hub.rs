@@ -929,8 +929,8 @@ async fn one_answer_settles_the_questions_it_covers() {
         .await));
     hub.prompt.set_allow_all(false);
 
-    // Three calls at once, with different arguments: three questions. The command for
-    // the session answers the other two as well.
+    // Three calls at once, with different arguments: one window at a time. The command for
+    // the session answers the other two as well: no more windows.
     let call = |text: &'static str| {
         hub.call(
             "claude",
@@ -942,11 +942,8 @@ async fn one_answer_settles_the_questions_it_covers() {
     };
     let (a, b, c, _) = tokio::join!(call("x"), call("y"), call("z"), async {
         let first = hub.prompt.next(ConsentKind::Call).await;
-        let second = hub.prompt.next(ConsentKind::Call).await;
-        let third = hub.prompt.next(ConsentKind::Call).await;
+        hub.prompt.quiet(100).await;
         first.allow_session();
-        second.cancel.cancelled().await;
-        third.cancel.cancelled().await;
     });
     for result in [a, b, c] {
         assert_eq!(content(&result), Some("done"));
@@ -976,13 +973,11 @@ async fn one_answer_settles_the_questions_it_covers() {
         )
     };
     let (a, b, _) = tokio::join!(delete(1), delete(2), async {
-        let first = hub.prompt.next(ConsentKind::Call).await;
-        let second = hub.prompt.next(ConsentKind::Call).await;
-        second.block();
-        first.cancel.cancelled().await;
+        hub.prompt.next(ConsentKind::Call).await.block();
     });
     assert_eq!(code(&a), Some("blocked"));
     assert_eq!(code(&b), Some("blocked"));
+    hub.prompt.quiet(100).await;
     hub.stop().await;
 }
 
@@ -1374,7 +1369,10 @@ async fn the_list_says_how_the_agent_may_use_each_program() {
             hub.prompt.next(ConsentKind::Call).await.block();
         }
     );
-    assert_eq!(access(&hub.ask("codex", "list", None).await), "blocked");
+    // Blocked: no access, said apart (an older clak takes it as one to ask about).
+    let listed = hub.ask("codex", "list", None).await;
+    assert_eq!(access(&listed), Value::Null);
+    assert_eq!(listed["resources"][0]["blocked"], true);
     hub.stop().await;
 }
 

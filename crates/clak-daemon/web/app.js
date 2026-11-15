@@ -78,7 +78,8 @@ const questionCard = (q) => {
   const scopes = scopeList.length ? el("div", { class: "scopes" }, scopeList.map(option)) : null;
   const allow = el("button", { class: "primary", disabled: true }, "Allow");
   const deny = el("button", { class: "deny", disabled: true }, "Deny");
-  const block = choices?.block ? el("button", { class: "deny", disabled: true }, choices.block) : null;
+  // Apart from Allow and Deny, as a link: a tap meant for Deny doesn't close the program.
+  const block = choices?.block ? el("button", { class: "link-danger", disabled: true }, choices.block) : null;
   const left = el("p", { class: "meta" });
   const card = el(
     "div",
@@ -95,7 +96,8 @@ const questionCard = (q) => {
     el("p", { class: "question" }, q.question),
     scopes,
     alwaysRow,
-    el("div", { class: "row" }, el("div", { class: "actions" }, allow, deny, block), left),
+    el("div", { class: "row" }, el("div", { class: "actions" }, allow, deny), left),
+    block ? el("div", { class: "block-row" }, block) : null,
   );
   const answer = async (yes, blocked = false) => {
     allow.disabled = deny.disabled = true;
@@ -168,29 +170,42 @@ const takeAway = (kind, id, what) =>
     onclick: async () => {
       const response = await post("/api/revoke", { kind, id });
       if (response.status === 401) return showLogin("The session is over: log in again.");
-      notice(response.ok ? `Taken away: ${what}` : "It couldn't be taken away.");
+      notice(response.ok ? (kind === "block" ? `Unblocked: ${what}` : `Taken away: ${what}`) : "It couldn't be done.");
       refresh();
     },
-  }, kind === "agent" ? "Disconnect" : "Revoke");
+  }, kind === "agent" ? "Disconnect" : kind === "block" ? "Unblock" : "Revoke");
 
 const render = (state) => {
   const now = state.now;
   renderQuestions(state.questions || [], now);
   const programs = [...(state.commands || [])].sort((a, b) => (b.to_review > 0) - (a.to_review > 0));
   $("review-section").hidden = !programs.length;
-  list($("review"), programs, "", reviewCard);
+  // A card is drawn again only when what it shows changed: the focus and a click on its
+  // buttons survive the refresh every two seconds.
+  const box = $("review");
+  const keep = new Map([...box.children].map((n) => [n.dataset.sign, n]));
+  box.replaceChildren(...programs.map((p) => {
+    const sign = JSON.stringify([p, reviewing.get(p.key) || null]);
+    const old = keep.get(sign);
+    if (old) return old;
+    const card = reviewCard(p);
+    card.dataset.sign = sign;
+    return card;
+  }));
   list($("grants"), state.grants || [], "No agent is using a program.", (g) =>
     el("div", { class: "card row" },
       el("div", {},
         el("p", { class: "title" }, `${g.agent || "An agent"} → ${g.program || "a program"}`),
         el("p", { class: "meta" }, `since ${ago(g.since, now)} · ${g.calls || 0} calls · ${g.tools && g.tools.length ? `for the session: ${g.tools.join(", ")}` : "approved commands only"}`)),
       takeAway("grant", g.id, `${g.agent} → ${g.program}`)));
-  // Blocks: shown, lifted only from the Clak app hosting the hub.
-  $("blocks").hidden = !(state.blocks || []).length;
+  // Blocks: refused at once until the agent exits, or until lifted here.
+  $("blocks-section").hidden = !(state.blocks || []).length;
   list($("blocks"), state.blocks || [], "", (b) =>
-    el("div", { class: "card" },
-      el("p", { class: "title" }, `${b.agent || "An agent"} ⊘ ${b.program || "a program"}`),
-      el("p", { class: "meta" }, `blocked ${ago(b.since, now)} · its calls are refused until it exits`)));
+    el("div", { class: "card row" },
+      el("div", {},
+        el("p", { class: "title" }, `${b.agent || "An agent"} ⊘ ${b.program || "a program"}`),
+        el("p", { class: "meta" }, `blocked ${ago(b.since, now)} · its calls are refused until it exits`)),
+      takeAway("block", b.id, `${b.agent} → ${b.program}`)));
   list($("agents"), state.agents || [], "No agent connected.", (a) =>
     el("div", { class: "card row" },
       el("div", {},
@@ -219,6 +234,7 @@ const reviewing = new Map();
 const commandsOf = async (key) => {
   const response = await post("/api/commands", { key });
   if (response.status === 401) return showLogin("The session is over: log in again.");
+  if (!response.ok) notice("The commands couldn't be read.");
   return response.ok ? response.json() : null;
 };
 

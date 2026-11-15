@@ -58,13 +58,15 @@ impl ConsentLine {
 }
 
 /// A command as the agent will see it. `note` says whether it is new or changed; `changes`
-/// what changed since the user approved it.
+/// what changed since the user approved it; `parameters` what it takes, when approving it is
+/// offered: the user approves what they read.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ConsentTool {
     pub name: String,
     pub description: String,
     pub note: Option<String>,
     pub changes: Vec<ConsentLine>,
+    pub parameters: Vec<ConsentLine>,
 }
 
 /// A question for the user. The hub composes it, not whoever shows it: so the words are the
@@ -144,7 +146,7 @@ impl ConsentRequest {
             "question": self.question,
             "who": lines(&self.who),
             "what": lines(&self.what),
-            "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note, "changes": lines(&t.changes) })).collect::<Vec<_>>(),
+            "tools": self.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "note": t.note, "changes": lines(&t.changes), "parameters": lines(&t.parameters) })).collect::<Vec<_>>(),
             "warning": self.warning,
             "note": self.note,
             "arguments": lines(&self.arguments),

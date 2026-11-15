@@ -152,8 +152,9 @@ html.mac .count { background: none; padding: 0; min-width: 0; height: auto; font
   padding: 4px 8px 4px 0; border: none; background: none; box-shadow: none; text-align: left;
 }
 .group-head:hover:not(:disabled) { background: var(--subtle-hover); }
-.group-head h2 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; letter-spacing: normal; }
-html.mac .group-head h2 { font-size: 13px; color: var(--text); }
+h2.group-heading { margin: 0; font: inherit; text-transform: none; letter-spacing: normal; color: inherit; }
+.group-head .group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+html.mac .group-head .group-name { font-size: 13px; color: var(--text); }
 .group-head .badge { margin-left: auto; }
 .group-chevron { flex: none; width: 14px; font-size: 10px; text-align: center; color: var(--quiet); transform: rotate(90deg); transition: transform var(--normal) var(--ease); }
 .group-chevron svg { width: 10px; height: 10px; }
@@ -288,6 +289,8 @@ html.mac .inset { border: none; border-radius: 9px; }
 .inset > .grant + .grant { border-top: 1px solid var(--stroke); }
 .grant { display: flex; align-items: center; gap: 8px; padding-right: 10px; }
 .grant > .click-row { flex: 1; min-width: 0; }
+/* A row with nothing to open (a block) lines up with those that open. */
+.grant > .row-body { flex: 1; min-width: 0; padding: 8px 8px 8px 12px; }
 /* The whole row lights up, Revoke included, not only the part that opens. */
 .grant:hover { background: var(--subtle-hover); }
 .grant > .click-row:hover:not(:disabled) { background: none; }
