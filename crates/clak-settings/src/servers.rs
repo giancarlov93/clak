@@ -20,6 +20,9 @@ use tokio_util::sync::CancellationToken;
 /// The warning on every confirmation that starts a new program.
 const PROGRAM_WARNING: &str = "Clak starts this program on this computer, with your permissions, every time it starts: add it only if you trust it.";
 
+/// The warning on every confirmation that gives a program environment variables.
+const ENV_WARNING: &str = "Clak gives these variables to the program every time it starts; their values come from the agent and aren't shown here: allow only if you expected them.";
+
 impl HubSettings {
     pub(crate) async fn add_server(
         &self,
@@ -116,6 +119,7 @@ impl HubSettings {
         {
             return Err(say(problem));
         }
+        refuse_code(&env)?;
         if let Some(twin) = self.connectors.find_by_launch(&launch) {
             return Err(say(format!(
                 "“{}” already runs {}: change it with edit-server --server {}.",
@@ -142,7 +146,7 @@ impl HubSettings {
                 ),
             ],
             tools: vec![],
-            warning: Some(PROGRAM_WARNING.into()),
+            warning: warning(true, Some(&env)),
         };
         self.confirm(call_id, change, cancel).await?;
 
@@ -340,6 +344,10 @@ impl HubSettings {
         {
             return Err(say(problem));
         }
+        // Only what the agent gives: the saved variables are the user's.
+        if let Some(env) = &env {
+            refuse_code(env)?;
+        }
         if let Some(twin) = self.connectors.find_by_launch(&launch)
             && twin.id != old.id
         {
@@ -406,7 +414,7 @@ impl HubSettings {
             action: "make this change".into(),
             lines,
             tools: vec![],
-            warning: moved.then(|| PROGRAM_WARNING.to_owned()),
+            warning: warning(moved, env.as_ref()),
         };
         self.confirm(call_id, change, cancel).await?;
 
@@ -552,6 +560,42 @@ fn env_of(args: &Args<'_>) -> Result<Option<BTreeMap<String, String>>, Stop> {
 }
 
 const ENV_FORMAT: &str = r#"--env is a JSON object of texts, e.g. {"API_KEY": "…", "DEBUG": "1"}."#;
+
+/// An agent can't give a variable that makes the program load other code: the program
+/// would run what the agent chose, which the confirmation doesn't show. The user can, in
+/// the app, where they see the value.
+fn refuse_code(env: &BTreeMap<String, String>) -> Result<(), Stop> {
+    match env.keys().find(|name| ConnectorHub::loads_code(name)) {
+        Some(name) => Err(say(format!(
+            "{name} changes what the program loads or where it finds its programs: an agent can't set it. The user can, on the MCP page of Clak's panel."
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// The warning of a confirmation: the program's, if it starts a new one; the variables',
+/// if the agent gives any, naming those that send the program elsewhere.
+fn warning(program: bool, env: Option<&BTreeMap<String, String>>) -> Option<String> {
+    let mut parts = Vec::new();
+    if program {
+        parts.push(PROGRAM_WARNING.to_owned());
+    }
+    if let Some(env) = env.filter(|e| !e.is_empty()) {
+        parts.push(ENV_WARNING.to_owned());
+        let redirected: Vec<&str> = env
+            .keys()
+            .map(String::as_str)
+            .filter(|name| ConnectorHub::redirects(name))
+            .collect();
+        if !redirected.is_empty() {
+            parts.push(format!(
+                "{} changes where the program gets its packages, keeps its files or sends its traffic.",
+                some(&redirected)
+            ));
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
 
 /// The variable names, for the confirmation: not the values, they're often keys.
 fn env_names(env: &BTreeMap<String, String>) -> String {

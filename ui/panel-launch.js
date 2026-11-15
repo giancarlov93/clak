@@ -578,9 +578,11 @@ const Launch = (() => {
   // --- the presets -----------------------------------------------------------------
 
   /// What a preset program points to, in the hub's terms: the open documents of a known
-  /// application, or the connector with that name.
+  /// application, or the connector with that name (never a program that connected from a
+  /// process, as in the hub).
+  const named = (r) => ["connector", "hub"].includes(r.origin && r.origin.kind);
   const resourcesOf = (target, state) =>
-    (state.resources || []).filter((r) => (target.app ? r.key === target.app : !r.key && r.name === target.name));
+    (state.resources || []).filter((r) => (target.app ? r.key === target.app : !r.key && named(r) && r.name === target.name));
 
   const programChip = (p, state) => {
     const open = resourcesOf(p, state);

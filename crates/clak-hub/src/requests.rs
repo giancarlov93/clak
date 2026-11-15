@@ -19,6 +19,7 @@ use crate::{flags, rules, texts};
 use clak_wire::json::{self};
 use clak_wire::names;
 use serde_json::{Map, Value, json};
+use std::sync::{Arc, OnceLock};
 use tokio_util::sync::CancellationToken;
 
 /// The response to a request (without `type`, which the channel adds), or [`Gone`] if the
@@ -413,12 +414,24 @@ async fn call(
         // key, a connector or an API by the name the user gave it. Not for Clak's own
         // settings, where every change asks anyway.
         let offer = agent_key.is_some() && (app.key.is_some() || app.is_connector());
+        // The commands the question shows, as they are when it is asked: the yes approves
+        // those, not what the program offers by the time the user answers. The question is
+        // built only for the first agent that asks, and only its answer is kept: the two
+        // halves always belong together.
+        let shown: Arc<OnceLock<Vec<(String, String)>>> = Arc::default();
+        let shown_then = shown.clone();
         let verdict = cx
             .broker
             .agent_consent(
                 &format!("use:{key}:{conn_id}"),
                 |id, c| {
                     let app = c.app_by_id(&conn_id).unwrap_or(&app);
+                    let _ = shown.set(
+                        app.tools
+                            .iter()
+                            .map(|t| (t.name.clone(), t.digest.clone()))
+                            .collect(),
+                    );
                     let mut request = texts::use_app(id, cx.agent, cx.cwd, new_session, app);
                     if offer {
                         request.always = Some(texts::always(cx.agent, cx.cwd, app));
@@ -428,7 +441,8 @@ async fn call(
                 move |c| {
                     if c.registered(&target) {
                         let session = c.authorize(&agent, cwd.as_deref(), via);
-                        c.grant(&session, &target);
+                        let shown = shown_then.get().map_or(&[][..], Vec::as_slice);
+                        c.grant_shown(&session, &target, shown);
                     }
                 },
                 remember,

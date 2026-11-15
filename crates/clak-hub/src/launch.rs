@@ -80,11 +80,15 @@ impl PresetProgram {
     }
 
     /// Whether `app` is this program: a document of the known application, or the
-    /// connector with that name.
+    /// connector with that name. A program that connected from a process is never named:
+    /// one whose application couldn't be identified has no key either, and could take a
+    /// connector's name.
     pub fn matches(&self, app: &AppConn) -> bool {
         match &self.target {
             Target::App(key) => app.key.as_deref() == Some(key.as_str()),
-            Target::Name(name) => app.key.is_none() && app.name == *name,
+            Target::Name(name) => {
+                app.key.is_none() && (app.is_connector() || app.is_hub()) && app.name == *name
+            }
         }
     }
 

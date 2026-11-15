@@ -192,6 +192,17 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- Allowing an agent to use a program allows the commands the question showed, as it showed
+  them. One the program added or changed while the question was open asks on its own, as a
+  command added later does.
+- `clak settings`: an agent can no longer give a program on this computer a variable that
+  makes it load other code (`PATH`, `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`…), whose
+  value the confirmation doesn't show; you still can, on the MCP page. Every change to the
+  variables now says so in its confirmation, and names those that send the program
+  elsewhere (`HOME`, a package registry, a proxy).
+- A preset or an "Always allow" for an MCP server or an API, which names it, covered a
+  program that had connected with that name when its application couldn't be identified.
+  It now covers only the server or the API.
 - Agents' conversations by folder, and Usage by folder: one folder is one group, even when the
   agents wrote it two ways (`C:\…` from a terminal, `c:\…` from VS Code, or with a separator
   at the end). On Windows the case of a path no longer splits it in two.

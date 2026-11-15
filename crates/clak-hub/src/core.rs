@@ -1026,9 +1026,20 @@ impl Core {
         self.grants.get_mut(grant_id)
     }
 
-    /// The agent's permission on the program (if not already there); returns its id.
-    pub fn grant(&mut self, session_key: &str, conn_id: &str) -> Option<String> {
-        self.grant_tools(session_key, conn_id, |_| true)
+    /// The agent's permission on the program (if not already there), with only the commands
+    /// the user was shown, as they were then (name and digest): one added or changed while
+    /// the question was open asks on its own. Returns its id.
+    pub fn grant_shown(
+        &mut self,
+        session_key: &str,
+        conn_id: &str,
+        shown: &[(String, String)],
+    ) -> Option<String> {
+        self.grant_tools(session_key, conn_id, |tool| {
+            shown
+                .iter()
+                .any(|(name, digest)| *name == tool.name && *digest == tool.digest)
+        })
     }
 
     /// The permission with only the commands `approve` accepts: the others ask, as a new
