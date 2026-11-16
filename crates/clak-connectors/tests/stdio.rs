@@ -7,7 +7,7 @@ mod support;
 
 use clak_connectors::launch::Launch;
 use clak_connectors::{ConnectorHub, phase};
-use clak_hub::ConsentKind;
+use clak_hub::{Asks, ConsentKind};
 use serde_json::json;
 use std::collections::BTreeMap;
 use support::*;
@@ -42,7 +42,7 @@ async fn a_program_is_added_and_brings_its_commands() {
     assert!(entry.is_stdio());
     assert_eq!(entry.url, "");
     let seen = hub.connector(&entry.id, phase::ACTIVE).await;
-    assert_eq!(seen["tools"], 6);
+    assert_eq!(seen["tools"], 8);
     assert_eq!(seen["cli"], "browser");
     assert_eq!(seen["transport"], "stdio");
     assert_eq!(seen["launch"], launch.display());
@@ -199,7 +199,7 @@ async fn a_changed_list_arrives_right_away() {
         "grown"
     );
     // The periodic refresh is every ten minutes: it's the server's notification that brings the new command.
-    hub.connector_until(&entry.id, |c| c["tools"] == 7).await;
+    hub.connector_until(&entry.id, |c| c["tools"] == 9).await;
     hub.stop().await;
 }
 
@@ -225,7 +225,104 @@ async fn a_confirmation_asked_by_the_program_is_given_by_the_user() {
         assert_eq!(question.request.question, "Proceed?");
         question.allow();
     });
-    assert_eq!(content(&called), "action: accept");
+    assert_eq!(content(&called), "action: accept {}");
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn a_form_asked_by_the_program_is_filled_in_by_the_user() {
+    let hub = TestHub::start().await;
+    let entry = hub
+        .connectors
+        .add_stdio("Browser", &fake_server(&[]), &BTreeMap::new(), None)
+        .unwrap();
+    hub.connector(&entry.id, phase::ACTIVE).await;
+    let form = json!({"params": {"message": "Who are you?", "requestedSchema": {
+        "type": "object",
+        "properties": {"name": {"type": "string", "title": "Name"}, "age": {"type": "integer", "minimum": 18}},
+        "required": ["name"],
+    }}});
+    let call = hub.call("claude", "browser", "ask", Some(form));
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Use).await.allow();
+        hub.prompt.next(ConsentKind::Call).await.allow();
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        assert_eq!(question.request.question, "Who are you?");
+        assert!(matches!(&question.request.asks, Some(Asks::Form(f)) if f.fields.len() == 2));
+        // No other command is running: the question names no one else.
+        assert_eq!(question.request.warning, None);
+        question.send(json!({"name": "Ada", "age": 36}));
+    });
+    assert_eq!(
+        content(&called),
+        r#"action: accept {"name":"Ada","age":36}"#
+    );
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn with_two_commands_running_the_question_names_both_agents() {
+    let hub = TestHub::start().await;
+    let entry = hub
+        .connectors
+        .add_stdio("Browser", &fake_server(&[]), &BTreeMap::new(), None)
+        .unwrap();
+    hub.connector(&entry.id, phase::ACTIVE).await;
+    hub.prompt.set_allow_all(true);
+    for agent in ["claude", "codex"] {
+        let _ = hub
+            .call(agent, "browser", "echo", Some(json!({"text": "x"})))
+            .await;
+    }
+    // Both commands approved, one at a time.
+    let held = hub
+        .call("claude", "browser", "hold", Some(json!({"now": true})))
+        .await;
+    assert_eq!(content(&held), "held");
+    let _ = hub.call("codex", "browser", "ask", None).await;
+    hub.prompt.set_allow_all(false);
+
+    // Claude's command and Codex's are running when the program asks: it can't say which
+    // command asks, so the question names one agent and says the other could be asking.
+    let hold = hub.call("claude", "browser", "hold", None);
+    let ask = hub.call("codex", "browser", "ask", Some(json!({"after_hold": true})));
+    let answer = async {
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        let named = |agent: &str| question.request.who.iter().any(|l| l.value == agent);
+        let warning = question.request.warning.clone().unwrap_or_default();
+        assert!(
+            (named("codex") && warning.contains("also running a command for claude"))
+                || (named("claude") && warning.contains("also running a command for codex")),
+            "{:?} {warning}",
+            question.request.who
+        );
+        question.allow();
+    };
+    let (held, asked, ()) = tokio::join!(hold, ask, answer);
+    assert_eq!(content(&asked), "action: accept {}");
+    assert_eq!(content(&held), "held");
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn a_program_that_needs_the_browser_first_says_when_the_user_is_done() {
+    let hub = TestHub::start().await;
+    let entry = hub
+        .connectors
+        .add_stdio("Browser", &fake_server(&[]), &BTreeMap::new(), None)
+        .unwrap();
+    hub.connector(&entry.id, phase::ACTIVE).await;
+    let call = hub.call("claude", "browser", "files", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Use).await.allow();
+        hub.prompt.next(ConsentKind::Call).await.allow();
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        assert_eq!(question.request.question, "Sign in to your files.");
+        assert!(matches!(&question.request.asks, Some(Asks::Page(p)) if p.wait));
+        // The program says the user is done: the question goes by itself.
+        question.withdrawn().await;
+    });
+    assert_eq!(content(&called), "3 files");
     hub.stop().await;
 }
 
@@ -324,9 +421,9 @@ async fn name_and_variables_are_checked_before_saving() {
 async fn the_probe_starts_the_program_and_tells_what_it_offers() {
     let probe = ConnectorHub::probe_stdio(&fake_server(&[]), &BTreeMap::new()).await;
     assert!(probe.ok, "{}", probe.message);
-    assert_eq!(probe.tools, 6);
+    assert_eq!(probe.tools, 8);
     assert_eq!(probe.server.as_deref(), Some("fake-stdio"));
-    assert_eq!(probe.message, "Started (fake-stdio): 6 commands.");
+    assert_eq!(probe.message, "Started (fake-stdio): 8 commands.");
 
     let probe = ConnectorHub::probe_stdio(&fake_server(&["--fail-start"]), &BTreeMap::new()).await;
     assert!(!probe.ok);

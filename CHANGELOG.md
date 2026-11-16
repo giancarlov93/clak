@@ -156,6 +156,21 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   hash. An agent gets the link of its question at once, instead of waiting, and tries again
   after the answer; the question stays open until it is answered or expires (10 minutes).
   The page also shows what is allowed now and takes it away.
+- MCP servers can ask you something halfway through a command (elicitation, MCP
+  2025-11-25), in the Clak window, on clak-daemon's page and on its terminal (`--ask`):
+  - a form, with its fields as the server describes them (text, email, address, date, date
+    and time, numbers, yes or no, one or several choices), their defaults filled in, and
+    what doesn't fit said field by field before it goes; only what the server asked for is
+    sent. A field that looks like a password, a key or a card number is pointed out:
+    servers must not ask for those in a form;
+  - a page to open: the address is shown whole, with the site set apart and warnings for
+    unencrypted, foreign-alphabet or misleading addresses, and opens in your browser only
+    when you choose to;
+  - a command the server can't run until you've done something in your browser (a sign-in
+    elsewhere): the question waits, goes by itself when the server says you're done (or
+    when you choose Continue), and the command runs again, once.
+  Closing the question tells the server nobody chose, unlike Decline. Clak now speaks MCP
+  2025-11-25 with servers, and resumes a server's stream that closes before its answer.
 
 ### Changed
 
@@ -212,6 +227,14 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
 
 ### Fixed
 
+- A server's question no longer stays open, in its window and among the questions waiting,
+  after the agent that ran the command stops waiting; and its window, or that of a settings
+  change, always closes when its time runs out.
+- With two commands of a program on this computer running at once, a question from the
+  program no longer names only the agent of the latest one: it says which others could be
+  asking.
+- A server that asks something when no command is running is told that nobody chose,
+  instead of being told Clak doesn't support questions.
 - `clak settings`: an agent can no longer give a program on this computer a variable that
   makes it load other code (`PATH`, `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`, npm and
   git settings…); you still can, on the MCP page. Every change to the variables says so in

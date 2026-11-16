@@ -115,3 +115,25 @@ code { font-size: 14px; }
 .block-row { margin-top: 8px; }
 .link-danger { background: none; border: none; padding: 0; color: var(--deny, #c62828); text-decoration: underline; cursor: pointer; font: inherit; font-size: 13px; }
 .link-danger:disabled { opacity: .5; cursor: default; }
+
+/* A server's question: its form and its page. */
+a.button { display: inline-flex; align-items: center; box-sizing: border-box; min-height: 40px; text-decoration: none; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--accent); font: inherit; }
+a.button.primary { background: var(--accent); color: var(--accent-text); }
+a.button.disabled { opacity: .45; pointer-events: none; }
+.form { display: flex; flex-direction: column; gap: 12px; margin: 8px 0; }
+.field-label { display: block; margin: 0 0 4px; font-weight: 600; }
+.field-optional { font-weight: 400; color: var(--muted); }
+.field-hint { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.field-error { margin: 4px 0 0; font-size: 13px; color: var(--deny); }
+.field-error:empty { display: none; }
+.field-options { display: flex; flex-direction: column; gap: 4px; }
+.field-options.many { max-height: 180px; overflow-y: auto; }
+.field-check { display: flex; align-items: flex-start; gap: 8px; }
+.form input:not([type="checkbox"]):not([type="radio"]), .form select, .form textarea {
+  font: inherit; width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text);
+}
+.form .wrong input:not([type="checkbox"]):not([type="radio"]), .form .wrong select, .form .wrong textarea { border-color: var(--deny); }
+.page { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; margin: 8px 0; }
+.address-part { color: var(--muted); }
+.address-host { font-weight: 700; }

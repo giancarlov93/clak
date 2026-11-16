@@ -13,7 +13,9 @@
 //! [`Broker::consent`], [`Broker::confirm`] and in whoever waits for an answer.
 
 use crate::commands::{CommandCache, Status};
-use crate::consent::{AgentIdentity, ConsentRequest, HubOptions, Reply, Verdict};
+use crate::consent::{
+    AgentIdentity, Asks, ConsentRequest, Elicitation, Elicited, HubOptions, Reply, Verdict,
+};
 use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
 use crate::rules::Rules;
@@ -2697,10 +2699,9 @@ impl Broker {
         });
     }
 
-    /// A question that holds for a single command: the confirmation an MCP server asks for
-    /// halfway (elicitation), or a settings change proposed by an agent. Neither yes nor no
-    /// is remembered. `build` receives the id, the agent that launched the command, its
-    /// folder and the state: it runs under the lock, and must not take it again.
+    /// A question that holds for a single command: a settings change proposed by an agent.
+    /// Neither yes nor no is remembered. `build` receives the id, the agent that launched the
+    /// command, its folder and the state: it runs under the lock, and must not take it again.
     pub async fn confirm(
         &self,
         conn_id: &str,
@@ -2747,40 +2748,26 @@ impl Broker {
             },
         );
 
-        let limit = CancellationToken::new();
-        let (watch_cancel, watch_stop, watch_limit) =
-            (cancel.clone(), self.stopping(), limit.clone());
-        let timeout = self.0.options.consent_timeout;
-        let guard = tokio::spawn(async move {
-            tokio::select! {
-                _ = watch_cancel.cancelled() => {}
-                _ = watch_stop.cancelled() => {}
-                _ = tokio::time::sleep(timeout) => {}
-            }
-            watch_limit.cancel();
-        });
+        let mut open = self.open_question(&request.id, cancel);
         let prompt = self.0.options.consent.clone().expect("can_ask checked");
-        let id = request.id.clone();
         let title = request.title.clone();
+        let asking = tokio::spawn(prompt.ask(request, open.limit.clone()));
         let answer = tokio::select! {
-            answer = prompt.ask(request, limit.clone()) => Some(answer),
-            _ = limit.cancelled() => None,
+            answer = asking => Some(answer.unwrap_or_else(|e| Err(e.to_string()))),
+            _ = open.limit.cancelled() => None,
         };
-        guard.abort();
-        let verdict = match verdict_of(self, answer, &limit).0 {
+        let verdict = match verdict_of(self, answer, &open.limit).0 {
             Verdict::Blocked => Verdict::Denied,
             verdict => verdict,
         };
-        self.run(|c| {
-            c.confirms.shift_remove(&id);
-            let word = match verdict {
+        open.close(
+            match verdict {
                 Verdict::Allowed => "confirmed",
                 Verdict::Denied => "canceled",
                 _ => "no answer",
-            };
-            c.log(format!("{word}: {title}"));
-            c.touch();
-        });
+            },
+            &title,
+        );
         progress.tell(
             if verdict == Verdict::Allowed {
                 "allowed"
@@ -2795,6 +2782,234 @@ impl Broker {
             },
         );
         verdict
+    }
+
+    /// A server's question halfway through a command (elicitation): a confirmation, a form to
+    /// fill in, or a page to open. It holds for that command only, and nothing is remembered.
+    /// `others` are commands the question may come from as well (a program on this computer
+    /// can't say which of its commands asks): `build` gets the names of their agents. `done`
+    /// ends the question when the server says the user has finished in the browser.
+    pub async fn elicit(
+        &self,
+        conn_id: &str,
+        routed: &str,
+        others: &[String],
+        build: impl FnOnce(String, Option<&AgentIdentity>, Option<&str>, &[String]) -> ConsentRequest,
+        cancel: &CancellationToken,
+        done: Option<&CancellationToken>,
+    ) -> Elicitation {
+        let started = self.run(|c| {
+            if !c.can_ask {
+                return None;
+            }
+            let caller = c.caller_of(routed);
+            let mut names: Vec<String> = Vec::new();
+            for other in others.iter().filter(|o| o.as_str() != routed) {
+                if let Some((agent, _)) = c.caller_of(other)
+                    && !names.contains(&agent.name)
+                {
+                    names.push(agent.name);
+                }
+            }
+            let asked = build(
+                new_id("ask"),
+                caller.as_ref().map(|(a, _)| a),
+                caller.as_ref().and_then(|(_, cwd)| cwd.as_deref()),
+                &names,
+            );
+            c.confirms.insert(asked.id.clone(), asked.clone());
+            c.log(format!("asking the user: {}", asked.title));
+            c.touch();
+            let name = c
+                .app_by_id(conn_id)
+                .map(|a| a.name.clone())
+                .unwrap_or_default();
+            Some((asked, c.progress_of(routed), name))
+        });
+        let Some((request, progress, name)) = started else {
+            return Elicitation::NoPrompt;
+        };
+        let asks = request.asks.clone();
+        let (form, page, wait) = match &asks {
+            Some(Asks::Form(form)) if !form.fields.is_empty() => (Some(form.clone()), false, false),
+            Some(Asks::Page(page)) => (None, true, page.wait),
+            _ => (None, false, false),
+        };
+        let what = match (page, wait, form.is_some()) {
+            (true, true, _) => "needs them to finish something in their browser",
+            (true, false, _) => "asks them to open a page in their browser",
+            (_, _, true) => "asks them to fill in a form",
+            _ => "is asking them to confirm",
+        };
+        let link = self
+            .0
+            .options
+            .question_link
+            .as_ref()
+            .map(|link| link(&request.id));
+        progress.tell(
+            "consent",
+            &match link {
+                None => format!("waiting for the user: “{name}” {what}, in a Clak window…"),
+                Some(link) => format!("waiting for the user: “{name}” {what}, at {link}…"),
+            },
+        );
+
+        let open = self.open_question(&request.id, cancel);
+        let prompt = self.0.options.consent.clone().expect("can_ask checked");
+        let title = request.title.clone();
+        let asking = tokio::spawn(prompt.elicit(request, open.limit.clone()));
+        let finished = async {
+            match done {
+                Some(done) => done.cancelled().await,
+                None => std::future::pending().await,
+            }
+        };
+        let answer = tokio::select! {
+            answer = asking => Some(answer.unwrap_or_else(|e| Err(e.to_string()))),
+            _ = open.limit.cancelled() => None,
+            _ = finished => {
+                // The interface withdraws the question: it no longer needs an answer.
+                open.limit.cancel();
+                return self.elicited(open, &title, progress, Elicitation::Completed, page, wait, form.is_some());
+            }
+        };
+        let withdrawn = open.limit.is_cancelled();
+        let outcome = match answer {
+            Some(Ok(Elicited::Accepted(content))) => match &form {
+                Some(form) => match form.check(&content) {
+                    Ok(content) => Elicitation::Accepted(content),
+                    Err(problem) => {
+                        self.run(|c| c.log(format!("the form came back unfit: {problem}")));
+                        Elicitation::Cancelled
+                    }
+                },
+                None => Elicitation::Accepted(Map::new()),
+            },
+            Some(Ok(Elicited::Declined)) if !withdrawn => Elicitation::Declined,
+            Some(Ok(Elicited::Cancelled)) if !withdrawn => Elicitation::Cancelled,
+            Some(Err(problem)) => {
+                self.run(|c| c.log(format!("the question couldn't be shown: {problem}")));
+                Elicitation::NoAnswer
+            }
+            _ => Elicitation::NoAnswer,
+        };
+        self.elicited(open, &title, progress, outcome, page, wait, form.is_some())
+    }
+
+    /// A server's question has an outcome: the list, the log and the agent know.
+    #[allow(clippy::too_many_arguments)]
+    fn elicited(
+        &self,
+        mut open: OpenQuestion,
+        title: &str,
+        progress: Progress,
+        outcome: Elicitation,
+        page: bool,
+        wait: bool,
+        form: bool,
+    ) -> Elicitation {
+        let word = match &outcome {
+            Elicitation::Accepted(_) if page && !wait => "page opened",
+            Elicitation::Accepted(_) if form => "form sent",
+            Elicitation::Accepted(_) => "confirmed",
+            Elicitation::Completed => "finished in the browser",
+            Elicitation::Declined => "declined",
+            Elicitation::Cancelled => "closed",
+            _ => "no answer",
+        };
+        open.close(word, title);
+        let (stage, text) = match (&outcome, page, wait) {
+            (Elicitation::Accepted(_), true, true) | (Elicitation::Completed, _, _) => (
+                "allowed",
+                "the user is done in the browser: the command runs again.",
+            ),
+            (Elicitation::Accepted(_), true, false) => (
+                "allowed",
+                "the user opened the page: the command continues.",
+            ),
+            (Elicitation::Accepted(_), _, _) if form => {
+                ("allowed", "the user sent the form: the command continues.")
+            }
+            (Elicitation::Accepted(_), _, _) => ("allowed", "confirmed: the command continues."),
+            (Elicitation::Declined, true, true) => {
+                ("refused", "the user declined: the command stops.")
+            }
+            (Elicitation::Declined, _, _) if page || form => {
+                ("refused", "the user declined: the server is told.")
+            }
+            (Elicitation::Declined, _, _) => ("refused", "the user canceled: the command stops."),
+            (Elicitation::Cancelled, _, _) => (
+                "refused",
+                "the user closed the question without answering: the server is told.",
+            ),
+            _ => (
+                "refused",
+                "no answer to the confirmation: the command stops.",
+            ),
+        };
+        progress.tell(stage, text);
+        outcome
+    }
+
+    /// A question that holds for one command is open: its time limit runs, and it is in the
+    /// list until [`OpenQuestion::close`]. The interface asks in a task of its own, with the
+    /// limit: if whoever waits goes away first, it still sees the question withdrawn.
+    fn open_question(&self, id: &str, cancel: &CancellationToken) -> OpenQuestion {
+        let limit = CancellationToken::new();
+        let (watch_cancel, watch_stop, watch_limit) =
+            (cancel.clone(), self.stopping(), limit.clone());
+        let timeout = self.0.options.consent_timeout;
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = watch_cancel.cancelled() => {}
+                _ = watch_stop.cancelled() => {}
+                _ = watch_limit.cancelled() => {}
+                _ = tokio::time::sleep(timeout) => {}
+            }
+            watch_limit.cancel();
+        });
+        OpenQuestion {
+            broker: self.clone(),
+            id: id.to_owned(),
+            limit,
+            closed: false,
+        }
+    }
+}
+
+/// See [`Broker::open_question`]. Dropped before it is closed (whoever waited is gone), the
+/// question is withdrawn and leaves the list.
+struct OpenQuestion {
+    broker: Broker,
+    id: String,
+    limit: CancellationToken,
+    closed: bool,
+}
+
+impl OpenQuestion {
+    fn close(&mut self, word: &str, title: &str) {
+        self.closed = true;
+        self.limit.cancel();
+        self.broker.run(|c| {
+            c.confirms.shift_remove(&self.id);
+            c.log(format!("{word}: {title}"));
+            c.touch();
+        });
+    }
+}
+
+impl Drop for OpenQuestion {
+    fn drop(&mut self) {
+        if self.closed {
+            return;
+        }
+        self.limit.cancel();
+        self.broker.run(|c| {
+            if c.confirms.shift_remove(&self.id).is_some() {
+                c.touch();
+            }
+        });
     }
 }
 
@@ -2819,4 +3034,4 @@ fn verdict_of(
 }
 
 /// The questions for the user, already composed: used by whoever builds the requests.
-pub use texts::{app as app_request, change as change_request, confirm as confirm_request};
+pub use texts::{app as app_request, change as change_request, elicit as elicit_request};

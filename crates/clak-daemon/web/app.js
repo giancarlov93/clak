@@ -61,7 +61,108 @@ const showLogin = (message) => {
 const lines = (items) =>
   items && items.length ? el("dl", { class: "lines" }, items.map((l) => [el("dt", {}, l.label), el("dd", {}, l.value)])) : null;
 
+/// An MCP server's question halfway through a command: its form, sent once it fits; its page,
+/// a link that opens in a tab of its own; a plain confirmation. Typed values stay across
+/// refreshes, since the card does.
+const serverCard = (q) => {
+  const filled = q.form ? ClakForm.render(q.form, el) : null;
+  const page = q.page;
+  const problem = el("p", { class: "field-error", role: "alert" });
+  const left = el("p", { class: "meta" });
+  let armed = false;
+  let waiting = !!q.opened;
+
+  const send = async (action) => {
+    if (!armed) return;
+    let content;
+    if (action === "accept" && filled && !filled.empty) {
+      const read = filled.read();
+      if (read.error) {
+        problem.textContent = read.error;
+        return;
+      }
+      content = read.content;
+    }
+    problem.textContent = "";
+    const response = await post("/api/answer", { id: q.id, action, content });
+    if (response.status === 401) return showLogin("The session is over: log in again.");
+    const body = await response.json().catch(() => ({}));
+    if (response.status === 400) {
+      problem.textContent = body.error || "The answer didn't go through.";
+      return;
+    }
+    if (!response.ok) notice(body.error || "The answer didn't go through.");
+    else if (body.waits) {
+      waiting = true;
+      // "Continue" takes the link's place: a second tap meant for it doesn't say the user is done.
+      arm();
+      draw();
+      return;
+    } else notice(action === "decline" || action === "cancel" ? `Declined: ${q.title}` : `Answered: ${q.title}`);
+    refresh();
+  };
+
+  const arm = () => {
+    armed = false;
+    accept.disabled = decline.disabled = true;
+    opening?.classList.add("disabled");
+    filled?.disable(true);
+    setTimeout(() => {
+      armed = true;
+      accept.disabled = decline.disabled = false;
+      opening?.classList.remove("disabled");
+      filled?.disable(false);
+    }, 1000);
+  };
+  const accept = el("button", { class: "primary", disabled: true }, filled && !filled.empty ? "Send" : "Confirm");
+  const decline = el("button", { class: "deny", disabled: true }, filled && !filled.empty ? "Decline" : "Cancel");
+  accept.addEventListener("click", () => send("accept"));
+  decline.addEventListener("click", () => send("decline"));
+  // The page: a link to a tab of its own, which the browser keeps apart from this one.
+  const opening = page
+    ? el("a", { class: "button primary disabled", href: page.url, target: "_blank", rel: "noopener noreferrer" }, "Open in browser")
+    : null;
+  opening?.addEventListener("click", (event) => {
+    if (!armed) return event.preventDefault();
+    send("open");
+  });
+  const state = el("p", { class: "note" });
+  const actions = el("div", { class: "actions" });
+  const draw = () => {
+    if (page && !waiting) {
+      state.textContent = page.wait ? "It opens in a new tab. When you're done there, come back here and choose Continue." : "It opens in a new tab.";
+      decline.textContent = "Decline";
+      actions.replaceChildren(opening, decline);
+    } else if (page) {
+      state.textContent = "Finish in the other tab, then choose Continue. If the server says you're done, this goes by itself.";
+      accept.textContent = "Continue";
+      decline.textContent = "Cancel";
+      actions.replaceChildren(accept, decline);
+    } else actions.replaceChildren(accept, decline);
+  };
+  draw();
+
+  const card = el(
+    "div",
+    { class: "card", id: `q-${q.id}` },
+    el("p", { class: "title" }, q.title),
+    lines(q.who),
+    lines(q.what),
+    q.warning ? el("p", { class: "warning" }, q.warning) : null,
+    el("p", { class: "question" }, q.question),
+    page ? [el("div", { class: "page" }, ClakForm.address(page, el)), state] : null,
+    filled && !filled.empty ? filled.node : null,
+    problem,
+    q.note ? el("p", { class: "note" }, q.note) : null,
+    el("div", { class: "row" }, actions, left),
+  );
+  // A moment before anything works: a tap meant for something else doesn't answer.
+  arm();
+  return { card, left, expires: q.expires };
+};
+
 const questionCard = (q) => {
+  if (q.form || q.page) return serverCard(q);
   // The scopes of a command's question (this call by default), "always" for the question to
   // use a program, and the block.
   const choices = q.choices;

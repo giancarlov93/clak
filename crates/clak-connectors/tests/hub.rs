@@ -8,9 +8,10 @@ mod support;
 
 use clak_connectors::oauth::{OAuthClient, OpenBrowser};
 use clak_connectors::{ConnectorCredential, ConnectorHub, phase};
-use clak_hub::{ConnectorTiming, ConsentKind};
-use fake::FakeMcp;
+use clak_hub::{Asks, ConnectorTiming, ConsentKind};
+use fake::{Answer, FakeMcp};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use support::*;
@@ -122,7 +123,7 @@ async fn the_panel_reads_commands_descriptions_and_parameters_without_asking_per
     server.add(
         "issues_list",
         "Lists the issues of a project.\nReturns at most 50 rows.",
-        Arc::new(|_, _| Box::pin(async { "[]".to_owned() })),
+        Arc::new(|_, _| Box::pin(async { Answer::Text("[]".to_owned()) })),
         Some(schema.clone()),
     );
     let hub = TestHub::start().await;
@@ -425,23 +426,65 @@ fn empty_trash(server: &FakeMcp) {
     server.add(
         "empty_trash",
         "Empties the trash.",
-        Arc::new(|_, ask| {
+        Arc::new(|_, peer| {
             Box::pin(async move {
                 let schema = json!({"type":"object","properties":{"confirm":{"type":"boolean"},"mode":{"type":"string","enum":["all"]},"note":{"type":"string"}}});
-                let answer = ask("Empty the trash? It holds 12 files.".into(), schema).await;
-                format!(
+                let answer = peer.form("Empty the trash? It holds 12 files.", schema).await;
+                Answer::Text(format!(
                     "{} {}",
                     answer.get("action").and_then(Value::as_str).unwrap_or(""),
                     answer.get("content").map(Value::to_string).unwrap_or_default()
-                )
+                ))
             })
         }),
         None,
     );
 }
 
+/// A server that asks the user `parameters` in the middle of its command `ask`, and answers
+/// with what the user said.
+fn asking(server: &FakeMcp, parameters: Value) {
+    server.add(
+        "ask",
+        "Asks the user.",
+        Arc::new(move |_, peer| {
+            let parameters = parameters.clone();
+            Box::pin(async move {
+                let answer = peer.ask(parameters).await;
+                Answer::Text(format!(
+                    "{} {}",
+                    answer.get("action").and_then(Value::as_str).unwrap_or(""),
+                    answer
+                        .get("content")
+                        .map(Value::to_string)
+                        .unwrap_or_default()
+                ))
+            })
+        }),
+        None,
+    );
+}
+
+/// The hub with the fake server, its commands already approved.
+async fn approved(server: &FakeMcp) -> TestHub {
+    let hub = TestHub::start().await;
+    let entry = hub.connectors.add("Fake", &server.url, None, None).unwrap();
+    hub.connector(&entry.id, phase::ACTIVE).await;
+    hub.prompt.set_allow_all(true);
+    assert_eq!(
+        content(&hub.call("claude", "fake", "time", None).await),
+        "noon"
+    );
+    hub.prompt.set_allow_all(false);
+    hub
+}
+
+fn progress(hub: &TestHub, line: &str) -> bool {
+    hub.progress.lock().unwrap().iter().any(|l| l == line)
+}
+
 #[tokio::test]
-async fn a_confirmation_asked_by_the_server_is_given_by_the_user_command_by_command() {
+async fn a_form_asked_by_the_server_is_filled_in_by_the_user_command_by_command() {
     let server = server().await;
     empty_trash(&server);
     let hub = TestHub::start().await;
@@ -472,26 +515,32 @@ async fn a_confirmation_asked_by_the_server_is_given_by_the_user_command_by_comm
                 "Empty the trash? It holds 12 files."
             );
             assert!(question.request.who.iter().any(|l| l.value == "claude"));
-            assert!(question.request.title.contains("Fake"));
+            assert_eq!(question.request.title, "Fake asks for information");
+            let Some(Asks::Form(form)) = &question.request.asks else {
+                panic!("not a form: {:?}", question.request.asks)
+            };
+            let names: Vec<&str> = form.fields.iter().map(|f| f.name.as_str()).collect();
+            assert_eq!(names, ["confirm", "mode", "note"]);
             let pending = hub.snapshot()["pending"].clone();
             assert!(
                 pending.as_array().unwrap().iter().any(
                     |p| p["kind"] == "confirm" && p["title"] == question.request.title.as_str()
                 )
             );
-            question.allow();
+            question.send(json!({"confirm": true, "mode": "all", "unknown": 1}));
         };
     let (called, ()) = tokio::join!(call, answer);
+    // What the server didn't ask for doesn't go back.
     assert_eq!(content(&called), r#"accept {"confirm":true,"mode":"all"}"#);
     // The waiting agent knows what it's waiting for.
-    let progress = hub.progress.lock().unwrap().clone();
-    assert!(
-        progress.contains(
-            &"consent: waiting for the user: “fake” is asking them to confirm, in a Clak window…"
-                .to_owned()
-        )
-    );
-    assert!(progress.contains(&"allowed: confirmed: the command continues.".to_owned()));
+    assert!(progress(
+        &hub,
+        "consent: waiting for the user: “fake” asks them to fill in a form, in a Clak window…"
+    ));
+    assert!(progress(
+        &hub,
+        "allowed: the user sent the form: the command continues."
+    ));
 
     // The answer isn't remembered: the next time it's asked again, and a no is a no.
     let call = hub.call("claude", "fake", "empty_trash", None);
@@ -499,17 +548,248 @@ async fn a_confirmation_asked_by_the_server_is_given_by_the_user_command_by_comm
         hub.prompt.next(ConsentKind::Confirm).await.deny()
     });
     assert_eq!(content(&called), "decline ");
-    assert!(
-        hub.progress
-            .lock()
-            .unwrap()
-            .contains(&"refused: the user canceled: the command stops.".to_owned())
-    );
+    assert!(progress(
+        &hub,
+        "refused: the user declined: the server is told."
+    ));
+
+    // Closed without choosing: the server hears that nobody chose.
+    let call = hub.call("claude", "fake", "empty_trash", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Confirm).await.close()
+    });
+    assert_eq!(content(&called), "cancel ");
+    assert!(hub.snapshot()["pending"].as_array().unwrap().is_empty());
     hub.stop().await;
 }
 
 #[tokio::test]
-async fn without_an_interface_the_connector_does_not_promise_confirmations() {
+async fn a_plain_confirmation_stays_a_yes_or_no() {
+    let server = server().await;
+    asking(&server, json!({"message": "Proceed?"}));
+    let hub = approved(&server).await;
+    let call = hub.call("claude", "fake", "ask", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Call).await.allow();
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        assert_eq!(question.request.title, "Fake asks for confirmation");
+        assert!(matches!(&question.request.asks, Some(Asks::Form(f)) if f.fields.is_empty()));
+        question.allow();
+    });
+    assert_eq!(content(&called), "accept {}");
+    assert!(progress(
+        &hub,
+        "consent: waiting for the user: “fake” is asking them to confirm, in a Clak window…"
+    ));
+    assert!(progress(&hub, "allowed: confirmed: the command continues."));
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn a_page_the_server_asks_to_open_is_opened_only_by_the_user() {
+    let server = server().await;
+    asking(
+        &server,
+        json!({"mode": "url", "elicitationId": "el-9", "url": "https://example.com/link?x=1", "message": "Link your account"}),
+    );
+    let hub = approved(&server).await;
+    let call = hub.call("claude", "fake", "ask", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Call).await.allow();
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        assert_eq!(question.request.title, "Fake asks you to open a page");
+        assert_eq!(question.request.question, "Link your account");
+        let Some(Asks::Page(page)) = &question.request.asks else {
+            panic!("not a page")
+        };
+        assert_eq!(
+            (
+                page.before.as_str(),
+                page.host.as_str(),
+                page.after.as_str()
+            ),
+            ("https://", "example.com", "/link?x=1")
+        );
+        assert!(!page.wait);
+        question.allow();
+    });
+    // Opened: accepted, without content.
+    assert_eq!(content(&called), "accept ");
+    assert!(progress(
+        &hub,
+        "allowed: the user opened the page: the command continues."
+    ));
+
+    let call = hub.call("claude", "fake", "ask", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Confirm).await.deny()
+    });
+    assert_eq!(content(&called), "decline ");
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn a_question_clak_cannot_show_is_an_error_for_the_server_and_asks_nothing() {
+    let server = server().await;
+    asking(
+        &server,
+        json!({"mode": "carrier-pigeon", "message": "Hello"}),
+    );
+    server.add(
+        "script",
+        "Opens a script.",
+        Arc::new(|_, peer| {
+            Box::pin(async move {
+                let answer = peer
+                    .ask(json!({"mode": "url", "elicitationId": "x", "url": "javascript:alert(1)", "message": "Click"}))
+                    .await;
+                Answer::Text(answer["action"].as_str().unwrap_or("").to_owned())
+            })
+        }),
+        None,
+    );
+    let hub = approved(&server).await;
+    hub.prompt.set_allow_all(true);
+    assert_eq!(
+        content(&hub.call("claude", "fake", "ask", None).await),
+        "error "
+    );
+    assert_eq!(
+        content(&hub.call("claude", "fake", "script", None).await),
+        "error"
+    );
+    hub.prompt.set_allow_all(false);
+    hub.prompt.quiet(100).await;
+    assert!(hub.log_text().contains("couldn't be shown"));
+    hub.stop().await;
+}
+
+/// A command the server can't run until the user has signed in elsewhere, in the browser.
+fn needs_the_browser(server: &FakeMcp) -> Arc<AtomicBool> {
+    let connected = Arc::new(AtomicBool::new(false));
+    let flag = connected.clone();
+    server.add(
+        "files",
+        "Lists the files.",
+        Arc::new(move |_, _| {
+            let flag = flag.clone();
+            Box::pin(async move {
+                if flag.load(Ordering::SeqCst) {
+                    Answer::Text("3 files".into())
+                } else {
+                    Answer::Error(
+                        -32042,
+                        "This request requires more information.".into(),
+                        json!({"elicitations": [{"mode": "url", "elicitationId": "el-1", "url": "https://example.com/connect?el=1", "message": "Authorization is required to access your files."}]}),
+                    )
+                }
+            })
+        }),
+        None,
+    );
+    connected
+}
+
+#[tokio::test]
+async fn a_command_that_needs_the_browser_first_runs_again_once_the_user_is_done() {
+    let server = server().await;
+    server.with(|s| s.listen = true);
+    let connected = needs_the_browser(&server);
+    let hub = approved(&server).await;
+
+    // The server says when the user is done: the question goes by itself, the command runs again.
+    let call = hub.call("claude", "fake", "files", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Call).await.allow();
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        assert_eq!(
+            question.request.title,
+            "Fake needs you to finish in your browser"
+        );
+        assert_eq!(
+            question.request.question,
+            "Authorization is required to access your files."
+        );
+        let Some(Asks::Page(page)) = &question.request.asks else {
+            panic!("not a page")
+        };
+        assert!(page.wait);
+        assert_eq!(page.host, "example.com");
+        connected.store(true, Ordering::SeqCst);
+        server.listening().await;
+        assert!(server.notify_outside(
+            "notifications/elicitation/complete",
+            json!({"elicitationId": "el-1"})
+        ));
+        question.withdrawn().await;
+    });
+    assert_eq!(content(&called), "3 files");
+    assert!(progress(
+        &hub,
+        "allowed: the user is done in the browser: the command runs again."
+    ));
+
+    // Without the server's word, "Continue" does it.
+    connected.store(false, Ordering::SeqCst);
+    let call = hub.call("claude", "fake", "files", None);
+    let (called, ()) = tokio::join!(call, async {
+        let question = hub.prompt.next(ConsentKind::Confirm).await;
+        connected.store(true, Ordering::SeqCst);
+        question.allow();
+    });
+    assert_eq!(content(&called), "3 files");
+
+    // Asked again after that, the command doesn't run: the agent reads why.
+    connected.store(false, Ordering::SeqCst);
+    let call = hub.call("claude", "fake", "files", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Confirm).await.allow();
+    });
+    assert_eq!(called["is_error"], true);
+    assert!(content(&called).contains("This request requires more information."));
+
+    // Declined: the command doesn't run.
+    let call = hub.call("claude", "fake", "files", None);
+    let (called, ()) = tokio::join!(call, async {
+        hub.prompt.next(ConsentKind::Confirm).await.deny();
+    });
+    assert_eq!(called["is_error"], true);
+    assert!(content(&called).contains("they declined"));
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn an_agent_that_stops_waiting_withdraws_the_server_s_question() {
+    let server = server().await;
+    empty_trash(&server);
+    let hub = approved(&server).await;
+    // The agent leaves while the server asks.
+    let question = {
+        let call = hub.call("claude", "fake", "empty_trash", None);
+        tokio::pin!(call);
+        let question = async {
+            hub.prompt.next(ConsentKind::Call).await.allow();
+            hub.prompt.next(ConsentKind::Confirm).await
+        };
+        tokio::select! {
+            _ = &mut call => panic!("the command ended before the question"),
+            question = question => question,
+        }
+        // The agent's connection closes here.
+    };
+    question.withdrawn().await;
+    for _ in 0..200 {
+        if hub.snapshot()["pending"].as_array().unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(hub.snapshot()["pending"].as_array().unwrap().is_empty());
+    hub.stop().await;
+}
+
+#[tokio::test]
+async fn without_an_interface_the_connector_does_not_promise_questions() {
     let server = server().await;
     let hub = TestHub::start_with(Setup {
         no_prompt: true,

@@ -136,3 +136,61 @@ html.mac .buttons button { min-width: 90px; min-height: 28px; }
 .always { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; cursor: default; }
 .always input { margin-top: 2px; flex: none; }
 .queue { font-variant-numeric: tabular-nums; }
+
+/* --- a server's question: its form, its page ---------------------------------------
+   The fields as the dialogs draw them: WinUI's TextBox (the accent line with the focus),
+   AppKit's NSTextField (the focus ring). */
+
+:root {
+  --field: rgba(255, 255, 255, 0.7);
+  --field-focus: #fff;
+  --field-line: rgba(0, 0, 0, 0.45);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --field: rgba(255, 255, 255, 0.06); --field-focus: #1f1f1f; --field-line: rgba(255, 255, 255, 0.55); }
+}
+:root[data-theme="dark"] { --field: rgba(255, 255, 255, 0.06); --field-focus: #1f1f1f; --field-line: rgba(255, 255, 255, 0.55); }
+
+#form-block, #page-block { margin-top: 16px; }
+#page-block h2 { margin-top: 0; }
+#page-state { margin: 8px 1px 0; }
+.form { display: flex; flex-direction: column; gap: 14px; }
+.field-label { display: block; margin: 0 0 6px; font-weight: 600; }
+html.mac .field-label { font-weight: 500; }
+.field-optional { font-weight: 400; color: var(--faint); }
+.field-hint { margin-top: 5px; }
+.field-error { margin: 5px 0 0; font-size: 12px; color: var(--danger); }
+.field-error:empty { display: none; }
+#form-error { margin-top: 12px; }
+.field-options { display: flex; flex-direction: column; gap: 6px; }
+.field-options.many { max-height: 168px; overflow-y: auto; padding: 2px; }
+.field-check { display: flex; align-items: flex-start; gap: 8px; cursor: default; }
+.field-check input { margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.form input:not([type="checkbox"]):not([type="radio"]), .form select, .form textarea {
+  font: inherit; color: var(--text); width: 100%; min-width: 0; height: 32px; padding: 0 10px;
+  background: var(--field); border: 1px solid var(--stroke); border-bottom-color: var(--field-line);
+  border-radius: var(--radius); outline: none; user-select: text; -webkit-user-select: text;
+}
+.form textarea { height: auto; padding: 6px 10px; resize: vertical; }
+.form input:focus, .form select:focus, .form textarea:focus {
+  background: var(--field-focus); border-bottom: 2px solid var(--accent);
+}
+.form input:disabled, .form select:disabled, .form textarea:disabled { opacity: .5; }
+.form .wrong input:not([type="checkbox"]):not([type="radio"]), .form .wrong select, .form .wrong textarea { border-color: var(--danger); }
+html.mac .form input:not([type="checkbox"]):not([type="radio"]), html.mac .form select {
+  height: 22px; padding: 0 6px; border-radius: 5px; border: 0.5px solid rgba(0, 0, 0, .25);
+  background: var(--field-focus); box-shadow: 0 0.5px 1px rgba(0, 0, 0, .08);
+}
+html.mac .form textarea { padding: 4px 6px; border-radius: 5px; border: 0.5px solid rgba(0, 0, 0, .25); background: var(--field-focus); }
+@media (prefers-color-scheme: dark) {
+  html.mac:not([data-theme="light"]) .form input:not([type="checkbox"]):not([type="radio"]), html.mac:not([data-theme="light"]) .form select, html.mac:not([data-theme="light"]) .form textarea { border-color: rgba(255, 255, 255, .14); }
+}
+html.mac .form input:focus, html.mac .form select:focus, html.mac .form textarea:focus {
+  border: 0.5px solid var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* The address whole, the site in bold: what comes before an "@" is not the site. */
+.address { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.address-part { color: var(--quiet); }
+.address-host { color: var(--text); font-weight: 700; }
