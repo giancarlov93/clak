@@ -274,26 +274,27 @@ async fn with_two_commands_running_the_question_names_both_agents() {
             .call(agent, "browser", "echo", Some(json!({"text": "x"})))
             .await;
     }
-    let (held, _) = tokio::join!(
-        hub.call("claude", "browser", "hold", None),
-        hub.call("claude", "browser", "ask", None)
-    );
+    // Both commands approved, one at a time.
+    let held = hub
+        .call("claude", "browser", "hold", Some(json!({"now": true})))
+        .await;
     assert_eq!(content(&held), "held");
+    let _ = hub.call("codex", "browser", "ask", None).await;
     hub.prompt.set_allow_all(false);
 
-    // Claude's command is running, then Codex's asks: a program can't say which one asks.
+    // Claude's command and Codex's are running when the program asks: it can't say which
+    // command asks, so the question names one agent and says the other could be asking.
     let hold = hub.call("claude", "browser", "hold", None);
-    let ask = async {
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        hub.call("codex", "browser", "ask", None).await
-    };
+    let ask = hub.call("codex", "browser", "ask", Some(json!({"after_hold": true})));
     let answer = async {
         let question = hub.prompt.next(ConsentKind::Confirm).await;
-        assert!(question.request.who.iter().any(|l| l.value == "codex"));
+        let named = |agent: &str| question.request.who.iter().any(|l| l.value == agent);
         let warning = question.request.warning.clone().unwrap_or_default();
         assert!(
-            warning.contains("also running a command for claude"),
-            "{warning}"
+            (named("codex") && warning.contains("also running a command for claude"))
+                || (named("claude") && warning.contains("also running a command for codex")),
+            "{:?} {warning}",
+            question.request.who
         );
         question.allow();
     };

@@ -5,8 +5,9 @@
 //! - `env` tells the value of the environment variable `name`;
 //! - `grow` adds the command `new` and announces that the list has changed;
 //! - `ask` asks the user (`elicitation/create`, with `params` if given, otherwise a plain
-//!   "Proceed?") and tells how it went, with what the user sent;
-//! - `hold` answers only after the next command has been answered;
+//!   "Proceed?") and tells how it went, with what the user sent; with `after_hold`, only
+//!   once a `hold` has arrived;
+//! - `hold` answers only after the next command has been answered; with `now`, at once;
 //! - `files` the first time answers that the user must first finish in the browser
 //!   (`-32042`), and a moment later says they did (`notifications/elicitation/complete`);
 //!   then it lists 3 files;
@@ -74,6 +75,16 @@ fn main() {
                         "grown".into()
                     }
                     "ask" => {
+                        // Two commands running, whatever order they came in.
+                        while arguments["after_hold"] == json!(true) && held.is_empty() {
+                            let Some(Ok(line)) = lines.next() else { break };
+                            let Ok(other) = serde_json::from_str::<Value>(&line) else {
+                                continue;
+                            };
+                            if other["params"]["name"] == "hold" {
+                                held.push(other["id"].clone());
+                            }
+                        }
                         next_id += 1;
                         let asked = match arguments.get("params") {
                             Some(params) => params.clone(),
@@ -102,6 +113,7 @@ fn main() {
                         }
                         format!("action: {action}")
                     }
+                    "hold" if arguments["now"] == json!(true) => "held".into(),
                     "hold" => {
                         held.push(id.clone());
                         continue;
