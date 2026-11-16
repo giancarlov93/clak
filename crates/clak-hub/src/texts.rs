@@ -4,7 +4,7 @@
 
 use crate::commands::Status;
 use crate::consent::{
-    AgentIdentity, Choices, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, Scope,
+    AgentIdentity, Asks, Choices, ConsentKind, ConsentLine, ConsentRequest, ConsentTool, Scope,
     SettingsChange,
 };
 use crate::core::{AppConn, slim};
@@ -15,6 +15,7 @@ use unicode_general_category::{GeneralCategory, get_general_category};
 
 pub fn session(id: String, agent: &AgentIdentity, cwd: Option<&str>) -> ConsentRequest {
     ConsentRequest {
+        asks: None,
         arguments: vec![],
         choices: None,
         id,
@@ -56,6 +57,7 @@ pub fn use_settings(
         ""
     };
     ConsentRequest {
+        asks: None,
         arguments: vec![],
         choices: None,
         id,
@@ -139,6 +141,7 @@ pub fn use_app(id: String, q: &UseQuestion) -> ConsentRequest {
         String::new()
     };
     ConsentRequest {
+        asks: None,
         id,
         kind: ConsentKind::Use,
         title: format!("{} wants to use {program}", agent.name),
@@ -201,6 +204,7 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
     .flatten()
     .collect::<Vec<_>>();
     ConsentRequest {
+        asks: None,
         id,
         kind: ConsentKind::Call,
         title: format!("{} wants to run “{command}” in {program}", agent.name),
@@ -382,7 +386,7 @@ fn arguments(arguments: Option<&Map<String, Value>>, tool: &ToolDef) -> Vec<Cons
 
 /// A name that says its value is a secret: a token, a password, a key, a credential, a
 /// cookie. "max_tokens" and "keyword" aren't.
-fn secret(name: &str) -> bool {
+pub(crate) fn secret(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     // "apiKey" and "api_key" alike: the words, and the words run together.
     let words: Vec<&str> = lower
@@ -455,36 +459,84 @@ fn unveiled(value: &Value) -> Value {
     }
 }
 
-/// An MCP server asks for confirmation halfway through a command. The message is its own:
-/// it is cleaned up, and the hub says who launched it.
-pub fn confirm(
+/// An MCP server asks the user something halfway through a command (elicitation): to
+/// confirm, to fill in a form, or to open a page (and, for a page the command waits for, to
+/// say when they are done). The message is its own: it is cleaned up, and the hub says who
+/// launched the command. `others` are the agents with another command running on the same
+/// server, when the server can't tell which one asks (a program on this computer).
+pub fn elicit(
     id: String,
     app: &AppConn,
     agent: Option<&AgentIdentity>,
     cwd: Option<&str>,
+    others: &[String],
     message: &str,
+    asks: Asks,
 ) -> ConsentRequest {
+    let name = clean(Some(&app.resource.app), 80);
+    let opened = "Clak opens the page in your browser: what you do there goes to the site, not to Clak or the agent.";
+    let (title, fallback, note) = match &asks {
+        Asks::Page(page) if page.wait => (
+            format!("{name} needs you to finish in your browser"),
+            "Open the page and finish there?",
+            format!("{opened} When you are done, the command runs again."),
+        ),
+        Asks::Page(_) => (
+            format!("{name} asks you to open a page"),
+            "Open this page?",
+            format!("{opened} Your answer applies to this command only."),
+        ),
+        Asks::Form(form) if !form.fields.is_empty() => (
+            format!("{name} asks for information"),
+            "Fill in the form?",
+            "What you send goes to this server only. Your answer applies to this command only."
+                .to_owned(),
+        ),
+        Asks::Form(_) => (
+            format!("{name} asks for confirmation"),
+            "Confirm?",
+            "Your answer applies to this command only. If you cancel, the server doesn't run it."
+                .to_owned(),
+        ),
+    };
+    let mut warnings: Vec<String> = insecure(app).into_iter().collect();
+    match &asks {
+        Asks::Form(form) => {
+            let secrets = form.secrets();
+            if !secrets.is_empty() {
+                warnings.push(format!(
+                    "The server asks for something that looks like a secret ({}): a server must not ask for passwords, keys or card numbers in a form. Decline unless you are sure.",
+                    secrets.join(", ")
+                ));
+            }
+        }
+        Asks::Page(page) => warnings.extend(page.warnings.iter().cloned()),
+    }
+    if !others.is_empty() {
+        let names: Vec<String> = others.iter().map(|n| clean(Some(n), 40)).collect();
+        warnings.push(format!(
+            "This server is also running a command for {}: Clak can't tell which command this question comes from.",
+            names.join(", ")
+        ));
+    }
     let text = clean(Some(message), 600);
     ConsentRequest {
         arguments: vec![],
         choices: None,
         id,
         kind: ConsentKind::Confirm,
-        title: format!(
-            "{} asks for confirmation",
-            clean(Some(&app.resource.app), 80)
-        ),
+        title,
         question: if text.is_empty() {
-            "Confirm?".into()
+            fallback.into()
         } else {
             text
         },
         who: agent.map(|a| who(a, cwd)).unwrap_or_default(),
         what: what(app),
         tools: vec![],
-        warning: insecure(app),
-        note: "Your answer applies to this command only. If you cancel, the server doesn't run it."
-            .into(),
+        warning: (!warnings.is_empty()).then(|| warnings.join(" ")),
+        note,
+        asks: Some(asks),
     }
 }
 
@@ -497,6 +549,7 @@ pub fn change(
     change: &SettingsChange,
 ) -> ConsentRequest {
     ConsentRequest {
+        asks: None,
         arguments: vec![],
         choices: None,
         id,
@@ -590,6 +643,7 @@ pub fn app(
         ..Choices::default()
     });
     ConsentRequest {
+        asks: None,
         arguments: vec![],
         choices,
         id,

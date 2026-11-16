@@ -9,6 +9,11 @@
 // Up front only what decides the answer: who is asking (with its real icon and who signed
 // it), what it wants, the commands by name. Paths, pids and the process chain are under
 // "Details".
+//
+// An MCP server's question halfway through a command (`request.form` or `request.page`):
+// its form, to fill in and send, or its page, which the app opens in the browser when the
+// user says so (the address is the hub's, not this page's). A command that waits for the
+// page then waits here too, with "Continue". These answers go with `consent_fill`.
 "use strict";
 
 (async () => {
@@ -161,7 +166,26 @@
     $("arguments-block").classList.remove("hidden");
   }
 
-  if (kind === "confirm") {
+  // A server's question: a form, a page, or a plain confirmation.
+  const page = request.page;
+  const filled = request.form ? ClakForm.render(request.form, el) : null;
+  const asking = !!(page || filled);
+  if (page) {
+    document.title = "Clak — page to open";
+    $("page").replaceChildren(ClakForm.address(page, el));
+    $("page-state").textContent = page.wait
+      ? "Clak opens it in your browser. When you're done there, come back and choose Continue."
+      : "Clak opens it in your browser.";
+    $("page-block").classList.remove("hidden");
+    $("allow").textContent = "Open in browser";
+    $("deny").textContent = "Decline";
+  } else if (filled && !filled.empty) {
+    document.title = "Clak — information requested";
+    $("form").replaceChildren(filled.node);
+    $("form-block").classList.remove("hidden");
+    $("allow").textContent = "Send";
+    $("deny").textContent = "Decline";
+  } else if (kind === "confirm") {
     // Not a permission: the answer to a server's question, for this command only.
     document.title = "Clak — confirmation";
     $("allow").textContent = "Confirm";
@@ -222,8 +246,61 @@
     answered = true;
     invoke("consent_answer", { id, allow, always: allow && !!choices?.always && $("always").checked, scope, block });
   };
-  $("allow").addEventListener("click", () => answer(true));
-  $("deny").addEventListener("click", () => answer(false));
+
+  // A server's question. A form that doesn't fit stays, with what's wrong.
+  const problem = (text) => {
+    $("form-error").textContent = text || "";
+  };
+  let waiting = false;
+  const reply = async (action) => {
+    if (answered) return;
+    let content;
+    if (action === "accept" && filled && !filled.empty) {
+      const read = filled.read();
+      if (read.error) {
+        problem(read.error);
+        return;
+      }
+      content = read.content;
+    }
+    problem("");
+    answered = true;
+    tick();
+    try {
+      await invoke("consent_fill", { id, action, content });
+    } catch (error) {
+      answered = false;
+      problem(String(error));
+    }
+  };
+  const open = async () => {
+    if (answered) return;
+    answered = true;
+    tick();
+    try {
+      if (await invoke("consent_open", { id })) {
+        // The command waits for the user to finish in the browser.
+        waiting = true;
+        answered = false;
+        shown = Date.now();
+        $("page-state").textContent = "Finish in your browser, then choose Continue. If the server says you're done, this goes by itself.";
+        $("allow").textContent = "Continue";
+        $("deny").textContent = "Cancel";
+        // A second click meant for "Open" doesn't say the user is done.
+        tick();
+      }
+    } catch (error) {
+      answered = false;
+      $("page-state").textContent = String(error);
+    }
+  };
+
+  $("allow").addEventListener("click", () => {
+    if (!asking) answer(true);
+    else if (page && !waiting) open();
+    else reply("accept");
+  });
+  $("deny").addEventListener("click", () => (asking ? reply("decline") : answer(false)));
   $("block").addEventListener("click", () => answer(false, true));
 
   // The window appears once the page has taken its measure: the buttons count from then.
@@ -248,13 +325,14 @@
   fit();
 
   const arming = kind === "call" ? CALL_ARMING_MS : ARMING_MS;
-  const tick = () => {
+  function tick() {
     const armed = Date.now() - shown >= arming;
     $("allow").disabled = $("deny").disabled = $("always").disabled = $("block").disabled = !armed || answered;
+    filled?.disable(!armed || answered);
     for (const input of $("scope").querySelectorAll("input")) input.disabled = answered;
     const left = Math.max(0, Math.ceil(request.expires - Date.now() / 1000));
     $("countdown").textContent = `Withdrawn in ${left} s`;
-  };
+  }
   tick();
   setInterval(tick, 250);
 })();

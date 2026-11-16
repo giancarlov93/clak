@@ -1,6 +1,9 @@
 //! A fake MCP server, in Streamable HTTP on 127.0.0.1: what a connector reaches. It
 //! answers in JSON or SSE, splits the command list into pages, can ask for a token,
-//! go down, forget the session and ask for confirmations in the middle of a command.
+//! go down, forget the session, ask the user something in the middle of a command (a form,
+//! a page), answer a command with an error that carries data, send notifications on the
+//! command's stream or on its own (GET), and close a command's stream early, to be resumed
+//! with `Last-Event-ID`.
 //! With `oauth` it's also its own sign-in service: metadata, dynamic registration,
 //! PKCE, rotating refresh tokens, revocation; and, for the APIs, the "app only" sign-in.
 
@@ -26,11 +29,61 @@ use tokio::sync::{mpsc, oneshot};
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-/// Asks the client for a confirmation and returns its answer (the `result`).
-pub type Ask = Arc<dyn Fn(String, Value) -> BoxFuture<Map<String, Value>> + Send + Sync>;
+/// What a command can do with the client while it runs.
+#[derive(Clone)]
+pub struct Peer {
+    shared: Arc<Shared>,
+    events: mpsc::UnboundedSender<Out>,
+}
+
+impl Peer {
+    /// Asks the client (`elicitation/create` with these parameters) and returns its answer
+    /// (the `result`); `{"action": "error"}` if it answered with an error.
+    pub async fn ask(&self, parameters: Value) -> Map<String, Value> {
+        let id = format!("e{}", self.shared.asks.fetch_add(1, Ordering::SeqCst) + 1);
+        let (answer, got) = oneshot::channel();
+        self.shared.asked.lock().unwrap().insert(id.clone(), answer);
+        let _ = self.events.send(Out::Event(json!({
+            "jsonrpc": "2.0", "id": id, "method": "elicitation/create", "params": parameters,
+        })));
+        match got.await {
+            Ok(got) => got["result"].as_object().cloned().unwrap_or_else(|| {
+                let mut error = Map::new();
+                error.insert("action".into(), json!("error"));
+                error
+            }),
+            Err(_) => Map::new(),
+        }
+    }
+
+    /// A form: `message` and `requestedSchema`.
+    pub async fn form(&self, message: &str, schema: Value) -> Map<String, Value> {
+        self.ask(json!({ "message": message, "requestedSchema": schema }))
+            .await
+    }
+
+    /// A notification on the command's stream.
+    pub fn notify(&self, method: &str, parameters: Value) {
+        let _ = self.events.send(Out::Event(
+            json!({ "jsonrpc": "2.0", "method": method, "params": parameters }),
+        ));
+    }
+}
+
+/// What a command answers: text, or a JSON-RPC error with its data.
+pub enum Answer {
+    Text(String),
+    Error(i64, String, Value),
+}
+
+impl From<String> for Answer {
+    fn from(text: String) -> Answer {
+        Answer::Text(text)
+    }
+}
 
 /// A command of the server.
-pub type Handler = Arc<dyn Fn(Map<String, Value>, Ask) -> BoxFuture<String> + Send + Sync>;
+pub type Handler = Arc<dyn Fn(Map<String, Value>, Peer) -> BoxFuture<Answer> + Send + Sync>;
 
 #[derive(Clone)]
 struct Tool {
@@ -53,6 +106,19 @@ pub struct Inner {
     pub authorizations: Vec<String>,
     /// The capabilities declared by the client in the last `initialize`.
     pub client_capabilities: Option<Value>,
+    /// The protocol version the client asked for in the last `initialize`, and the
+    /// `MCP-Protocol-Version` headers received after it.
+    pub client_protocol: Option<String>,
+    pub protocol_headers: Vec<String>,
+    /// A command's stream is closed right after its first event (with an id and a `retry`):
+    /// the client resumes it with a GET.
+    pub close_early: bool,
+    /// The `Last-Event-ID`s of the GETs that resumed a stream.
+    pub resumed: Vec<String>,
+    /// The server offers its own stream (GET); otherwise 405.
+    pub listen: bool,
+    /// How many of its own streams the client has opened.
+    pub listened: usize,
 
     /// The server asks for an OAuth sign-in: without one of its access tokens it answers 401 with the challenge.
     pub oauth: bool,
@@ -85,6 +151,11 @@ pub struct Inner {
 struct Shared {
     inner: Mutex<Inner>,
     asked: Mutex<HashMap<String, oneshot::Sender<Value>>>,
+    /// What is left of the streams closed early, by their id.
+    parked: Mutex<HashMap<String, mpsc::UnboundedReceiver<Out>>>,
+    streams: AtomicUsize,
+    /// Messages for the server's own stream.
+    outside: Mutex<Option<mpsc::UnboundedSender<Value>>>,
     requests: AtomicUsize,
     lists: AtomicUsize,
     asks: AtomicUsize,
@@ -124,6 +195,12 @@ impl FakeMcp {
                 page_size: 100,
                 authorizations: Vec::new(),
                 client_capabilities: None,
+                client_protocol: None,
+                protocol_headers: Vec::new(),
+                close_early: false,
+                resumed: Vec::new(),
+                listen: false,
+                listened: 0,
                 oauth: false,
                 allow_registration: true,
                 deny_sign_in: false,
@@ -142,13 +219,16 @@ impl FakeMcp {
                 refresh: HashMap::new(),
             }),
             asked: Mutex::new(HashMap::new()),
+            parked: Mutex::new(HashMap::new()),
+            streams: AtomicUsize::new(0),
+            outside: Mutex::new(None),
             requests: AtomicUsize::new(0),
             lists: AtomicUsize::new(0),
             asks: AtomicUsize::new(0),
             issued: AtomicUsize::new(0),
         });
         let router = Router::new()
-            .route("/mcp", post(handle))
+            .route("/mcp", post(handle).get(listen))
             .route("/moved", post(moved))
             .route(
                 "/.well-known/oauth-protected-resource/mcp",
@@ -242,12 +322,32 @@ impl FakeMcp {
         self.add(
             name,
             description,
-            Arc::new(move |arguments, _ask| {
+            Arc::new(move |arguments, _peer| {
                 let text = run(&arguments);
-                Box::pin(async move { text })
+                Box::pin(async move { Answer::Text(text) })
             }),
             None,
         )
+    }
+
+    /// A notification on the server's own stream (GET), if the client has one open.
+    pub fn notify_outside(&self, method: &str, parameters: Value) -> bool {
+        let outside = self.shared.outside.lock().unwrap();
+        outside.as_ref().is_some_and(|out| {
+            out.send(json!({ "jsonrpc": "2.0", "method": method, "params": parameters }))
+                .is_ok()
+        })
+    }
+
+    /// Until the client has its own stream open.
+    pub async fn listening(&self) {
+        for _ in 0..500 {
+            if self.shared.outside.lock().unwrap().is_some() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("the client never opened the server's stream");
     }
 
     /// The server shuts down: the port no longer answers.
@@ -479,6 +579,10 @@ fn sse_frame(message: &Value) -> Bytes {
     Bytes::from(format!("event: message\ndata: {message}\n\n"))
 }
 
+fn sse_frame_with_id(message: &Value, id: &str) -> Bytes {
+    Bytes::from(format!("id: {id}\nevent: message\ndata: {message}\n\n"))
+}
+
 async fn handle(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Bytes) -> Response {
     shared.requests.fetch_add(1, Ordering::SeqCst);
     let presented = headers
@@ -533,6 +637,12 @@ async fn handle(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Byt
         .get("Mcp-Session-Id")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    if let Some(protocol) = headers
+        .get("MCP-Protocol-Version")
+        .and_then(|v| v.to_str().ok())
+    {
+        shared.lock().protocol_headers.push(protocol.to_owned());
+    }
     if method != "initialize" && presented_session != session {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -567,12 +677,24 @@ async fn handle(State(shared): State<Arc<Shared>>, headers: HeaderMap, body: Byt
                 let result = call.await;
                 let final_reply = match result {
                     Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                    Err((code, message)) => {
-                        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+                    Err((code, message, data)) => {
+                        json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message, "data": data}})
                     }
                 };
                 let _ = events.send(Out::Final(final_reply));
             });
+            if shared.lock().close_early {
+                // An id and a retry, then the connection closes: the rest waits for the GET.
+                let stream = format!("s{}", shared.streams.fetch_add(1, Ordering::SeqCst) + 1);
+                shared.parked.lock().unwrap().insert(stream.clone(), outs);
+                let prime = Bytes::from(format!("id: {stream}:0\nretry: 20\ndata:\n\n"));
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "text/event-stream")],
+                    Body::from(prime),
+                )
+                    .into_response();
+            }
             let first = outs.recv().await.expect("the call always answers");
             (first, Some(outs))
         }
@@ -628,8 +750,13 @@ fn event_stream(ready: Vec<Bytes>, rest: Option<mpsc::UnboundedReceiver<Out>>) -
 fn initialize(shared: &Shared, parameters: &Map<String, Value>) -> Value {
     let mut s = shared.lock();
     s.client_capabilities = parameters.get("capabilities").cloned();
+    s.client_protocol = parameters
+        .get("protocolVersion")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    s.protocol_headers.clear();
     let mut result = json!({
-        "protocolVersion": "2025-06-18",
+        "protocolVersion": "2025-11-25",
         "capabilities": {"tools": {}},
         "serverInfo": {"name": "fake", "version": "1.0", "icons": [
             {"src": "https://fake.test/icon-16.png", "mimeType": "image/png", "sizes": ["16x16"]},
@@ -668,7 +795,7 @@ async fn call(
     shared: Arc<Shared>,
     parameters: Map<String, Value>,
     events: mpsc::UnboundedSender<Out>,
-) -> Result<Value, (i64, String)> {
+) -> Result<Value, (i64, String, Option<Value>)> {
     let name = parameters
         .get("name")
         .and_then(Value::as_str)
@@ -676,37 +803,79 @@ async fn call(
         .to_owned();
     let tool = shared.lock().tools.iter().find(|t| t.name == name).cloned();
     let Some(tool) = tool else {
-        return Err((-32602, format!("unknown tool: {name}")));
+        return Err((-32602, format!("unknown tool: {name}"), None));
     };
-    let asker = shared.clone();
-    let ask: Ask = Arc::new(move |message, schema| {
-        let shared = asker.clone();
-        let events = events.clone();
-        Box::pin(async move {
-            let id = format!("e{}", shared.asks.fetch_add(1, Ordering::SeqCst) + 1);
-            let (answer, got) = oneshot::channel();
-            shared.asked.lock().unwrap().insert(id.clone(), answer);
-            let _ = events.send(Out::Event(json!({
-                "jsonrpc": "2.0", "id": id, "method": "elicitation/create",
-                "params": {"message": message, "requestedSchema": schema},
-            })));
-            match got.await {
-                Ok(got) => got["result"].as_object().cloned().unwrap_or_else(|| {
-                    let mut error = Map::new();
-                    error.insert("action".into(), json!("error"));
-                    error
-                }),
-                Err(_) => Map::new(),
-            }
-        })
-    });
+    let peer = Peer { shared, events };
     let arguments = parameters
         .get("arguments")
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    let text = (tool.run)(arguments, ask).await;
-    Ok(json!({"content": [{"type": "text", "text": text}], "isError": false}))
+    match (tool.run)(arguments, peer).await {
+        Answer::Text(text) => {
+            Ok(json!({"content": [{"type": "text", "text": text}], "isError": false}))
+        }
+        Answer::Error(code, message, data) => Err((code, message, Some(data))),
+    }
+}
+
+/// A GET: with `Last-Event-ID`, the rest of a stream closed early; without, the server's own
+/// stream, if it offers one.
+async fn listen(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> Response {
+    let session = shared.lock().session.clone();
+    let presented = headers
+        .get("Mcp-Session-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if presented != session {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if let Some(last) = headers.get("Last-Event-ID").and_then(|v| v.to_str().ok()) {
+        shared.lock().resumed.push(last.to_owned());
+        let (stream, n) = last.split_once(':').unwrap_or((last, "0"));
+        let Some(rest) = shared.parked.lock().unwrap().remove(stream) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let stream = stream.to_owned();
+        let next: usize = n.parse::<usize>().unwrap_or(0) + 1;
+        let frames =
+            futures_util::stream::unfold((rest, next, false), move |(mut rest, n, done)| {
+                let stream = stream.clone();
+                async move {
+                    if done {
+                        return None;
+                    }
+                    let (message, done) = match rest.recv().await? {
+                        Out::Event(message) => (message, false),
+                        Out::Final(message) => (message, true),
+                    };
+                    let frame = sse_frame_with_id(&message, &format!("{stream}:{n}"));
+                    Some((Ok::<Bytes, Infallible>(frame), (rest, n + 1, done)))
+                }
+            });
+        return (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            Body::from_stream(frames),
+        )
+            .into_response();
+    }
+    if !shared.lock().listen {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let (sender, receiver) = mpsc::unbounded_channel::<Value>();
+    *shared.outside.lock().unwrap() = Some(sender);
+    shared.lock().listened += 1;
+    let frames = futures_util::stream::unfold(receiver, |mut receiver| async move {
+        let message = receiver.recv().await?;
+        Some((Ok::<Bytes, Infallible>(sse_frame(&message)), receiver))
+    });
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/event-stream")],
+        Body::from_stream(frames),
+    )
+        .into_response()
 }
 
 // =========================================================================

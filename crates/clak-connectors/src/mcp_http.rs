@@ -1,6 +1,11 @@
 //! An MCP client over the "Streamable HTTP" transport: every request is a POST, and the
 //! response is JSON or an SSE stream, inside which the server can in turn ask for
-//! something (a confirmation) before answering.
+//! something (a form, a page to open) before answering, and send notifications.
+//!
+//! A server may close the stream before it answers (MCP 2025-11-25): the client resumes it
+//! with a GET carrying the last event's id (`Last-Event-ID`), after the wait the server asked
+//! for (`retry`). The same GET, without an id, is the stream of what the server sends on its
+//! own ([`McpHttp::listen`]).
 //!
 //! No redirects: they would carry the token to another host. No response beyond
 //! [`MAX_MESSAGE_BYTES`]. After a 401 a new token is asked from whoever provides it
@@ -18,9 +23,26 @@ use serde_json::{Map, Value, json};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tokio::sync::broadcast;
 use url::Url;
 
-pub const PROTOCOL_VERSION: &str = "2025-06-18";
+pub const PROTOCOL_VERSION: &str = "2025-11-25";
+
+/// The capabilities Clak declares: elicitation, in both its modes, when there is someone to ask.
+pub(crate) fn capabilities(can_elicit: bool) -> Map<String, Value> {
+    let mut capabilities = Map::new();
+    if can_elicit {
+        capabilities.insert("elicitation".into(), json!({ "form": {}, "url": {} }));
+    }
+    capabilities
+}
+
+/// After a stream closed without the answer: how long to wait before resuming it, unless the
+/// server says otherwise, and at most.
+const RETRY: Duration = Duration::from_secs(1);
+const MAX_RETRY: Duration = Duration::from_secs(30);
+/// Resumed this many times in a row without a new event, the stream is given up.
+const MAX_QUIET: u32 = 5;
 
 /// How a request to an MCP server can go wrong.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -43,15 +65,124 @@ pub enum McpError {
     #[error("{0}")]
     Transport(String),
 
-    /// A JSON-RPC error from the server: the request arrived, and was rejected.
+    /// A JSON-RPC error from the server: the request arrived, and was rejected. `data` is
+    /// what the error carries besides (for `-32042`, the pages to open).
     #[error("{message}")]
-    Rpc { code: i32, message: String },
+    Rpc {
+        code: i32,
+        message: String,
+        data: Option<Value>,
+    },
 }
 
-/// A request from the server in the middle of a call (`elicitation/create`): receives the
-/// parameters and returns the `result` to send back.
-pub type Elicit =
-    Arc<dyn Fn(Map<String, Value>) -> BoxFuture<'static, Map<String, Value>> + Send + Sync>;
+impl McpError {
+    /// A JSON-RPC error to answer the server with.
+    pub fn rpc(code: i32, message: impl Into<String>) -> McpError {
+        McpError::Rpc {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+}
+
+type Answer = dyn Fn(Map<String, Value>, Vec<String>) -> BoxFuture<'static, Result<Map<String, Value>, McpError>>
+    + Send
+    + Sync;
+
+/// What answers a request from the server in the middle of a command
+/// (`elicitation/create`): it gets the parameters, and the other commands the request may
+/// come from as well (a program on this computer can't say which one asks), and returns
+/// the `result` to send back, or a JSON-RPC error.
+#[derive(Clone)]
+pub struct Elicit {
+    /// The command it belongs to.
+    pub call: String,
+    answer: Arc<Answer>,
+}
+
+impl Elicit {
+    pub fn new(
+        call: impl Into<String>,
+        answer: impl Fn(
+            Map<String, Value>,
+            Vec<String>,
+        ) -> BoxFuture<'static, Result<Map<String, Value>, McpError>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Elicit {
+        Elicit {
+            call: call.into(),
+            answer: Arc::new(answer),
+        }
+    }
+
+    pub fn answer(
+        &self,
+        parameters: Map<String, Value>,
+        others: Vec<String>,
+    ) -> BoxFuture<'static, Result<Map<String, Value>, McpError>> {
+        (self.answer)(parameters, others)
+    }
+}
+
+/// The answer to a request from the server: `ping`, and `elicitation/create` when a running
+/// command can ask the user (without one, the server hears that nobody chose).
+pub(crate) async fn server_request(
+    id: Value,
+    method: &str,
+    parameters: Map<String, Value>,
+    elicit: Option<&Elicit>,
+    others: Vec<String>,
+) -> Value {
+    let outcome = match (method, elicit) {
+        ("ping", _) => Ok(Map::new()),
+        ("elicitation/create", Some(elicit)) => elicit.answer(parameters, others).await,
+        ("elicitation/create", None) => {
+            let mut cancel = Map::new();
+            cancel.insert("action".into(), json!("cancel"));
+            Ok(cancel)
+        }
+        _ => Err(McpError::rpc(
+            -32601,
+            format!("the client doesn't support '{method}'"),
+        )),
+    };
+    match outcome {
+        Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+        Err(McpError::Rpc { code, message, .. }) => {
+            json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+        }
+        Err(other) => json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": { "code": -32603, "message": other.to_string() },
+        }),
+    }
+}
+
+/// The error of a JSON-RPC response, with its `data`.
+pub(crate) fn rpc_error(error: &Map<String, Value>) -> McpError {
+    McpError::Rpc {
+        code: error
+            .get("code")
+            .and_then(Value::as_i64)
+            .and_then(|c| i32::try_from(c).ok())
+            .unwrap_or(0),
+        message: wire::str(error.get("message"))
+            .unwrap_or("server error")
+            .to_owned(),
+        data: error.get("data").filter(|d| !d.is_null()).cloned(),
+    }
+}
+
+/// Where an SSE stream got to: the last event's id, to resume after it, and how long the
+/// server asks to wait before resuming.
+#[derive(Default)]
+struct Cursor {
+    last_id: Option<String>,
+    retry: Option<Duration>,
+}
 
 /// The token a connector presents: the current one, and a way to get another after a 401.
 pub trait AccessToken: Send + Sync {
@@ -147,6 +278,8 @@ pub struct McpHttp {
     can_elicit: bool,
     state: Mutex<State>,
     next_id: AtomicI64,
+    /// The server's notifications, from any of its streams.
+    notifications: broadcast::Sender<Map<String, Value>>,
 }
 
 impl McpHttp {
@@ -163,7 +296,13 @@ impl McpHttp {
             can_elicit,
             state: Mutex::new(State::default()),
             next_id: AtomicI64::new(0),
+            notifications: broadcast::channel(64).0,
         }
+    }
+
+    /// The server's notifications from now on (`notifications/elicitation/complete`, …).
+    pub fn notifications(&self) -> broadcast::Receiver<Map<String, Value>> {
+        self.notifications.subscribe()
     }
 
     pub fn url(&self) -> &Url {
@@ -192,10 +331,7 @@ impl McpHttp {
 
     pub async fn initialize(&self) -> Result<(), McpError> {
         self.lock().session = None;
-        let mut capabilities = Map::new();
-        if self.can_elicit {
-            capabilities.insert("elicitation".into(), json!({}));
-        }
+        let capabilities = capabilities(self.can_elicit);
         let result = self
             .request(
                 "initialize",
@@ -303,21 +439,90 @@ impl McpHttp {
     }
 
     /// The SSE stream up to the expected response, serving the server's requests meanwhile.
-    /// Lines end with `\n`, `\r\n` or `\r`, as `StreamReader.ReadLine` reads them.
+    /// Closed before the response, it is resumed after its last event, as long as the server
+    /// gives events an id and something new keeps arriving.
     async fn read_events(
         &self,
-        mut response: Response,
+        response: Response,
         id: i64,
         elicit: Option<&Elicit>,
     ) -> Result<Map<String, Value>, McpError> {
+        let closed =
+            || McpError::Transport("the server closed the stream without answering".into());
+        let mut cursor = Cursor::default();
+        let mut response = response;
+        let mut quiet = 0;
+        loop {
+            let before = cursor.last_id.clone();
+            if let Some(answer) = self
+                .read_stream(response, &mut cursor, Some(id), elicit)
+                .await?
+            {
+                return Ok(answer);
+            }
+            let Some(last) = cursor.last_id.clone() else {
+                return Err(closed());
+            };
+            quiet = if cursor.last_id == before {
+                quiet + 1
+            } else {
+                0
+            };
+            if quiet >= MAX_QUIET {
+                return Err(closed());
+            }
+            tokio::time::sleep(cursor.retry.unwrap_or(RETRY).min(MAX_RETRY)).await;
+            response = match self.stream(Some(&last)).await? {
+                Some(response) => response,
+                None => return Err(closed()),
+            };
+        }
+    }
+
+    /// What the server sends on its own, outside any command: its notifications arrive at
+    /// [`McpHttp::notifications`], its requests are answered. It lasts until the future is
+    /// dropped; it ends at once if the server offers no such stream, or when it stops sending.
+    pub async fn listen(&self) -> Result<(), McpError> {
+        let mut cursor = Cursor::default();
+        let mut quiet = 0;
+        loop {
+            let Some(response) = self.stream(cursor.last_id.as_deref()).await? else {
+                return Ok(());
+            };
+            let before = cursor.last_id.clone();
+            self.read_stream(response, &mut cursor, None, None).await?;
+            quiet = if cursor.last_id == before {
+                quiet + 1
+            } else {
+                0
+            };
+            // A server that polls says how often: then it can be quiet for long.
+            if quiet >= MAX_QUIET && cursor.retry.is_none() {
+                return Ok(());
+            }
+            tokio::time::sleep(cursor.retry.unwrap_or(RETRY).min(MAX_RETRY)).await;
+        }
+    }
+
+    /// One SSE response, to its end; `Some` as soon as the response to `id` arrives. Lines
+    /// end with `\n`, `\r\n` or `\r`, as `StreamReader.ReadLine` reads them.
+    async fn read_stream(
+        &self,
+        mut response: Response,
+        cursor: &mut Cursor,
+        id: Option<i64>,
+        elicit: Option<&Elicit>,
+    ) -> Result<Option<Map<String, Value>>, McpError> {
         let mut line: Vec<u8> = Vec::new();
         let mut data = String::new();
         let mut after_cr = false;
         loop {
-            let chunk = response
-                .chunk()
-                .await
-                .map_err(|e| McpError::Transport(network_message(&e)))?;
+            let chunk = match response.chunk().await {
+                Ok(chunk) => chunk,
+                // The connection dropped: like a stream closed, it may be resumed.
+                Err(_) if cursor.last_id.is_some() => None,
+                Err(e) => return Err(McpError::Transport(network_message(&e))),
+            };
             let Some(chunk) = chunk else { break };
             for &b in chunk.iter() {
                 if after_cr {
@@ -329,8 +534,11 @@ impl McpHttp {
                 if b == b'\n' || b == b'\r' {
                     after_cr = b == b'\r';
                     let text = String::from_utf8_lossy(&std::mem::take(&mut line)).into_owned();
-                    if let Some(answer) = self.event_line(&text, &mut data, id, elicit).await? {
-                        return Ok(answer);
+                    if let Some(answer) = self
+                        .event_line(&text, &mut data, cursor, id, elicit)
+                        .await?
+                    {
+                        return Ok(Some(answer));
                     }
                 } else {
                     line.push(b);
@@ -342,21 +550,30 @@ impl McpHttp {
         }
         if !line.is_empty() {
             let text = String::from_utf8_lossy(&line).into_owned();
-            if let Some(answer) = self.event_line(&text, &mut data, id, elicit).await? {
-                return Ok(answer);
+            if let Some(answer) = self
+                .event_line(&text, &mut data, cursor, id, elicit)
+                .await?
+            {
+                return Ok(Some(answer));
             }
         }
-        Err(McpError::Transport(
-            "the server closed the stream without answering".into(),
-        ))
+        // An event the server didn't close with an empty line still counts.
+        if !data.is_empty()
+            && let Some(answer) = self.event_line("", &mut data, cursor, id, elicit).await?
+        {
+            return Ok(Some(answer));
+        }
+        Ok(None)
     }
 
-    /// A line of the stream: a piece of `data:`, or the empty line that closes an event.
+    /// A line of the stream: a piece of `data:`, the event's `id:`, the server's `retry:`,
+    /// or the empty line that closes an event.
     async fn event_line(
         &self,
         line: &str,
         data: &mut String,
-        id: i64,
+        cursor: &mut Cursor,
+        id: Option<i64>,
         elicit: Option<&Elicit>,
     ) -> Result<Option<Map<String, Value>>, McpError> {
         if line.is_empty() {
@@ -365,63 +582,124 @@ impl McpHttp {
             }
             let message = parse(data.as_bytes())?;
             data.clear();
-            if let Some(answer) = answer(&message, id)? {
+            if let Some(id) = id
+                && let Some(answer) = answer(&message, id)?
+            {
                 return Ok(Some(answer));
             }
-            if let (Some(method), Some(request_id)) = (
-                wire::str(message.get("method")),
-                message.get("id").filter(|v| !v.is_null()),
-            ) {
-                let parameters = message
-                    .get("params")
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
-                self.reply(request_id.clone(), method, parameters, elicit)
-                    .await?;
+            let method = wire::str(message.get("method"));
+            match (method, message.get("id").filter(|v| !v.is_null())) {
+                (Some(method), Some(request_id)) => {
+                    let parameters = message
+                        .get("params")
+                        .and_then(Value::as_object)
+                        .cloned()
+                        .unwrap_or_default();
+                    let reply =
+                        server_request(request_id.clone(), method, parameters, elicit, vec![])
+                            .await;
+                    let response = self.send(&reply).await?;
+                    self.check(&response)?;
+                }
+                (Some(_), None) => {
+                    let _ = self.notifications.send(message);
+                }
+                _ => {}
             }
             return Ok(None);
         }
-        if let Some(chunk) = line.strip_prefix("data:") {
-            let chunk = chunk.strip_prefix(' ').unwrap_or(chunk);
-            if !data.is_empty() {
-                data.push('\n');
+        let (field, value) = match line.split_once(':') {
+            Some((field, value)) => (field, value.strip_prefix(' ').unwrap_or(value)),
+            None => (line, ""),
+        };
+        match field {
+            "data" => {
+                if !data.is_empty() {
+                    data.push('\n');
+                }
+                data.push_str(value);
+                if data.len() > MAX_MESSAGE_BYTES {
+                    return Err(McpError::Transport("event too large".into()));
+                }
             }
-            data.push_str(chunk);
-            if data.len() > MAX_MESSAGE_BYTES {
-                return Err(McpError::Transport("event too large".into()));
+            "id" if !value.contains('\0') => cursor.last_id = Some(value.to_owned()),
+            "retry" => {
+                if let Ok(ms) = value.trim().parse::<u64>() {
+                    cursor.retry = Some(Duration::from_millis(ms));
+                }
             }
+            _ => {}
         }
         Ok(None)
     }
 
-    /// A request from the server inside the stream: answered with another POST.
-    async fn reply(
-        &self,
-        request_id: Value,
-        method: &str,
-        parameters: Map<String, Value>,
-        elicit: Option<&Elicit>,
-    ) -> Result<(), McpError> {
-        let mut reply = Map::new();
-        reply.insert("jsonrpc".into(), json!("2.0"));
-        reply.insert("id".into(), request_id);
-        match (method, elicit) {
-            ("ping", _) => {
-                reply.insert("result".into(), json!({}));
-            }
-            ("elicitation/create", Some(elicit)) => {
-                reply.insert("result".into(), Value::Object(elicit(parameters).await));
-            }
-            _ => {
-                reply.insert(
-                    "error".into(),
-                    json!({ "code": -32601, "message": format!("the client doesn't support '{method}'") }),
-                );
-            }
+    /// A GET for an SSE stream: resumed after `last`, or the server's own. `None` if the
+    /// server offers none (405).
+    async fn stream(&self, last: Option<&str>) -> Result<Option<Response>, McpError> {
+        let used = match &self.token {
+            Some(token) => token.current().await?,
+            None => None,
+        };
+        let mut response = self.get(last, used.as_deref()).await?;
+        if response.status() == StatusCode::UNAUTHORIZED
+            && let Some(token) = &self.token
+            && token.renew(used).await?
+        {
+            let fresh = token.current().await?;
+            response = self.get(last, fresh.as_deref()).await?;
         }
-        let response = self.send(&Value::Object(reply)).await?;
-        self.check(&response)
+        if response.status() == StatusCode::METHOD_NOT_ALLOWED {
+            return Ok(None);
+        }
+        self.check(&response)?;
+        let events = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| {
+                v.trim_start()
+                    .to_ascii_lowercase()
+                    .starts_with("text/event-stream")
+            });
+        if !events {
+            return Err(McpError::Transport(
+                "the server's stream isn't an event stream".into(),
+            ));
+        }
+        Ok(Some(response))
+    }
+
+    async fn get(&self, last: Option<&str>, bearer: Option<&str>) -> Result<Response, McpError> {
+        let (session, protocol) = self.session_and_protocol();
+        let mut request = self
+            .http
+            .get(self.url.clone())
+            .header(ACCEPT, "text/event-stream")
+            .header("MCP-Protocol-Version", protocol);
+        if let Some(bearer) = bearer.filter(|b| !b.is_empty()) {
+            request = request.header(AUTHORIZATION, format!("Bearer {bearer}"));
+        }
+        if let Some(session) = session {
+            request = request.header("Mcp-Session-Id", session);
+        }
+        if let Some(last) = last {
+            request = request.header("Last-Event-ID", last);
+        }
+        request
+            .send()
+            .await
+            .map_err(|e| McpError::Transport(network_message(&e)))
+    }
+
+    fn session_and_protocol(&self) -> (Option<String>, String) {
+        let state = self.lock();
+        (
+            state.session.clone(),
+            state
+                .protocol
+                .clone()
+                .unwrap_or_else(|| PROTOCOL_VERSION.to_owned()),
+        )
     }
 
     /// The POST, and after a 401 a second attempt with a refreshed token, if there is one.
@@ -443,16 +721,7 @@ impl McpHttp {
     }
 
     async fn post(&self, message: &Value, bearer: Option<&str>) -> Result<Response, McpError> {
-        let (session, protocol) = {
-            let state = self.lock();
-            (
-                state.session.clone(),
-                state
-                    .protocol
-                    .clone()
-                    .unwrap_or_else(|| PROTOCOL_VERSION.to_owned()),
-            )
-        };
+        let (session, protocol) = self.session_and_protocol();
         let mut request = self
             .http
             .post(self.url.clone())
@@ -518,16 +787,7 @@ fn answer(message: &Map<String, Value>, id: i64) -> Result<Option<Map<String, Va
         return Ok(None);
     }
     if let Some(Value::Object(error)) = message.get("error") {
-        return Err(McpError::Rpc {
-            code: error
-                .get("code")
-                .and_then(Value::as_i64)
-                .and_then(|c| i32::try_from(c).ok())
-                .unwrap_or(0),
-            message: wire::str(error.get("message"))
-                .unwrap_or("server error")
-                .to_owned(),
-        });
+        return Err(rpc_error(error));
     }
     Ok(Some(
         message

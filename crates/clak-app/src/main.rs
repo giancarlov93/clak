@@ -166,6 +166,8 @@ fn main() {
             backup::backup_restore_cancel,
             commands::consent_request,
             commands::consent_answer,
+            commands::consent_fill,
+            commands::consent_open,
             commands::consent_resize,
             commands::flyout_resize,
             commands::open_panel,

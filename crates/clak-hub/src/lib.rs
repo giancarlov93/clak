@@ -16,6 +16,7 @@ pub mod commands;
 pub mod consent;
 pub mod control_channel;
 pub mod core;
+pub mod elicitation;
 pub mod flags;
 pub mod hub;
 pub mod launch;
@@ -27,10 +28,11 @@ pub mod usage;
 pub mod wire;
 
 pub use consent::{
-    AgentIdentity, Choices, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt,
-    ConsentRequest, ConsentTool, HubOptions, Platform, QuestionLink, Reply, Scope, SettingsChange,
-    Verdict,
+    AgentIdentity, Asks, Choices, ConnectorTiming, ConsentKind, ConsentLine, ConsentPrompt,
+    ConsentRequest, ConsentTool, Elicitation, Elicited, HubOptions, Platform, QuestionLink, Reply,
+    Scope, SettingsChange, Verdict,
 };
 pub use core::{AppConn, Asked, Broker, Core, Gone, Outbox, Progress, failure};
+pub use elicitation::{Form, Page};
 pub use hub::{Hub, LogSink};
 pub use wire::{Malformed, ResourceDef, ToolDef};

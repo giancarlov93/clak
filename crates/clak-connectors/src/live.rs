@@ -14,6 +14,13 @@
 //! restarted with the same waits if it stops. Its environment variables count as a
 //! token: changing them makes the permissions start over.
 //!
+//! Halfway through a command a server may ask the user something (elicitation): to confirm,
+//! to fill in a form, or to open a page. The hub asks, one question at a time per server,
+//! and the answer goes back to the server. A server that answers a command "the user must
+//! first do something in their browser" (`-32042`) gets the same question, which then waits
+//! until the server says the user is done, or the user says so: then the command runs
+//! again, once.
+//!
 //! Locks: the connector's state is taken *before* the hub's lock, never inside it
 //! ([`Broker::run`] never calls back into this module); whoever must be told about
 //! changes (the panel) is told after releasing it.
@@ -24,8 +31,9 @@ use crate::mcp_http::{AccessToken, Elicit, McpError, McpHttp};
 use crate::mcp_stdio::McpStdio;
 use crate::store::ConnectorEntry;
 use crate::uri;
+use clak_hub::consent::Elicitation;
 use clak_hub::texts::{self, clean};
-use clak_hub::{AppConn, Broker, ConnectorTiming, Outbox, ResourceDef, ToolDef, Verdict};
+use clak_hub::{AppConn, Asks, Broker, ConnectorTiming, Form, Outbox, Page, ResourceDef, ToolDef};
 use clak_wire::json::{self as wire, now, quoted};
 use reqwest::Client;
 use serde_json::{Map, Value, json};
@@ -52,6 +60,9 @@ use phase::*;
 /// How long to wait for a just-started program to answer: `npx` may have to download the
 /// package, but a program that doesn't talk must not stay "connecting" forever.
 const START_LIMIT: Duration = Duration::from_secs(120);
+
+/// The server can't run a command until the user has done something in their browser.
+const URL_ELICITATION_REQUIRED: i32 = -32042;
 
 /// Where the server is: at an address, or in a program to start.
 enum Target {
@@ -104,6 +115,8 @@ pub(crate) struct Connector {
     calls: Mutex<HashMap<String, CancellationToken>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
     changed: Changed,
+    /// One question from the server at a time: the others wait their turn.
+    asking: tokio::sync::Mutex<()>,
 }
 
 impl Connector {
@@ -148,6 +161,7 @@ impl Connector {
             calls: Mutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
             changed,
+            asking: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -618,7 +632,23 @@ impl Connector {
             };
         };
         let elicit = self.elicit_for(call_id, cancel);
-        match client.call_tool(tool, arguments, Some(&elicit)).await {
+        let mut answer = client.call_tool(tool, arguments, Some(&elicit)).await;
+        // Once: a server that asks again after the user has been to the browser says why.
+        if let Err(McpError::Rpc {
+            code: URL_ELICITATION_REQUIRED,
+            message,
+            data,
+        }) = &answer
+        {
+            if let Err(why) = self
+                .finish_in_browser(&client, call_id, message, data.as_ref(), cancel)
+                .await
+            {
+                return text(&why, true);
+            }
+            answer = client.call_tool(tool, arguments, Some(&elicit)).await;
+        }
+        match answer {
             Ok(answer) => {
                 let mut result = Map::new();
                 result.insert(
@@ -628,7 +658,7 @@ impl Connector {
                 result.insert("content".into(), content(&answer));
                 result
             }
-            Err(McpError::Rpc { code, message }) => {
+            Err(McpError::Rpc { code, message, .. }) => {
                 // A command the server no longer knows: the list has changed.
                 if code == -32601 || code == -32602 {
                     self.wake.notify_one();
@@ -674,69 +704,209 @@ impl Connector {
         }
     }
 
-    /// The confirmation the server asks for in the middle of a command, with a hub window.
+    /// What answers the server's questions in the middle of a command: the hub asks the
+    /// user, with its windows.
     fn elicit_for(self: &Arc<Self>, call_id: &str, cancel: &CancellationToken) -> Elicit {
         let this = Arc::downgrade(self);
-        let call_id = call_id.to_owned();
+        let call = call_id.to_owned();
         let cancel = cancel.clone();
-        Arc::new(move |parameters: Map<String, Value>| {
+        Elicit::new(call_id, move |parameters, others| {
             let this = this.clone();
-            let call_id = call_id.clone();
+            let call = call.clone();
             let cancel = cancel.clone();
             Box::pin(async move {
-                let verdict = match this.upgrade() {
-                    None => Verdict::NoAnswer,
-                    Some(connector) => connector.confirm(&call_id, &parameters, &cancel).await,
-                };
-                let mut answer = Map::new();
-                match verdict {
-                    Verdict::Allowed => {
-                        answer.insert("action".into(), json!("accept"));
-                        let schema = parameters.get("requestedSchema").and_then(Value::as_object);
-                        answer.insert(
-                            "content".into(),
-                            Value::Object(crate::connector::fill(schema)),
-                        );
+                match this.upgrade() {
+                    Some(connector) => {
+                        connector
+                            .elicitation(&call, &parameters, &others, &cancel)
+                            .await
                     }
-                    Verdict::Denied => {
-                        answer.insert("action".into(), json!("decline"));
-                    }
-                    _ => {
-                        answer.insert("action".into(), json!("cancel"));
-                    }
+                    None => Ok(action("cancel")),
                 }
-                answer
             })
         })
     }
 
-    async fn confirm(
+    /// A question from the server (`elicitation/create`): a form (maybe a plain
+    /// confirmation) or a page to open. One the hub can't show is an error for the server.
+    async fn elicitation(
         &self,
         call_id: &str,
         parameters: &Map<String, Value>,
+        others: &[String],
         cancel: &CancellationToken,
-    ) -> Verdict {
+    ) -> Result<Map<String, Value>, McpError> {
+        let asks = match wire::str(parameters.get("mode")).unwrap_or("form") {
+            "form" => Form::parse(parameters.get("requestedSchema")).map(Asks::Form),
+            "url" => {
+                Page::parse(wire::str(parameters.get("url")).unwrap_or(""), false).map(Asks::Page)
+            }
+            other => Err(format!(
+                "the client doesn't support the mode '{}'",
+                clean(Some(other), 20)
+            )),
+        };
+        let asks = match asks {
+            Ok(asks) => asks,
+            Err(problem) => {
+                let name = self.name();
+                self.broker.run(|c| {
+                    c.log(format!(
+                        "{name}: a question from the server couldn't be shown ({problem})"
+                    ))
+                });
+                return Err(McpError::rpc(-32602, problem));
+            }
+        };
+        let page = matches!(asks, Asks::Page(_));
+        let message = wire::str(parameters.get("message")).unwrap_or("");
+        let _turn = tokio::select! {
+            turn = self.asking.lock() => turn,
+            _ = cancel.cancelled() => return Ok(action("cancel")),
+        };
+        Ok(
+            match self
+                .ask_user(call_id, others, message, asks, cancel, None)
+                .await
+            {
+                Elicitation::Accepted(content) if !page => {
+                    let mut answer = action("accept");
+                    answer.insert("content".into(), Value::Object(content));
+                    answer
+                }
+                Elicitation::Accepted(_) => action("accept"),
+                Elicitation::Declined => action("decline"),
+                _ => action("cancel"),
+            },
+        )
+    }
+
+    /// The server answered the command that the user must first do something in their
+    /// browser (`-32042`, with the pages in its `data`): a question per page, each one
+    /// waiting until the server says the user is done there, or the user says so. `Err` is
+    /// what the agent reads when it doesn't happen.
+    async fn finish_in_browser(
+        &self,
+        client: &Arc<McpClient>,
+        call_id: &str,
+        message: &str,
+        data: Option<&Value>,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        let name = self.name();
+        let pages: Vec<(String, String, Page)> = data
+            .and_then(|d| d.get("elicitations"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|e| wire::str(e.get("mode")) == Some("url"))
+            .filter_map(|e| {
+                let id = wire::str(e.get("elicitationId"))?.to_owned();
+                let text = wire::str(e.get("message")).unwrap_or(message).to_owned();
+                let page = Page::parse(wire::str(e.get("url"))?, true).ok()?;
+                Some((id, text, page))
+            })
+            .collect();
+        if pages.is_empty() {
+            return Err(format!("{name}: {}", clean(Some(message), 300)));
+        }
+        let _turn = tokio::select! {
+            turn = self.asking.lock() => turn,
+            _ = cancel.cancelled() => return Err(format!("{name}: the command was canceled.")),
+        };
+        for (id, text, page) in pages {
+            let done = CancellationToken::new();
+            let watcher = tokio::spawn(completion(client.clone(), id, done.clone()));
+            let outcome = self
+                .ask_user(call_id, &[], &text, Asks::Page(page), cancel, Some(&done))
+                .await;
+            watcher.abort();
+            match outcome {
+                Elicitation::Accepted(_) | Elicitation::Completed => {}
+                Elicitation::Declined | Elicitation::Cancelled => {
+                    return Err(format!(
+                        "{name} needs the user to finish something in their browser first, and they declined: the command didn't run."
+                    ));
+                }
+                Elicitation::NoPrompt => {
+                    return Err(format!(
+                        "{name}: {} (Clak has no window here to ask the user to open the page).",
+                        clean(Some(message), 300)
+                    ));
+                }
+                Elicitation::NoAnswer => {
+                    return Err(format!(
+                        "{name} needs the user to finish something in their browser first, and they didn't answer: the command didn't run. Ask them to look at the Clak window, then try again."
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Asks the user a server's question, for the command `call_id`.
+    async fn ask_user(
+        &self,
+        call_id: &str,
+        others: &[String],
+        message: &str,
+        asks: Asks,
+        cancel: &CancellationToken,
+        done: Option<&CancellationToken>,
+    ) -> Elicitation {
         let conn_id = self.lock().conn_id.clone();
         // The AppConn is copied first: the question is built under the hub's lock, and the
         // connector may have closed in the meantime.
         let app: Option<AppConn> =
             conn_id.and_then(|id| self.broker.run(|c| c.app_by_id(&id).cloned()));
         let Some(app) = app else {
-            return Verdict::NoAnswer;
+            return Elicitation::NoAnswer;
         };
-        let message = wire::str(parameters.get("message"))
-            .unwrap_or("")
-            .to_owned();
         let conn_id = app.conn_id.clone();
         self.broker
-            .confirm(
+            .elicit(
                 &conn_id,
                 call_id,
-                |id, agent, cwd, _core| texts::confirm(id, &app, agent, cwd, &message),
+                others,
+                |id, agent, cwd, names| texts::elicit(id, &app, agent, cwd, names, message, asks),
                 cancel,
+                done,
             )
             .await
     }
+}
+
+/// Watches for the server's word that the user finished in the browser
+/// (`notifications/elicitation/complete` with this id), keeping open what brings it.
+async fn completion(client: Arc<McpClient>, id: String, done: CancellationToken) {
+    let mut notifications = client.notifications();
+    let listening = client.listen();
+    tokio::pin!(listening);
+    loop {
+        let note = tokio::select! {
+            note = notifications.recv() => note,
+            _ = &mut listening => return,
+        };
+        match note {
+            Ok(note) => {
+                if wire::str(note.get("method")) == Some("notifications/elicitation/complete")
+                    && wire::str(note.get("params").and_then(|p| p.get("elicitationId")))
+                        == Some(id.as_str())
+                {
+                    done.cancel();
+                    return;
+                }
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+        }
+    }
+}
+
+fn action(action: &str) -> Map<String, Value> {
+    let mut answer = Map::new();
+    answer.insert("action".into(), json!(action));
+    answer
 }
 
 fn valid_name(name: &str) -> bool {

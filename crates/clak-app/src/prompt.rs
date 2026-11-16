@@ -15,10 +15,16 @@
 //! session, or approved in Clak; the questions about a program can also block it for the
 //! agent. The yes to use a program can come with "Always allow" ticked, when the question
 //! offers it: the hub then makes it a standing rule (`clak_hub::rules`).
+//!
+//! An MCP server's question halfway through a command (elicitation) can be a form: the user
+//! clicks into the window to type, since it doesn't take the focus by itself, and what they
+//! send is checked here against the form before it goes. Or it can be a page: the window
+//! shows the address and opens it in the system's browser, never in a webview, only when
+//! the user says so; for a command waiting for it, the window then waits with "Continue".
 
 use clak_hub::consent::BoxFuture;
-use clak_hub::{Choices, ConsentPrompt, ConsentRequest, Reply};
-use serde_json::{Value, json};
+use clak_hub::{Asks, Choices, ConsentPrompt, ConsentRequest, Elicited, Reply};
+use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -39,11 +45,21 @@ struct Open {
     request: Value,
     /// What the question offers: an answer gets nothing more.
     choices: Option<Choices>,
+    /// A server's question: its form, or its page.
+    asks: Option<Asks>,
     expires: f64,
-    answer: Option<oneshot::Sender<Reply>>,
+    answer: Option<Answer>,
     height: f64,
     /// On screen: until then it has no place in the stack.
     shown: bool,
+    /// The page was opened, and the command waits for the user to finish there.
+    opened: bool,
+}
+
+/// Where the answer goes: a permission's reply, or a server question's.
+enum Answer {
+    Reply(oneshot::Sender<Reply>),
+    Elicited(oneshot::Sender<Elicited>),
 }
 
 #[derive(Default)]
@@ -105,11 +121,101 @@ impl WindowPrompt {
             let mut questions = self.questions();
             questions.open.get_mut(id).and_then(|open| {
                 let reply = Choices::allowed(open.choices.as_ref(), reply);
-                open.answer.take().map(|sender| (sender, reply))
+                // A server's question answered as a plain yes or no: only a confirmation.
+                let plain = matches!(&open.asks, Some(Asks::Form(f)) if f.fields.is_empty());
+                match open.answer.take()? {
+                    Answer::Reply(sender) => Some(Answer::Reply(sender)).zip(Some(reply)),
+                    Answer::Elicited(sender) if plain || !reply.allows() => {
+                        Some(Answer::Elicited(sender)).zip(Some(reply))
+                    }
+                    other => {
+                        open.answer = Some(other);
+                        None
+                    }
+                }
             })
         };
-        if let Some((sender, reply)) = sender {
-            let _ = sender.send(reply);
+        match sender {
+            Some((Answer::Reply(sender), reply)) => drop(sender.send(reply)),
+            Some((Answer::Elicited(sender), reply)) => drop(sender.send(if reply.allows() {
+                Elicited::Accepted(Map::new())
+            } else {
+                Elicited::Declined
+            })),
+            None => return,
+        }
+        self.close(id);
+    }
+
+    /// The answer to a server's question: `accept` with the form's content (checked against
+    /// it: the error is for the user, and the window stays), or `decline`, or `cancel`. For a
+    /// page, `accept` is "Continue", once it was opened.
+    pub fn fill(&self, id: &str, action: &str, content: Map<String, Value>) -> Result<(), String> {
+        let answered = {
+            let mut questions = self.questions();
+            let Some(open) = questions.open.get_mut(id) else {
+                return Ok(());
+            };
+            let answer = match action {
+                "accept" => match &open.asks {
+                    Some(Asks::Form(form)) => Elicited::Accepted(form.check(&content)?),
+                    Some(Asks::Page(_)) if open.opened => Elicited::Accepted(Map::new()),
+                    Some(Asks::Page(_)) => return Err("Open the page first.".into()),
+                    None => return Err("This question isn't a server's.".into()),
+                },
+                "decline" => Elicited::Declined,
+                _ => Elicited::Cancelled,
+            };
+            match open.answer.take() {
+                Some(Answer::Elicited(sender)) => Some((sender, answer)),
+                other => {
+                    open.answer = other;
+                    None
+                }
+            }
+        };
+        if let Some((sender, answer)) = answered {
+            let _ = sender.send(answer);
+            self.close(id);
+        }
+        Ok(())
+    }
+
+    /// The user opens the page a server asks for: the question's own address, in the
+    /// system's browser. True if the command then waits for the user to finish there; else
+    /// the answer is given, and the window goes.
+    pub fn open_page(&self, id: &str) -> Result<bool, String> {
+        use tauri_plugin_opener::OpenerExt;
+        let (url, wait) = {
+            let questions = self.questions();
+            match questions.open.get(id).map(|o| &o.asks) {
+                Some(Some(Asks::Page(page))) => (page.url.clone(), page.wait),
+                _ => return Err("This question has no page.".into()),
+            }
+        };
+        self.app
+            .opener()
+            .open_url(&url, None::<&str>)
+            .map_err(|e| format!("The browser didn't open: {e}"))?;
+        if wait {
+            if let Some(open) = self.questions().open.get_mut(id) {
+                open.opened = true;
+            }
+            return Ok(true);
+        }
+        self.fill_opened(id);
+        Ok(false)
+    }
+
+    /// A page opened, for a command that doesn't wait: the answer is "accepted".
+    fn fill_opened(&self, id: &str) {
+        let sender = self
+            .questions()
+            .open
+            .get_mut(id)
+            .and_then(|o| o.answer.take());
+        if let Some(Answer::Elicited(sender)) = sender {
+            let _ = sender.send(Elicited::Accepted(Map::new()));
         }
         self.close(id);
     }
@@ -187,8 +293,11 @@ impl WindowPrompt {
             questions.order.retain(|o| *o != id);
             questions.open.remove(&id).and_then(|mut o| o.answer.take())
         };
-        if let Some(sender) = sender {
-            let _ = sender.send(Reply::Deny);
+        match sender {
+            Some(Answer::Reply(sender)) => drop(sender.send(Reply::Deny)),
+            // A server's question closed without choosing: "cancel".
+            Some(Answer::Elicited(sender)) => drop(sender.send(Elicited::Cancelled)),
+            None => {}
         }
         self.stack();
     }
@@ -266,7 +375,16 @@ impl WindowPrompt {
         let kind = self
             .request(id)
             .and_then(|r| r["kind"].as_str().map(str::to_owned));
+        let request = self.request(id).unwrap_or_default();
         let title = match kind.as_deref() {
+            Some("confirm") if !request["page"].is_null() => "Clak — page to open",
+            Some("confirm")
+                if request["form"]["fields"]
+                    .as_array()
+                    .is_some_and(|f| !f.is_empty()) =>
+            {
+                "Clak — information requested"
+            }
             Some("confirm") => "Clak — confirmation",
             Some("change") => "Clak — settings",
             _ => "Clak — permission",
@@ -306,6 +424,35 @@ fn queue(questions: &Questions, id: &str) -> Value {
     json!({ "id": id, "position": position, "total": questions.order.len() })
 }
 
+impl WindowPrompt {
+    /// A question in a window of its own, until its answer arrives or it is withdrawn.
+    fn open(&self, request: ConsentRequest, answer: Answer) -> Result<String, String> {
+        let id = request.id.clone();
+        {
+            let mut questions = self.questions();
+            questions.open.insert(
+                id.clone(),
+                Open {
+                    request: request.to_json(),
+                    choices: request.choices.clone(),
+                    asks: request.asks.clone(),
+                    expires: clak_wire::json::now() + self.timeout.as_secs_f64(),
+                    answer: Some(answer),
+                    height: HEIGHT,
+                    shown: false,
+                    opened: false,
+                },
+            );
+            questions.order.push(id.clone());
+        }
+        if let Err(problem) = self.show(&id) {
+            self.close(&id);
+            return Err(problem);
+        }
+        Ok(id)
+    }
+}
+
 impl ConsentPrompt for WindowPrompt {
     fn ask(
         &self,
@@ -314,27 +461,8 @@ impl ConsentPrompt for WindowPrompt {
     ) -> BoxFuture<Result<Reply, String>> {
         let this = self.clone();
         Box::pin(async move {
-            let id = request.id.clone();
             let (sender, receiver) = oneshot::channel();
-            {
-                let mut questions = this.questions();
-                questions.open.insert(
-                    id.clone(),
-                    Open {
-                        request: request.to_json(),
-                        choices: request.choices.clone(),
-                        expires: clak_wire::json::now() + this.timeout.as_secs_f64(),
-                        answer: Some(sender),
-                        height: HEIGHT,
-                        shown: false,
-                    },
-                );
-                questions.order.push(id.clone());
-            }
-            if let Err(problem) = this.show(&id) {
-                this.close(&id);
-                return Err(problem);
-            }
+            let id = this.open(request, Answer::Reply(sender))?;
             tokio::select! {
                 answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
                 _ = cancel.cancelled() => {
@@ -342,6 +470,25 @@ impl ConsentPrompt for WindowPrompt {
                     // the question vanishes without an answer.
                     this.close(&id);
                     Ok(Reply::Deny)
+                }
+            }
+        })
+    }
+
+    fn elicit(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<Elicited, String>> {
+        let this = self.clone();
+        Box::pin(async move {
+            let (sender, receiver) = oneshot::channel();
+            let id = this.open(request, Answer::Elicited(sender))?;
+            tokio::select! {
+                answer = receiver => Ok(answer.unwrap_or(Elicited::Cancelled)),
+                _ = cancel.cancelled() => {
+                    this.close(&id);
+                    Ok(Elicited::Cancelled)
                 }
             }
         })

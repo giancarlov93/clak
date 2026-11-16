@@ -9,9 +9,16 @@
 //! "y" meant for one question would answer the next, unseen. A question that goes away
 //! unanswered says so, and why: withdrawn, because whoever asked has gone, or expired,
 //! because its time ran out.
+//!
+//! An MCP server's question halfway through a command: a form is asked one field at a time
+//! (an empty line takes the default, or leaves an optional field out), then "Send?"; a page
+//! is shown whole, to open in a browser by hand, and for a command that waits for it, an
+//! empty line says the user is done there.
 
 use clak_hub::consent::BoxFuture;
-use clak_hub::{Choices, ConsentPrompt, ConsentRequest, Reply, Scope};
+use clak_hub::elicitation::{Field, Kind};
+use clak_hub::{Asks, Choices, ConsentPrompt, ConsentRequest, Elicited, Reply, Scope};
+use serde_json::{Map, Value, json};
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,6 +104,121 @@ impl Drop for Shown {
             self.title
         ));
     }
+}
+
+/// What came from the terminal.
+enum Read {
+    Line(String),
+    /// No more input.
+    End,
+    /// The question went away.
+    Withdrawn,
+}
+
+async fn read(lines: &mut mpsc::UnboundedReceiver<String>, cancel: &CancellationToken) -> Read {
+    tokio::select! {
+        line = lines.recv() => match line {
+            Some(line) => Read::Line(line.trim_end_matches(['\r', '\n']).to_owned()),
+            None => Read::End,
+        },
+        _ = cancel.cancelled() => Read::Withdrawn,
+    }
+}
+
+/// The head of a question: its title, who and what, the warning.
+fn head(request: &ConsentRequest) -> String {
+    let mut text = format!("\n=== {}\n", request.title);
+    for line in request.who.iter().chain(&request.what) {
+        text.push_str(&format!("    {}: {}\n", line.label, line.value));
+    }
+    if let Some(warning) = &request.warning {
+        text.push_str(&format!("    WARNING: {warning}\n"));
+    }
+    text
+}
+
+/// A field's line: its title, what it takes, its default.
+fn field_prompt(field: &Field) -> String {
+    let mut text = String::new();
+    if let Some(description) = &field.description {
+        text.push_str(&format!("    {description}\n"));
+    }
+    let what = match &field.kind {
+        Kind::Text { format, .. } => match format.map(|f| f.as_str()) {
+            Some("email") => "an email address".to_owned(),
+            Some("uri") => "an address".to_owned(),
+            Some("date") => "a date, YYYY-MM-DD".to_owned(),
+            Some("date-time") => "a date and time, like 2026-11-16T10:30:00+01:00".to_owned(),
+            _ => "text".to_owned(),
+        },
+        Kind::Number { integer: true, .. } => "a whole number".to_owned(),
+        Kind::Number { .. } => "a number".to_owned(),
+        Kind::Boolean => "y or n".to_owned(),
+        Kind::Choice { options } | Kind::Choices { options, .. } => {
+            for (i, option) in options.iter().enumerate() {
+                text.push_str(&format!("      {}. {}\n", i + 1, option.label));
+            }
+            if matches!(field.kind, Kind::Choices { .. }) {
+                "numbers, separated by commas".to_owned()
+            } else {
+                "a number".to_owned()
+            }
+        }
+    };
+    let optional = if field.required { "" } else { ", optional" };
+    let default = match &field.default {
+        Some(Value::String(text)) => format!(" [{text}]"),
+        Some(Value::Bool(yes)) => format!(" [{}]", if *yes { "y" } else { "n" }),
+        Some(Value::Array(items)) => format!(
+            " [{}]",
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Some(other) => format!(" [{other}]"),
+        None => String::new(),
+    };
+    text.push_str(&format!("  {} ({what}{optional}){default}: ", field.title));
+    text
+}
+
+/// What a line says for a field: `None` for nothing (empty).
+fn field_value(field: &Field, line: &str) -> Result<Option<Value>, String> {
+    let text = line.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let option = |pick: &str, options: &[clak_hub::elicitation::Choice]| {
+        let pick = pick.trim();
+        pick.parse::<usize>()
+            .ok()
+            .and_then(|n| options.get(n.wrapping_sub(1)))
+            .or_else(|| options.iter().find(|o| o.value == pick || o.label == pick))
+            .map(|o| o.value.clone())
+            .ok_or_else(|| format!("“{pick}” isn't one of the options."))
+    };
+    Ok(Some(match &field.kind {
+        Kind::Text { .. } => json!(line),
+        Kind::Number { .. } => match text.parse::<f64>() {
+            Ok(n) => json!(n),
+            Err(_) => return Err(format!("“{}” must be a number.", field.title)),
+        },
+        Kind::Boolean => match text.to_lowercase().as_str() {
+            "y" | "yes" => json!(true),
+            "n" | "no" => json!(false),
+            _ => return Err("y or n.".into()),
+        },
+        Kind::Choice { options } => json!(option(text, options)?),
+        Kind::Choices { options, .. } => {
+            let picks = text
+                .split(',')
+                .map(|pick| option(pick, options))
+                .collect::<Result<Vec<_>, _>>()?;
+            json!(picks)
+        }
+    }))
 }
 
 impl ConsentPrompt for ConsolePrompt {
@@ -193,6 +315,154 @@ impl ConsentPrompt for ConsolePrompt {
                     None => screen(&keys),
                 }
             }
+        })
+    }
+
+    fn elicit(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<Elicited, String>> {
+        let lines = self.lines.clone();
+        let screen = self.screen.clone();
+        let timeout = self.timeout;
+        let asked = Instant::now();
+        Box::pin(async move {
+            let mut lines = tokio::select! {
+                lines = lines.lock() => lines,
+                _ = cancel.cancelled() => return Ok(Elicited::Cancelled),
+            };
+            while lines.try_recv().is_ok() {}
+            let left = seconds(timeout.saturating_sub(asked.elapsed()));
+            screen(&format!(
+                "{}    {}\n    {left} s to answer.\n{}\n",
+                head(&request),
+                request.note,
+                request.question
+            ));
+            let mut shown = Shown {
+                screen: screen.clone(),
+                title: request.title.clone(),
+                asked,
+                timeout,
+                answered: false,
+            };
+            // A yes or a no; `None` when nobody can answer any more.
+            macro_rules! yes_or_no {
+                ($prompt:expr) => {
+                    loop {
+                        screen($prompt);
+                        match read(&mut lines, &cancel).await {
+                            Read::Line(line) => match line.trim().to_lowercase().as_str() {
+                                "y" | "yes" => break Some(true),
+                                "n" | "no" => break Some(false),
+                                _ => {}
+                            },
+                            Read::End => {
+                                shown.answered = true;
+                                screen("\n    No more input: no answer.\n");
+                                break None;
+                            }
+                            Read::Withdrawn => return Ok(Elicited::Cancelled),
+                        }
+                    }
+                };
+            }
+            let answer = match &request.asks {
+                Some(Asks::Page(page)) => {
+                    screen(&format!(
+                        "    Address: {}\n    Site: {}\n",
+                        page.url, page.host
+                    ));
+                    match yes_or_no!("Open it in your browser? [y/n] ") {
+                        None => Elicited::Cancelled,
+                        Some(false) => Elicited::Declined,
+                        Some(true) if !page.wait => Elicited::Accepted(Map::new()),
+                        Some(true) => {
+                            screen(
+                                "    Open the address above in your browser. When you're done there, press Enter; n cancels.\n",
+                            );
+                            loop {
+                                match read(&mut lines, &cancel).await {
+                                    Read::Line(line) => match line.trim().to_lowercase().as_str() {
+                                        "" | "y" | "yes" | "done" => {
+                                            break Elicited::Accepted(Map::new());
+                                        }
+                                        "n" | "no" => break Elicited::Declined,
+                                        _ => screen("    Enter when done, n to cancel. "),
+                                    },
+                                    Read::End => break Elicited::Cancelled,
+                                    Read::Withdrawn => {
+                                        shown.answered = true;
+                                        screen("\n    Done in the browser, or withdrawn.\n");
+                                        return Ok(Elicited::Cancelled);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Some(Asks::Form(form)) if !form.fields.is_empty() => {
+                    let mut content = Map::new();
+                    let mut ended = false;
+                    'fields: for field in &form.fields {
+                        loop {
+                            screen(&field_prompt(field));
+                            let line = match read(&mut lines, &cancel).await {
+                                Read::Line(line) => line,
+                                Read::End => {
+                                    ended = true;
+                                    break 'fields;
+                                }
+                                Read::Withdrawn => return Ok(Elicited::Cancelled),
+                            };
+                            match field_value(field, &line) {
+                                Ok(None) => {
+                                    if let Some(default) = &field.default {
+                                        content.insert(field.name.clone(), default.clone());
+                                    } else if field.required {
+                                        screen(&format!("    “{}” is required.\n", field.title));
+                                        continue;
+                                    }
+                                    break;
+                                }
+                                Ok(Some(value)) => match field.check(&value) {
+                                    Ok(value) => {
+                                        content.insert(field.name.clone(), value);
+                                        break;
+                                    }
+                                    Err(problem) => screen(&format!("    {problem}\n")),
+                                },
+                                Err(problem) => screen(&format!("    {problem}\n")),
+                            }
+                        }
+                    }
+                    if ended {
+                        shown.answered = true;
+                        screen("\n    No more input: no answer.\n");
+                        Elicited::Cancelled
+                    } else {
+                        match form.check(&content) {
+                            Err(problem) => {
+                                screen(&format!("    {problem}\n"));
+                                Elicited::Cancelled
+                            }
+                            Ok(content) => match yes_or_no!("Send? [y/n] ") {
+                                None => Elicited::Cancelled,
+                                Some(true) => Elicited::Accepted(content),
+                                Some(false) => Elicited::Declined,
+                            },
+                        }
+                    }
+                }
+                _ => match yes_or_no!("[y/n] ") {
+                    None => Elicited::Cancelled,
+                    Some(true) => Elicited::Accepted(Map::new()),
+                    Some(false) => Elicited::Declined,
+                },
+            };
+            shown.answered = true;
+            Ok(answer)
         })
     }
 }
@@ -292,6 +562,7 @@ mod tests {
 
     fn request(title: &str) -> ConsentRequest {
         ConsentRequest {
+            asks: None,
             id: title.into(),
             kind: ConsentKind::Use,
             title: title.into(),
@@ -307,6 +578,88 @@ mod tests {
     }
 
     const MINUTE: Duration = Duration::from_secs(60);
+
+    fn server_question(title: &str, asks: Asks) -> ConsentRequest {
+        ConsentRequest {
+            asks: Some(asks),
+            kind: ConsentKind::Confirm,
+            question: "The server asks.".into(),
+            note: "For this command only.".into(),
+            ..request(title)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_s_form_is_asked_one_field_at_a_time() {
+        let terminal = Terminal::new(MINUTE);
+        let form = clak_hub::Form::parse(Some(&json!({"properties": {
+            "name": {"type": "string", "title": "Name"},
+            "age": {"type": "integer", "minimum": 18},
+            "color": {"type": "string", "enum": ["red", "blue"], "default": "red"},
+            "news": {"type": "boolean"},
+        }, "required": ["name", "age"]})))
+        .unwrap();
+        let answer = tokio::spawn(terminal.prompt.elicit(
+            server_question("form", Asks::Form(form)),
+            CancellationToken::new(),
+        ));
+        terminal.shows("  Name (text): ", 1).await;
+        terminal.type_line("");
+        terminal.shows("“Name” is required.", 1).await;
+        terminal.type_line("Ada");
+        terminal.shows("  age (a whole number): ", 1).await;
+        terminal.type_line("17");
+        terminal.shows("must be at least 18", 1).await;
+        terminal.type_line("36");
+        terminal
+            .shows("      2. blue\n  color (a number, optional) [red]: ", 1)
+            .await;
+        terminal.type_line("2");
+        terminal.shows("  news (y or n, optional): ", 1).await;
+        terminal.type_line("");
+        terminal.shows("Send? [y/n] ", 1).await;
+        terminal.type_line("y");
+        assert_eq!(
+            answer.await.unwrap(),
+            Ok(Elicited::Accepted(
+                json!({"name": "Ada", "age": 36, "color": "blue"})
+                    .as_object()
+                    .unwrap()
+                    .clone()
+            ))
+        );
+        assert!(!terminal.text().contains("Withdrawn"));
+    }
+
+    #[tokio::test]
+    async fn a_server_s_page_is_shown_whole_and_waits_until_the_user_is_done() {
+        let terminal = Terminal::new(MINUTE);
+        let page = clak_hub::Page::parse("https://example.com/connect?id=1", true).unwrap();
+        let answer = tokio::spawn(terminal.prompt.elicit(
+            server_question("page", Asks::Page(page)),
+            CancellationToken::new(),
+        ));
+        terminal
+            .shows(
+                "    Address: https://example.com/connect?id=1\n    Site: example.com\n",
+                1,
+            )
+            .await;
+        terminal.type_line("y");
+        terminal.shows("press Enter", 1).await;
+        terminal.type_line("");
+        assert_eq!(answer.await.unwrap(), Ok(Elicited::Accepted(Map::new())));
+
+        // Declined: a no for the server.
+        let page = clak_hub::Page::parse("https://example.com/", false).unwrap();
+        let answer = tokio::spawn(terminal.prompt.elicit(
+            server_question("again", Asks::Page(page)),
+            CancellationToken::new(),
+        ));
+        terminal.shows("=== again", 1).await;
+        terminal.type_line("n");
+        assert_eq!(answer.await.unwrap(), Ok(Elicited::Declined));
+    }
 
     #[tokio::test]
     async fn a_line_typed_before_the_question_does_not_answer_it() {

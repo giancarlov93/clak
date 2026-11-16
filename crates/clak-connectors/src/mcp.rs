@@ -4,6 +4,7 @@
 use crate::mcp_http::{Elicit, McpError, McpHttp};
 use crate::mcp_stdio::McpStdio;
 use serde_json::{Map, Value};
+use tokio::sync::broadcast;
 
 // Always behind an `Arc`, one per connector: the size of the larger variant costs nothing.
 #[allow(clippy::large_enum_variant)]
@@ -37,6 +38,23 @@ impl McpClient {
             McpClient::Http(c) => c.call_tool(name, arguments, elicit).await,
             McpClient::Stdio(c) => c.call_tool(name, arguments, elicit).await,
         }
+    }
+
+    /// The server's notifications from now on.
+    pub fn notifications(&self) -> broadcast::Receiver<Map<String, Value>> {
+        match self {
+            McpClient::Http(c) => c.notifications(),
+            McpClient::Stdio(c) => c.notifications(),
+        }
+    }
+
+    /// Keeps open what brings the server's notifications outside a command: over HTTP its
+    /// own stream, while the server offers it; a program's output is always read. Never ends.
+    pub async fn listen(&self) {
+        if let McpClient::Http(c) = self {
+            let _ = c.listen().await;
+        }
+        std::future::pending().await
     }
 
     pub fn instructions(&self) -> Option<String> {

@@ -17,6 +17,7 @@ futures-util.workspace = true
 tokio-util = { version = "0.7", features = ["rt"] }
 indexmap = "2"
 regex.workspace = true
+url.workspace = true
 unicode-normalization.workspace = true
 unicode-general-category = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

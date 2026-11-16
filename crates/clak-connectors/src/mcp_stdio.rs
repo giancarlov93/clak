@@ -12,7 +12,9 @@
 //! `notifications/cancelled`.
 
 use crate::launch::{self, Launch};
-use crate::mcp_http::{Elicit, McpError, PROTOCOL_VERSION};
+use crate::mcp_http::{
+    Elicit, McpError, PROTOCOL_VERSION, capabilities, rpc_error, server_request,
+};
 use clak_wire::json::{self as wire, MAX_MESSAGE_BYTES};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -22,7 +24,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 /// How many stderr lines are kept, and how long.
@@ -43,7 +45,8 @@ struct State {
     ended: Option<String>,
     stderr: VecDeque<String>,
     pending: HashMap<i64, Answer>,
-    /// The confirmations of the running commands: a request from the server goes to the most recent.
+    /// The running commands that can ask the user. A request from the server says nothing of
+    /// the command it comes from: it goes to the most recent, and names the others.
     elicits: Vec<(i64, Elicit)>,
 }
 
@@ -51,6 +54,7 @@ struct Shared {
     state: Mutex<State>,
     list_changed: Notify,
     ended: CancellationToken,
+    notifications: broadcast::Sender<Map<String, Value>>,
 }
 
 impl Shared {
@@ -142,6 +146,7 @@ impl McpStdio {
             state: Mutex::new(State::default()),
             list_changed: Notify::new(),
             ended: CancellationToken::new(),
+            notifications: broadcast::channel(64).0,
         });
         let stop = CancellationToken::new();
         let (out, mut queue) = mpsc::unbounded_channel::<String>();
@@ -194,6 +199,11 @@ impl McpStdio {
         self.shared.lock().icon.clone()
     }
 
+    /// The server's notifications from now on (`notifications/elicitation/complete`, …).
+    pub fn notifications(&self) -> broadcast::Receiver<Map<String, Value>> {
+        self.shared.notifications.subscribe()
+    }
+
     /// Arrives when the server says its commands have changed.
     pub async fn changed(&self) {
         self.shared.list_changed.notified().await;
@@ -210,10 +220,7 @@ impl McpStdio {
     }
 
     pub async fn initialize(&self) -> Result<(), McpError> {
-        let mut capabilities = Map::new();
-        if self.can_elicit {
-            capabilities.insert("elicitation".into(), json!({}));
-        }
+        let capabilities = capabilities(self.can_elicit);
         let result = self
             .request(
                 "initialize",
@@ -378,16 +385,30 @@ async fn read_stdout<R: AsyncBufRead + Unpin>(
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
-                let elicit = shared.lock().elicits.last().map(|(_, e)| e.clone());
+                let (elicit, others) = {
+                    let state = shared.lock();
+                    let elicit = state.elicits.last().map(|(_, e)| e.clone());
+                    let others: Vec<String> = state
+                        .elicits
+                        .iter()
+                        .map(|(_, e)| e.call.clone())
+                        .filter(|call| elicit.as_ref().is_some_and(|e| e.call != *call))
+                        .collect();
+                    (elicit.filter(|_| can_elicit), others)
+                };
                 let out = out.clone();
-                // In a task: a confirmation waits for the user, and meanwhile the answers arrive.
+                // In a task: a question waits for the user, and meanwhile the answers arrive.
                 tokio::spawn(async move {
-                    let reply = reply(id, &method, parameters, elicit.filter(|_| can_elicit)).await;
+                    let reply =
+                        server_request(id, &method, parameters, elicit.as_ref(), others).await;
                     let _ = out.send(wire::text(&reply));
                 });
             }
-            (Some(method), None) if method == "notifications/tools/list_changed" => {
-                shared.list_changed.notify_one()
+            (Some(method), None) => {
+                if method == "notifications/tools/list_changed" {
+                    shared.list_changed.notify_one();
+                }
+                let _ = shared.notifications.send(message);
             }
             _ => {}
         }
@@ -405,16 +426,7 @@ fn answer(shared: &Shared, message: &Map<String, Value>, id: &Value) {
         return;
     };
     let result = match message.get("error") {
-        Some(Value::Object(error)) => Err(McpError::Rpc {
-            code: error
-                .get("code")
-                .and_then(Value::as_i64)
-                .and_then(|c| i32::try_from(c).ok())
-                .unwrap_or(0),
-            message: wire::str(error.get("message"))
-                .unwrap_or("server error")
-                .to_owned(),
-        }),
+        Some(Value::Object(error)) => Err(rpc_error(error)),
         _ => Ok(message
             .get("result")
             .and_then(Value::as_object)
@@ -422,30 +434,6 @@ fn answer(shared: &Shared, message: &Map<String, Value>, id: &Value) {
             .unwrap_or_default()),
     };
     let _ = answer.send(result);
-}
-
-/// The answer to a request from the server: `ping`, and the confirmation
-/// (`elicitation/create`) if there is a running command that can ask the user for it.
-async fn reply(
-    id: Value,
-    method: &str,
-    parameters: Map<String, Value>,
-    elicit: Option<Elicit>,
-) -> Value {
-    match (method, elicit) {
-        ("ping", _) => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
-        ("elicitation/create", Some(elicit)) => {
-            json!({ "jsonrpc": "2.0", "id": id, "result": Value::Object(elicit(parameters).await) })
-        }
-        ("elicitation/create", None) => {
-            json!({ "jsonrpc": "2.0", "id": id, "result": { "action": "cancel" } })
-        }
-        _ => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": -32601, "message": format!("the client doesn't support '{method}'") },
-        }),
-    }
 }
 
 /// A line, without its newline; `false` at the end. Never longer than a message.
