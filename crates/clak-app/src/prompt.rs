@@ -7,6 +7,10 @@
 //! of them is the default. Closing it is a no. Several questions at once stack up, and each
 //! says which it is of how many ("1 of 3").
 //!
+//! A question is built out of sight and appears once its page has taken its measure: before,
+//! the window would show its empty frame (white, on Windows, while its WebView2 starts), then
+//! move and change height under the user's eyes.
+//!
 //! A command's question says how far a yes goes: this call, the command for the agent's
 //! session, or approved in Clak; the questions about a program can also block it for the
 //! agent. The yes to use a program can come with "Always allow" ticked, when the question
@@ -17,14 +21,19 @@ use clak_hub::{Choices, ConsentPrompt, ConsentRequest, Reply};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder,
 };
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 const WIDTH: f64 = 500.0;
 const GAP: f64 = 12.0;
+/// The height a question has until its page says how tall it is.
+const HEIGHT: f64 = 420.0;
+/// If the page never says its height, the question appears anyway after this.
+const FALLBACK: Duration = Duration::from_millis(1500);
 
 struct Open {
     request: Value,
@@ -33,6 +42,8 @@ struct Open {
     expires: f64,
     answer: Option<oneshot::Sender<Reply>>,
     height: f64,
+    /// On screen: until then it has no place in the stack.
+    shown: bool,
 }
 
 #[derive(Default)]
@@ -103,12 +114,50 @@ impl WindowPrompt {
         self.close(id);
     }
 
-    /// The page says how tall it is: the window adapts and the stack is rebuilt.
+    /// The page says how tall it is: the window adapts and the stack is rebuilt. The first
+    /// time, the question appears.
     pub fn resize(&self, id: &str, height: f64) {
-        if let Some(open) = self.questions().open.get_mut(id) {
-            open.height = height.clamp(160.0, 900.0);
+        let shown = {
+            let mut questions = self.questions();
+            let Some(open) = questions.open.get_mut(id) else {
+                return;
+            };
+            let height = height.clamp(160.0, 900.0);
+            // Each move of a window with a backdrop costs a frame: only when something changed.
+            if open.shown && (open.height - height).abs() < 0.5 {
+                return;
+            }
+            open.height = height;
+            open.shown
+        };
+        if shown {
+            self.stack();
+        } else {
+            self.reveal(id);
+        }
+    }
+
+    /// The question appears, once: when its page has taken its measure, or after the fallback.
+    /// The page hears it, and its buttons count from then.
+    fn reveal(&self, id: &str) {
+        {
+            let mut questions = self.questions();
+            match questions.open.get_mut(id) {
+                Some(open) if !open.shown => open.shown = true,
+                _ => return,
+            }
         }
         self.stack();
+        let Some(window) = self.app.get_webview_window(&label(id)) else {
+            return;
+        };
+        crate::look::appear(&window);
+        let _ = window.emit_to(label(id), "consent-shown", id);
+        if (self.sound)() {
+            let _ = self
+                .app
+                .run_on_main_thread(|| crate::look::play(crate::look::Sound::Consent));
+        }
     }
 
     fn close(&self, id: &str) {
@@ -145,7 +194,7 @@ impl WindowPrompt {
     }
 
     /// From the corner near the tray, one above (or below) the other; each told where it is
-    /// in the line.
+    /// in the line. Only those on screen take a place.
     fn stack(&self) {
         {
             let questions = self.questions();
@@ -160,11 +209,9 @@ impl WindowPrompt {
             questions
                 .order
                 .iter()
-                .map(|id| {
-                    (
-                        id.clone(),
-                        questions.open.get(id).map_or(420.0, |o| o.height),
-                    )
+                .filter_map(|id| {
+                    let open = questions.open.get(id).filter(|o| o.shown)?;
+                    Some((id.clone(), open.height))
                 })
                 .unzip()
         };
@@ -196,9 +243,11 @@ impl WindowPrompt {
             let Some(window) = self.app.get_webview_window(&label(id)) else {
                 continue;
             };
-            // Never taller than the screen: the page scrolls, its buttons stay in sight.
-            let height = (height * scale).min((bottom - top) - 2.0 * gap);
-            let _ = window.set_size(PhysicalSize::new(width as u32, height as u32));
+            // Never taller than the screen: the page scrolls, its buttons stay in sight. Whole
+            // pixels, rounded up: a fraction short, the page would scroll. Logical: a window
+            // that arrives from a screen of another scale keeps its size in points.
+            let height = (height * scale).ceil().min((bottom - top) - 2.0 * gap);
+            let _ = window.set_size(LogicalSize::new(WIDTH, height / scale));
             let y = if cfg!(target_os = "macos") {
                 let y = edge;
                 edge += height + gap;
@@ -225,22 +274,23 @@ impl WindowPrompt {
         let url = WebviewUrl::App(format!("consent.html?id={id}").into());
         let builder = WebviewWindowBuilder::new(&self.app, label(id), url)
             .title(title)
-            .inner_size(WIDTH, 420.0)
+            .inner_size(WIDTH, HEIGHT)
             .resizable(false)
             .maximizable(false)
             .minimizable(false)
             .always_on_top(true)
             .skip_taskbar(false)
-            .focused(false)
-            .visible(true);
-        let builder = crate::look::transient(builder);
+            .focused(false);
+        let builder = crate::look::unseen(crate::look::transient(builder), &self.app);
         builder.build().map_err(|e| e.to_string())?;
+        // The other questions learn how many there are now.
         self.stack();
-        if (self.sound)() {
-            let _ = self
-                .app
-                .run_on_main_thread(|| crate::look::play(crate::look::Sound::Consent));
-        }
+        let this = self.clone();
+        let id = id.to_owned();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(FALLBACK).await;
+            this.reveal(&id);
+        });
         Ok(())
     }
 }
@@ -275,7 +325,8 @@ impl ConsentPrompt for WindowPrompt {
                         choices: request.choices.clone(),
                         expires: clak_wire::json::now() + this.timeout.as_secs_f64(),
                         answer: Some(sender),
-                        height: 420.0,
+                        height: HEIGHT,
+                        shown: false,
                     },
                 );
                 questions.order.push(id.clone());
