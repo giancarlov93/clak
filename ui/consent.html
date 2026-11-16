@@ -10,35 +10,39 @@
 <body>
   <div class="titlebar" data-tauri-drag-region></div>
   <main id="content">
-    <header>
-      <span id="icon" class="icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 2.5 4 5.5v6c0 4.8 3.4 8.9 8 10 4.6-1.1 8-5.2 8-10v-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </span>
-      <div>
-        <h1 id="heading"></h1>
-        <p id="question"></p>
+    <div id="sheet">
+      <header>
+        <span id="icon" class="icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 2.5 4 5.5v6c0 4.8 3.4 8.9 8 10 4.6-1.1 8-5.2 8-10v-6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m8.5 12 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <div>
+          <h1 id="heading"></h1>
+          <p id="question"></p>
+        </div>
+      </header>
+      <div id="warning" class="warning hidden"></div>
+      <div id="summary" class="card summary"></div>
+      <div id="tools-block">
+        <h2 id="tools-heading">Commands</h2>
+        <div id="tools"></div>
       </div>
-    </header>
-    <div id="warning" class="warning hidden"></div>
-    <div id="summary" class="card summary"></div>
-    <div id="tools-block">
-      <h2 id="tools-heading">Commands</h2>
-      <div id="tools"></div>
+      <div id="arguments-block" class="hidden">
+        <h2>Arguments <span class="count">sent by the agent</span></h2>
+        <dl id="arguments" class="card lines arguments"></dl>
+      </div>
+      <details id="details">
+        <summary>Details</summary>
+        <div class="details-body">
+          <dl id="who" class="lines"></dl>
+          <dl id="what" class="lines"></dl>
+        </div>
+      </details>
+      <fieldset id="scope" class="scope hidden">
+        <legend>Allow</legend>
+      </fieldset>
+      <label id="always-row" class="always hidden"><input id="always" type="checkbox"><span id="always-text"></span></label>
+      <p id="note" class="quiet"></p>
     </div>
-    <div id="arguments-block" class="hidden">
-      <h2>Arguments <span class="count">sent by the agent</span></h2>
-      <dl id="arguments" class="card lines arguments"></dl>
-    </div>
-    <details id="details">
-      <summary>Details</summary>
-      <dl id="who" class="lines"></dl>
-      <dl id="what" class="lines"></dl>
-    </details>
-    <fieldset id="scope" class="scope hidden">
-      <legend>Allow</legend>
-    </fieldset>
-    <label id="always-row" class="always hidden"><input id="always" type="checkbox"><span id="always-text"></span></label>
-    <p id="note" class="quiet"></p>
   </main>
   <footer>
     <div class="left">

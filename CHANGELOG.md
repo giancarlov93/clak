@@ -227,6 +227,14 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   typed before (for a question that had gone, or for none) no longer answers the next one,
   unseen. A question that goes away unanswered says so, withdrawn or expired, and each one
   says how many seconds are left to answer.
+- The questions are as tall as what they say: they no longer grew at every redraw up to
+  the height of the screen, and they shrink again when Details closes. Many commands as
+  names, a long change and Details scroll in a box of their own, as the commands in full
+  and the arguments already did. They appear only
+  once their page is ready, already in their place and at their height, without a white
+  (on the Mac, empty) frame first; their buttons count from when they appear. On Windows
+  every window starts transparent over its material, or with the color it will draw,
+  instead of white.
 - On Windows the icon's box opens at once, as on the Mac: closed, it is now cloaked rather
   than hidden, so it doesn't come back through a redrawn frame, its backdrop applied again
   and its page starting to draw from a stop; and opened in the same place it isn't moved.

@@ -2,6 +2,10 @@
 //! chosen in the system's settings. The pages are transparent and let the material show through;
 //! where there is no material (Windows 10) the window is opaque and the page draws a solid
 //! background.
+//!
+//! On Windows a WebView2 starts white, and is told its background only once it runs: each
+//! window gives it at its start, transparent over the material, or the solid color the
+//! page will draw.
 
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{Runtime, WebviewWindowBuilder};
@@ -142,9 +146,13 @@ fn with<'a, R: Runtime, M: tauri::Manager<R>>(
         None => builder,
     };
     if !material() {
+        #[cfg(windows)]
+        let builder = builder.background_color(solid());
         return builder.initialization_script(on_root(SOLID));
     }
     let builder = builder.transparent(true);
+    #[cfg(windows)]
+    let builder = builder.background_color(tauri::window::Color(0, 0, 0, 0));
     if cfg!(target_os = "macos") {
         // The box has no frame of its own: the glass gets the popovers' rounded corners.
         let effects = EffectsBuilder::new().effect(mac).state(state);
@@ -157,6 +165,72 @@ fn with<'a, R: Runtime, M: tauri::Manager<R>>(
     } else {
         builder.effects(EffectsBuilder::new().effect(windows).build())
     }
+}
+
+/// The page's `--solid`, in the light or dark the system's apps use.
+#[cfg(windows)]
+fn solid() -> tauri::window::Color {
+    let light = clak_setup::registry::open(
+        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        false,
+    )
+    .and_then(|key| key.raw(Some("AppsUseLightTheme")))
+    .and_then(|(_, data)| data.first_chunk::<4>().map(|b| u32::from_le_bytes(*b)))
+    .is_none_or(|value| value != 0);
+    if light {
+        tauri::window::Color(0xf3, 0xf3, 0xf3, 0xff)
+    } else {
+        tauri::window::Color(0x20, 0x20, 0x20, 0xff)
+    }
+}
+
+/// A window that appears without taking the focus, built out of sight until its page is
+/// ready ([`appear`]). On the Mac hidden. On Windows a hidden window comes back only by being
+/// activated: it is built shown, below every screen, and appears when put in its place.
+pub fn unseen<'a, R: Runtime, M: tauri::Manager<R>>(
+    builder: WebviewWindowBuilder<'a, R, M>,
+    app: &tauri::AppHandle<R>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    #[cfg(windows)]
+    {
+        let below = app
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(|m| m.position().y + m.size().height as i32)
+            .max()
+            .unwrap_or(0);
+        builder
+            .visible(true)
+            .position(0.0, f64::from(below) + 4000.0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        builder.visible(false)
+    }
+}
+
+/// A window built [`unseen`], already in its place, comes into sight without taking the focus.
+pub fn appear<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    #[cfg(target_os = "macos")]
+    {
+        let shown = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            let Ok(ns) = shown.ns_window() else {
+                return;
+            };
+            // SAFETY: the window's own NSWindow, used on the main thread.
+            let ns = unsafe { &*ns.cast::<objc2_app_kit::NSWindow>() };
+            // As a window built shown but not focused: in front, and not key.
+            ns.orderFront(None);
+        });
+    }
+    // On Windows it is shown already: in its place, it is in sight.
+    #[cfg(windows)]
+    let _ = window;
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let _ = window.show();
 }
 
 /// The normal windows: the panel and the dialogs.

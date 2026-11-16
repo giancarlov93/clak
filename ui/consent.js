@@ -226,10 +226,25 @@
   $("deny").addEventListener("click", () => answer(false));
   $("block").addEventListener("click", () => answer(false, true));
 
-  // The window takes the height of the content.
+  // The window appears once the page has taken its measure: the buttons count from then.
+  await Clak.listen("consent-shown", (shownId) => {
+    if (shownId === id) shown = Date.now();
+  });
+
   // As tall as the content wants: the window is capped to the screen, and the content scrolls.
-  const fit = () => invoke("consent_resize", { id, height: Math.ceil($("content").scrollHeight + document.querySelector("footer").offsetHeight) + (Clak.mac ? 28 : 40) });
-  new ResizeObserver(fit).observe(document.body);
+  // Measured on the sheet, not on the box that scrolls it: that box takes the window's
+  // height, so the window could only grow. Around it, what the window has besides (the
+  // buttons, the borders) is what isn't the box.
+  const main = $("content");
+  const sheet = $("sheet");
+  const fit = () => {
+    const box = getComputedStyle(main);
+    const content = sheet.getBoundingClientRect().height + parseFloat(box.paddingTop) + parseFloat(box.paddingBottom);
+    invoke("consent_resize", { id, height: Math.ceil(innerHeight - main.clientHeight + content) });
+  };
+  const resized = new ResizeObserver(fit);
+  resized.observe(sheet);
+  resized.observe(document.querySelector("footer"));
   fit();
 
   const arming = kind === "call" ? CALL_ARMING_MS : ARMING_MS;
