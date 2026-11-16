@@ -6,8 +6,8 @@
 
 use clak_connectors::{ConnectorHub, ConnectorStore, OpenBrowser};
 use clak_hub::{
-    AgentIdentity, ConnectorTiming, ConsentKind, ConsentPrompt, ConsentRequest, Hub, HubOptions,
-    Platform, Reply, Scope,
+    AgentIdentity, ConnectorTiming, ConsentKind, ConsentPrompt, ConsentRequest, Elicited, Hub,
+    HubOptions, Platform, Reply, Scope,
 };
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
@@ -27,16 +27,54 @@ const ALL: Reply = Reply::Allow {
 
 pub struct Question {
     pub request: ConsentRequest,
-    answer: Option<oneshot::Sender<Reply>>,
+    /// Cancelled when the hub withdraws the question.
+    pub cancel: CancellationToken,
+    answer: Option<Answer>,
+}
+
+enum Answer {
+    Reply(oneshot::Sender<Reply>),
+    Elicited(oneshot::Sender<Elicited>),
 }
 
 impl Question {
+    /// Yes; to a server's question, "confirm", "open" or "continue".
     pub fn allow(mut self) {
-        let _ = self.answer.take().unwrap().send(ALL);
+        match self.answer.take().unwrap() {
+            Answer::Reply(answer) => drop(answer.send(ALL)),
+            Answer::Elicited(answer) => drop(answer.send(Elicited::Accepted(Map::new()))),
+        }
     }
 
+    /// No; to a server's question, "decline".
     pub fn deny(mut self) {
-        let _ = self.answer.take().unwrap().send(Reply::Deny);
+        match self.answer.take().unwrap() {
+            Answer::Reply(answer) => drop(answer.send(Reply::Deny)),
+            Answer::Elicited(answer) => drop(answer.send(Elicited::Declined)),
+        }
+    }
+
+    /// The form, filled in.
+    pub fn send(mut self, content: Value) {
+        let Some(Answer::Elicited(answer)) = self.answer.take() else {
+            panic!("not a server's question");
+        };
+        let _ = answer.send(Elicited::Accepted(content.as_object().unwrap().clone()));
+    }
+
+    /// Closed without choosing.
+    pub fn close(mut self) {
+        let Some(Answer::Elicited(answer)) = self.answer.take() else {
+            panic!("not a server's question");
+        };
+        let _ = answer.send(Elicited::Cancelled);
+    }
+
+    /// Until the hub withdraws it.
+    pub async fn withdrawn(&self) {
+        tokio::time::timeout(Duration::from_secs(10), self.cancel.cancelled())
+            .await
+            .expect("the question was never withdrawn");
     }
 }
 
@@ -105,12 +143,36 @@ impl ConsentPrompt for FakePrompt {
         let (answer, receiver) = oneshot::channel();
         let _ = self.sender.send(Question {
             request,
-            answer: Some(answer),
+            cancel: cancel.clone(),
+            answer: Some(Answer::Reply(answer)),
         });
         Box::pin(async move {
             tokio::select! {
                 answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
                 _ = cancel.cancelled() => Ok(Reply::Deny),
+            }
+        })
+    }
+
+    fn elicit(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> clak_hub::consent::BoxFuture<Result<Elicited, String>> {
+        self.count.fetch_add(1, Ordering::SeqCst);
+        if self.allow_all.load(Ordering::SeqCst) {
+            return Box::pin(async { Ok(Elicited::Accepted(Map::new())) });
+        }
+        let (answer, receiver) = oneshot::channel();
+        let _ = self.sender.send(Question {
+            request,
+            cancel: cancel.clone(),
+            answer: Some(Answer::Elicited(answer)),
+        });
+        Box::pin(async move {
+            tokio::select! {
+                answer = receiver => Ok(answer.unwrap_or(Elicited::Cancelled)),
+                _ = cancel.cancelled() => Ok(Elicited::Cancelled),
             }
         })
     }

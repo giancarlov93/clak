@@ -101,6 +101,36 @@ pub fn consent_answer(
     bridge::of(&app).prompt().answer(&id, reply);
 }
 
+/// The answer to a server's question (a form, a page): `accept` with the form's content,
+/// `decline` or `cancel`. Only from that question's window; a form that doesn't fit comes
+/// back as an error, for the user.
+#[tauri::command]
+pub fn consent_fill(
+    app: AppHandle,
+    window: WebviewWindow,
+    id: String,
+    action: String,
+    content: Option<Map<String, Value>>,
+) -> Result<(), String> {
+    if window.label() != crate::prompt::label(&id) {
+        return Ok(());
+    }
+    bridge::of(&app)
+        .prompt()
+        .fill(&id, &action, content.unwrap_or_default())
+}
+
+/// Opens the page a server's question asks for, in the system's browser: the address is the
+/// question's, never one from the page. True if the command now waits for the user to
+/// finish there.
+#[tauri::command]
+pub fn consent_open(app: AppHandle, window: WebviewWindow, id: String) -> Result<bool, String> {
+    if window.label() != crate::prompt::label(&id) {
+        return Err("Not this question's window.".into());
+    }
+    bridge::of(&app).prompt().open_page(&id)
+}
+
 #[tauri::command]
 pub fn consent_resize(app: AppHandle, window: WebviewWindow, id: String, height: f64) {
     if window.label() == crate::prompt::label(&id) {

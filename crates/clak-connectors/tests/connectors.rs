@@ -5,11 +5,11 @@
 mod fake;
 
 use clak_connectors::{
-    AccessToken, ConnectorEntry, ConnectorStore, Elicit, McpError, McpHttp, StaticToken, fill,
+    AccessToken, ConnectorEntry, ConnectorStore, Elicit, McpError, McpHttp, StaticToken,
     new_http_client, probe,
 };
 use clak_hub::cli_names;
-use fake::FakeMcp;
+use fake::{Answer, FakeMcp};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -189,7 +189,7 @@ async fn a_command_the_server_does_not_know_is_an_rpc_error() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&error, McpError::Rpc { code: -32602, message } if message == "unknown tool: nonexistent"),
+        matches!(&error, McpError::Rpc { code: -32602, message, .. } if message == "unknown tool: nonexistent"),
         "{error:?}"
     );
 }
@@ -216,44 +216,57 @@ fn empty_trash(server: &FakeMcp) {
     server.add(
         "empty_trash",
         "Empties the trash.",
-        Arc::new(|_, ask| {
+        Arc::new(|_, peer| {
             Box::pin(async move {
                 let schema = json!({"type":"object","properties":{"confirm":{"type":"boolean"},"mode":{"type":"string","enum":["all"]},"note":{"type":"string"}}});
-                let answer = ask("Empty the trash? It holds 12 files.".into(), schema).await;
-                format!(
+                let answer = peer.form("Empty the trash? It holds 12 files.", schema).await;
+                Answer::Text(format!(
                     "{} {}",
                     answer.get("action").and_then(Value::as_str).unwrap_or(""),
                     answer.get("content").map(Value::to_string).unwrap_or_default()
-                )
+                ))
             })
         }),
         None,
     );
 }
 
+/// An answer to the server's questions that always says the same.
+fn answering(answer: Value) -> Elicit {
+    Elicit::new("call", move |_, _| {
+        let answer = args(answer.clone());
+        Box::pin(async move { Ok(answer) })
+    })
+}
+
 #[tokio::test]
-async fn a_confirmation_asked_by_the_server_reaches_the_client_command_by_command() {
+async fn a_question_asked_by_the_server_reaches_the_client_command_by_command() {
     let server = FakeMcp::start().await;
     tools(&server);
     empty_trash(&server);
     let mcp = client(&server, None, true);
     mcp.initialize().await.unwrap();
-    assert!(
-        server
-            .with(|s| s.client_capabilities.clone())
-            .unwrap()
-            .get("elicitation")
-            .is_some()
+    // Both modes: forms and pages.
+    assert_eq!(
+        server.with(|s| s.client_capabilities.clone()).unwrap()["elicitation"],
+        json!({ "form": {}, "url": {} })
     );
 
     let asked: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
     let seen = asked.clone();
-    let yes: Elicit = Arc::new(move |parameters| {
+    let yes = Elicit::new("call", move |parameters, others| {
+        assert!(
+            others.is_empty(),
+            "over HTTP the question is the command's own"
+        );
         seen.lock()
             .unwrap()
             .push(parameters["message"].as_str().unwrap().to_owned());
-        let content = fill(parameters.get("requestedSchema").and_then(Value::as_object));
-        Box::pin(async move { args(json!({"action": "accept", "content": content})) })
+        Box::pin(async {
+            Ok(args(
+                json!({"action": "accept", "content": {"confirm": true, "mode": "all"}}),
+            ))
+        })
     });
     let answer = mcp
         .call_tool("empty_trash", &Map::new(), Some(&yes))
@@ -266,7 +279,7 @@ async fn a_confirmation_asked_by_the_server_reaches_the_client_command_by_comman
     );
 
     // The answer isn't remembered: the next time it's asked again, and a no is a no.
-    let no: Elicit = Arc::new(|_| Box::pin(async { args(json!({"action": "decline"})) }));
+    let no = answering(json!({"action": "decline"}));
     assert_eq!(
         content(
             &mcp.call_tool("empty_trash", &Map::new(), Some(&no))
@@ -276,10 +289,23 @@ async fn a_confirmation_asked_by_the_server_reaches_the_client_command_by_comman
         "decline "
     );
 
-    // With nobody to answer, the client tells the server it can't do it.
+    // With nobody to answer, nobody chose.
     assert_eq!(
         content(
             &mcp.call_tool("empty_trash", &Map::new(), None)
+                .await
+                .unwrap()
+        ),
+        "cancel "
+    );
+
+    // A question the client can't show is an error for the server.
+    let refuses = Elicit::new("call", |_, _| {
+        Box::pin(async { Err(McpError::rpc(-32602, "can't show it")) })
+    });
+    assert_eq!(
+        content(
+            &mcp.call_tool("empty_trash", &Map::new(), Some(&refuses))
                 .await
                 .unwrap()
         ),
@@ -288,12 +314,135 @@ async fn a_confirmation_asked_by_the_server_reaches_the_client_command_by_comman
 }
 
 #[tokio::test]
-async fn without_an_interface_the_client_does_not_promise_confirmations() {
+async fn without_an_interface_the_client_does_not_promise_questions() {
     let server = FakeMcp::start().await;
     tools(&server);
     client(&server, None, false).initialize().await.unwrap();
     let capabilities = server.with(|s| s.client_capabilities.clone()).unwrap();
     assert!(capabilities.get("elicitation").is_none());
+}
+
+#[tokio::test]
+async fn the_client_speaks_the_2025_11_25_protocol() {
+    let server = FakeMcp::start().await;
+    tools(&server);
+    let mcp = client(&server, None, false);
+    mcp.initialize().await.unwrap();
+    mcp.call_tool("time", &Map::new(), None).await.unwrap();
+    let (asked, headers) = server.with(|s| (s.client_protocol.clone(), s.protocol_headers.clone()));
+    assert_eq!(asked.as_deref(), Some("2025-11-25"));
+    assert!(
+        !headers.is_empty() && headers.iter().all(|h| h == "2025-11-25"),
+        "{headers:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_stream_closed_before_the_answer_is_resumed_after_its_last_event() {
+    let server = FakeMcp::start().await;
+    tools(&server);
+    empty_trash(&server);
+    server.with(|s| s.close_early = true);
+    let mcp = client(&server, None, true);
+    mcp.initialize().await.unwrap();
+    let answer = mcp
+        .call_tool("echo", &args(json!({"text": "x"})), None)
+        .await
+        .unwrap();
+    assert_eq!(content(&answer), "echo: x");
+    assert_eq!(server.with(|s| s.resumed.clone()), ["s1:0"]);
+
+    // The server's question arrives on the resumed stream, and its answer goes back.
+    let yes = answering(json!({"action": "accept", "content": {"confirm": true}}));
+    let answer = mcp
+        .call_tool("empty_trash", &Map::new(), Some(&yes))
+        .await
+        .unwrap();
+    assert_eq!(content(&answer), r#"accept {"confirm":true}"#);
+    assert_eq!(server.with(|s| s.resumed.clone()), ["s1:0", "s2:0"]);
+}
+
+#[tokio::test]
+async fn an_error_from_the_server_keeps_its_data() {
+    let server = FakeMcp::start().await;
+    let data = json!({"elicitations": [{"mode": "url", "elicitationId": "el-1", "url": "https://example.com/connect", "message": "Sign in"}]});
+    let carried = data.clone();
+    server.add(
+        "files",
+        "Lists the files.",
+        Arc::new(move |_, _| {
+            let data = carried.clone();
+            Box::pin(async move {
+                Answer::Error(
+                    -32042,
+                    "This request requires more information.".into(),
+                    data,
+                )
+            })
+        }),
+        None,
+    );
+    let mcp = client(&server, None, true);
+    mcp.initialize().await.unwrap();
+    let error = mcp.call_tool("files", &Map::new(), None).await.unwrap_err();
+    assert!(
+        matches!(&error, McpError::Rpc { code: -32042, data: Some(d), .. } if *d == data),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_server_s_notifications_arrive_from_the_command_s_stream_and_from_its_own() {
+    let server = FakeMcp::start().await;
+    server.with(|s| s.listen = true);
+    server.add(
+        "progress",
+        "Says how far it got.",
+        Arc::new(|_, peer| {
+            Box::pin(async move {
+                peer.notify(
+                    "notifications/message",
+                    json!({"level": "info", "data": "half"}),
+                );
+                Answer::Text("done".into())
+            })
+        }),
+        None,
+    );
+    let mcp = Arc::new(client(&server, None, true));
+    mcp.initialize().await.unwrap();
+    let mut notes = mcp.notifications();
+    assert_eq!(
+        content(&mcp.call_tool("progress", &Map::new(), None).await.unwrap()),
+        "done"
+    );
+    assert_eq!(
+        notes.recv().await.unwrap()["method"],
+        "notifications/message"
+    );
+
+    let listening = tokio::spawn({
+        let mcp = mcp.clone();
+        async move { mcp.listen().await }
+    });
+    server.listening().await;
+    assert!(server.notify_outside(
+        "notifications/elicitation/complete",
+        json!({"elicitationId": "el-1"})
+    ));
+    let note = tokio::time::timeout(std::time::Duration::from_secs(5), notes.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(note["params"]["elicitationId"], "el-1");
+    listening.abort();
+
+    // A server without a stream of its own: listening ends at once.
+    server.with(|s| s.listen = false);
+    tokio::time::timeout(std::time::Duration::from_secs(5), mcp.listen())
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 #[tokio::test]

@@ -19,6 +19,10 @@
 //! - the pages run only their own script (Content-Security-Policy) and can't be framed;
 //!   what programs and agents say about themselves is shown as text, never as markup;
 //! - Allow and Deny are enabled a moment after a question appears, as in the app's windows.
+//!
+//! An MCP server's question halfway through a command is answered here too: its form, checked
+//! against it before it goes; its page, a link that opens in a tab of its own, and for a
+//! command that waits for it, "Continue" once the user is done there.
 
 use crate::password;
 use axum::Router;
@@ -27,7 +31,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use clak_hub::consent::BoxFuture;
-use clak_hub::{Broker, Choices, ConsentPrompt, ConsentRequest, Outbox, Reply, Scope};
+use clak_hub::{
+    Asks, Broker, Choices, ConsentPrompt, ConsentRequest, Elicited, Outbox, Reply, Scope,
+};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -49,6 +55,8 @@ const COOKIE: &str = "clak_session";
 const INDEX: &str = include_str!("../web/index.html");
 const SCRIPT: &str = include_str!("../web/app.js");
 const STYLE: &str = include_str!("../web/app.css");
+/// The app's own drawing of a server's form and page.
+const FORM: &str = include_str!("../../../ui/form.js");
 
 fn now() -> f64 {
     SystemTime::now()
@@ -72,7 +80,26 @@ struct Questions {
 struct Open {
     request: ConsentRequest,
     asked: f64,
-    answer: Option<oneshot::Sender<Reply>>,
+    answer: Option<Answer>,
+    /// A server's page, opened: the command waits for the user to finish there.
+    opened: bool,
+}
+
+/// Where the answer goes: a permission's reply, or a server question's.
+enum Answer {
+    Reply(oneshot::Sender<Reply>),
+    Elicited(oneshot::Sender<Elicited>),
+}
+
+/// What became of an answer to a server's question.
+#[derive(Debug, PartialEq)]
+pub enum Filled {
+    /// The question is no longer open.
+    Gone,
+    /// Answered.
+    Done,
+    /// The page is open: the command waits for "Continue".
+    Waiting,
 }
 
 /// Takes a question off the page when the hub no longer waits for it, however that goes.
@@ -107,6 +134,7 @@ impl WebPrompt {
             .map(|q| {
                 let mut item = q.request.to_json();
                 item["asked"] = json!(q.asked);
+                item["opened"] = json!(q.opened);
                 item["expires"] = json!(q.asked + self.0.timeout.as_secs_f64());
                 item
             })
@@ -123,19 +151,58 @@ impl WebPrompt {
                 return false;
             };
             let reply = Choices::allowed(question.request.choices.as_ref(), reply);
-            question.answer.take().map(|sender| (sender, reply))
+            match question.answer.take() {
+                Some(Answer::Reply(sender)) => Some((sender, reply)),
+                // A server's question has its own answers.
+                other => {
+                    question.answer = other;
+                    None
+                }
+            }
         };
         sender.is_some_and(|(sender, reply)| sender.send(reply).is_ok())
     }
-}
 
-impl ConsentPrompt for WebPrompt {
-    fn ask(
+    /// The answer to a server's question: `accept` with the form's content (checked against
+    /// it: the error is for the user), `open` for its page, `decline`, `cancel`. For a page,
+    /// `accept` is "Continue", once it was opened.
+    pub fn fill(
         &self,
-        request: ConsentRequest,
-        cancel: CancellationToken,
-    ) -> BoxFuture<Result<Reply, String>> {
-        let (sender, receiver) = oneshot::channel();
+        id: &str,
+        action: &str,
+        content: &Map<String, Value>,
+    ) -> Result<Filled, String> {
+        let mut open = self.0.open.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(question) = open.iter_mut().find(|q| q.request.id == id) else {
+            return Ok(Filled::Gone);
+        };
+        if !matches!(question.answer, Some(Answer::Elicited(_))) {
+            return Err("This question isn't a server's.".into());
+        }
+        let answer = match (action, &question.request.asks) {
+            ("open", Some(Asks::Page(page))) if page.wait => {
+                question.opened = true;
+                return Ok(Filled::Waiting);
+            }
+            ("open", Some(Asks::Page(_))) => Elicited::Accepted(Map::new()),
+            ("open", _) => return Err("This question has no page.".into()),
+            ("accept", Some(Asks::Form(form))) => Elicited::Accepted(form.check(content)?),
+            ("accept", Some(Asks::Page(_))) if question.opened => Elicited::Accepted(Map::new()),
+            ("accept", _) => return Err("Open the page first.".into()),
+            ("decline", _) => Elicited::Declined,
+            _ => Elicited::Cancelled,
+        };
+        let Some(Answer::Elicited(sender)) = question.answer.take() else {
+            return Ok(Filled::Gone);
+        };
+        Ok(if sender.send(answer).is_ok() {
+            Filled::Done
+        } else {
+            Filled::Gone
+        })
+    }
+
+    fn push(&self, request: ConsentRequest, answer: Answer) -> Asked {
         let gone = Asked {
             questions: self.0.clone(),
             id: request.id.clone(),
@@ -147,8 +214,21 @@ impl ConsentPrompt for WebPrompt {
             .push(Open {
                 request,
                 asked: now(),
-                answer: Some(sender),
+                answer: Some(answer),
+                opened: false,
             });
+        gone
+    }
+}
+
+impl ConsentPrompt for WebPrompt {
+    fn ask(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<Reply, String>> {
+        let (sender, receiver) = oneshot::channel();
+        let gone = self.push(request, Answer::Reply(sender));
         // The guard goes with the future: dropped unanswered, even before it runs, the
         // question leaves the page.
         Box::pin(async move {
@@ -156,6 +236,22 @@ impl ConsentPrompt for WebPrompt {
             tokio::select! {
                 answer = receiver => Ok(answer.unwrap_or(Reply::Deny)),
                 _ = cancel.cancelled() => Ok(Reply::Deny),
+            }
+        })
+    }
+
+    fn elicit(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<Elicited, String>> {
+        let (sender, receiver) = oneshot::channel();
+        let gone = self.push(request, Answer::Elicited(sender));
+        Box::pin(async move {
+            let _gone = gone;
+            tokio::select! {
+                answer = receiver => Ok(answer.unwrap_or(Elicited::Cancelled)),
+                _ = cancel.cancelled() => Ok(Elicited::Cancelled),
             }
         })
     }
@@ -248,6 +344,7 @@ pub fn router(page: Arc<Page>) -> Router {
         .route("/q/{id}", get(index))
         .route("/app.js", get(script))
         .route("/app.css", get(style))
+        .route("/form.js", get(form))
         .route("/api/login", post(login))
         .route("/api/logout", post(logout))
         .route("/api/state", get(state))
@@ -295,6 +392,10 @@ async fn index() -> Response {
 
 async fn script() -> Response {
     text("text/javascript; charset=utf-8", SCRIPT)
+}
+
+async fn form() -> Response {
+    text("text/javascript; charset=utf-8", FORM)
 }
 
 async fn style() -> Response {
@@ -427,6 +528,23 @@ async fn answer(
         return refused;
     }
     let id = body.get("id").and_then(Value::as_str).unwrap_or_default();
+    // A server's question: {action, content}.
+    if let Some(action) = body.get("action").and_then(Value::as_str) {
+        let content = body
+            .get("content")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        return match page.prompt.fill(id, action, &content) {
+            Ok(Filled::Gone) => refuse(
+                StatusCode::NOT_FOUND,
+                "This question is no longer open: answered, withdrawn or expired.",
+            ),
+            Ok(Filled::Done) => Json(json!({ "ok": true })).into_response(),
+            Ok(Filled::Waiting) => Json(json!({ "ok": true, "waits": true })).into_response(),
+            Err(problem) => refuse(StatusCode::BAD_REQUEST, &problem),
+        };
+    }
     let flag = |key: &str| body.get(key).and_then(Value::as_bool) == Some(true);
     // {allow, scope, always} or {block}: the question decides what of it counts.
     let reply = if flag("block") {
@@ -699,6 +817,7 @@ mod tests {
     /// A command's question; with `always`, it can be made standing.
     fn question(id: &str, always: bool) -> ConsentRequest {
         ConsentRequest {
+            asks: None,
             id: id.into(),
             kind: ConsentKind::Call,
             title: "Claude Code wants to run “read” in <b>notes</b>".into(),
@@ -719,6 +838,96 @@ mod tests {
                 block: Some("Block notes for Claude Code".into()),
             }),
         }
+    }
+
+    fn server_question(id: &str, asks: Asks) -> ConsentRequest {
+        ConsentRequest {
+            asks: Some(asks),
+            kind: ConsentKind::Confirm,
+            choices: None,
+            arguments: vec![],
+            ..question(id, false)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_s_form_and_page_are_answered_on_the_page() {
+        let served = Served::start().await;
+        let cookie = served.session().await;
+        let answer = |body: Value| {
+            served
+                .post("/api/answer", body)
+                .header("cookie", &cookie)
+                .send()
+        };
+
+        let form = clak_hub::Form::parse(Some(&json!({
+            "properties": {"name": {"type": "string", "title": "Name"}},
+            "required": ["name"],
+        })))
+        .unwrap();
+        let asked = tokio::spawn(served.prompt.elicit(
+            server_question("ask_2", Asks::Form(form)),
+            CancellationToken::new(),
+        ));
+        let state = served.state(&cookie).await;
+        assert_eq!(state["questions"][0]["form"]["fields"][0]["name"], "name");
+        // A form that doesn't fit stays, with what's wrong.
+        let wrong = answer(json!({"id": "ask_2", "action": "accept", "content": {}}))
+            .await
+            .unwrap();
+        assert_eq!(wrong.status(), 400);
+        assert_eq!(
+            wrong.json::<Value>().await.unwrap()["error"],
+            "“Name” is required."
+        );
+        let sent =
+            answer(json!({"id": "ask_2", "action": "accept", "content": {"name": "Ada", "x": 1}}))
+                .await
+                .unwrap();
+        assert_eq!(sent.status(), 200);
+        assert_eq!(
+            asked.await.unwrap(),
+            Ok(Elicited::Accepted(
+                json!({"name": "Ada"}).as_object().unwrap().clone()
+            ))
+        );
+
+        // A page the command waits for: opened, then "Continue".
+        let page = clak_hub::Page::parse("https://example.com/connect", true).unwrap();
+        let asked = tokio::spawn(served.prompt.elicit(
+            server_question("ask_3", Asks::Page(page)),
+            CancellationToken::new(),
+        ));
+        let state = served.state(&cookie).await;
+        assert_eq!(state["questions"][0]["page"]["host"], "example.com");
+        let early = answer(json!({"id": "ask_3", "action": "accept"}))
+            .await
+            .unwrap();
+        assert_eq!(early.status(), 400);
+        let opened = answer(json!({"id": "ask_3", "action": "open"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            opened.json::<Value>().await.unwrap(),
+            json!({"ok": true, "waits": true})
+        );
+        assert_eq!(served.state(&cookie).await["questions"][0]["opened"], true);
+        let done = answer(json!({"id": "ask_3", "action": "accept"}))
+            .await
+            .unwrap();
+        assert_eq!(done.status(), 200);
+        assert_eq!(asked.await.unwrap(), Ok(Elicited::Accepted(Map::new())));
+
+        // The page's own script draws them.
+        let script = served
+            .http
+            .get(format!("{}/form.js", served.base))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(script.status(), 200);
+        assert!(script.text().await.unwrap().contains("const ClakForm"));
     }
 
     #[tokio::test]

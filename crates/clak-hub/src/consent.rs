@@ -1,6 +1,7 @@
 //! Questions to the user and how the hub behaves: who shows them, how long it waits, and
 //! what the hub asks the operating system (who is behind a process).
 
+use crate::elicitation::{Form, Page};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::future::Future;
@@ -22,7 +23,9 @@ pub enum ConsentKind {
     Use,
     /// A program wants to connect to the hub.
     App,
-    /// An MCP server, halfway through a command, asks for a confirmation (elicitation). Holds only for that command.
+    /// An MCP server, halfway through a command, asks the user something (elicitation): to
+    /// confirm, to fill in a form, to open a page ([`ConsentRequest::asks`]). Holds only for
+    /// that command.
     Confirm,
     /// An agent proposes a change to the settings (`clak settings …`). Holds only for that change.
     Change,
@@ -90,6 +93,30 @@ pub struct ConsentRequest {
     pub arguments: Vec<ConsentLine>,
     /// What the question offers besides yes and no, in words.
     pub choices: Option<Choices>,
+    /// A server's question halfway through a command (elicitation): a form to fill in, or a
+    /// page to open. Its answer is an [`Elicited`], asked with [`ConsentPrompt::elicit`].
+    pub asks: Option<Asks>,
+}
+
+/// What an MCP server asks the user halfway through a command, besides the yes or no.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Asks {
+    /// A form; without fields, a plain confirmation.
+    Form(Form),
+    /// A page to open in the browser.
+    Page(Page),
+}
+
+/// The answer to a server's question: what the user sent, a no, or no choice at all.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Elicited {
+    /// The form, already checked against it; empty for a confirmation, for a page the user
+    /// opened, and for "Continue" once they are done there.
+    Accepted(Map<String, Value>),
+    /// The user said no.
+    Declined,
+    /// Closed without choosing, or withdrawn.
+    Cancelled,
 }
 
 /// What a question offers besides yes and no. The window shows the scopes as a choice (the
@@ -155,6 +182,14 @@ impl ConsentRequest {
                 "always": c.always,
                 "block": c.block,
             })),
+            "form": match &self.asks {
+                Some(Asks::Form(form)) => form.to_json(),
+                _ => Value::Null,
+            },
+            "page": match &self.asks {
+                Some(Asks::Page(page)) => page.to_json(),
+                _ => Value::Null,
+            },
         })
     }
 }
@@ -240,6 +275,31 @@ pub trait ConsentPrompt: Send + Sync + 'static {
         request: ConsentRequest,
         cancel: CancellationToken,
     ) -> BoxFuture<Result<Reply, String>>;
+
+    /// The answer to a server's question ([`ConsentRequest::asks`]), with the same token.
+    /// An interface that can't show forms or pages answers a plain confirmation with
+    /// [`ConsentPrompt::ask`], and declines the rest without showing it.
+    fn elicit(
+        &self,
+        request: ConsentRequest,
+        cancel: CancellationToken,
+    ) -> BoxFuture<Result<Elicited, String>> {
+        let plain = matches!(&request.asks, Some(Asks::Form(form)) if form.fields.is_empty());
+        if !plain {
+            return Box::pin(async { Ok(Elicited::Declined) });
+        }
+        let asked = self.ask(request, cancel.clone());
+        Box::pin(async move {
+            let reply = asked.await?;
+            Ok(if reply.allows() {
+                Elicited::Accepted(Map::new())
+            } else if cancel.is_cancelled() {
+                Elicited::Cancelled
+            } else {
+                Elicited::Declined
+            })
+        })
+    }
 }
 
 /// The agent behind a request: the first process, walking up from whoever opened the
@@ -369,6 +429,23 @@ impl HubOptions {
             question_link: None,
         }
     }
+}
+
+/// What became of a server's question ([`crate::Broker::elicit`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Elicitation {
+    /// The user sent the form (checked), opened the page, or said they are done there.
+    Accepted(Map<String, Value>),
+    /// The user said no.
+    Declined,
+    /// The user closed the question without choosing.
+    Cancelled,
+    /// Nobody answered in time, or whoever asked has gone.
+    NoAnswer,
+    /// The server said the user has finished in the browser: the question went by itself.
+    Completed,
+    /// The hub has no interface to ask with.
+    NoPrompt,
 }
 
 /// The outcome of a question.

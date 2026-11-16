@@ -31,7 +31,7 @@ pub mod uri;
 /// A boxed future, for the traits that must stay usable as `dyn`.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-pub use connector::{ConnectorProbe, fill, probe, problem, same_origin, same_url, unencrypted};
+pub use connector::{ConnectorProbe, probe, problem, same_origin, same_url, unencrypted};
 pub use hub::{ConnectorCredential, ConnectorHub};
 pub use link::ConnectorLink;
 pub use live::phase;
