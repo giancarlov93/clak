@@ -22,7 +22,6 @@ pub mod hub;
 pub mod launch;
 pub mod permissions;
 pub mod requests;
-pub mod rules;
 pub mod texts;
 pub mod usage;
 pub mod wire;

@@ -86,13 +86,12 @@ pub struct UseQuestion<'a> {
     pub app: &'a AppConn,
     /// Each command as Clak knows it: approved, or asking.
     pub statuses: Vec<Status>,
-    /// A yes can become a standing rule: the agent and the program can be recognized next
-    /// time.
-    pub standing: bool,
 }
 
 /// An agent wants to use a program: asked the first time, for its session, even when all
 /// the program's commands are approved. The commands that aren't still ask on their own.
+/// A yes never outlives the agent's process: only a preset the user launches it with lets
+/// it in without asking.
 pub fn use_app(id: String, q: &UseQuestion) -> ConsentRequest {
     let (agent, app) = (q.agent, q.app);
     let program = clean(Some(&app.resource.app), 80);
@@ -156,7 +155,7 @@ pub fn use_app(id: String, q: &UseQuestion) -> ConsentRequest {
         arguments: vec![],
         choices: Some(Choices {
             scopes: vec![],
-            always: q.standing.then(|| always(agent, q.cwd, app)),
+            always: None,
             block: Some(format!("Block {program} for {}", agent.name)),
         }),
     }
@@ -176,8 +175,8 @@ pub struct CallQuestion<'a> {
     pub changes: Vec<ConsentLine>,
     /// Clak keeps the program's commands: approving is offered (not for Clak's settings).
     pub approvable: bool,
-    /// The agent's preset or rule lists the commands it runs without a question, and not
-    /// this one: it asks, approved or not.
+    /// The agent's preset lists the commands it runs without a question, and not this one:
+    /// it asks, approved or not.
     pub restricted: bool,
 }
 
@@ -228,7 +227,7 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
         }],
         warning: (!warning.is_empty()).then(|| warning.join(" ")),
         note: if q.restricted {
-            "The preset or the rule this agent uses lists the commands it runs without asking, and not this one: it asks even when approved. A yes for the session holds while the agent's process stays open."
+            "The preset this agent was launched with lists the commands it runs without asking, and not this one: it asks even when approved. A yes for the session holds while the agent's process stays open."
                 .into()
         } else {
             "A yes for the session holds while the agent's process stays open. An approved command runs, as it is, for every agent you let use the program; if it changes, it asks again."
@@ -242,7 +241,7 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
                     Scope::Session,
                     format!("“{command}” for this agent's session"),
                 )),
-                // Approving wouldn't make it run here: the preset or the rule leaves it out.
+                // Approving wouldn't make it run here: the preset leaves it out.
                 (q.approvable && !q.restricted).then(|| {
                     (
                         Scope::Approve,
@@ -256,24 +255,6 @@ pub fn call(id: String, q: &CallQuestion) -> ConsentRequest {
             always: None,
             block: Some(format!("Block {program} for {}", agent.name)),
         }),
-    }
-}
-
-/// The offer under the question to use a program: make the yes standing, for this agent in
-/// this folder (anywhere, if it doesn't say where it works).
-fn always(agent: &AgentIdentity, cwd: Option<&str>, app: &AppConn) -> String {
-    let program = if app.key.is_some() {
-        format!("{} (all its instances)", clean(Some(&app.resource.app), 80))
-    } else {
-        app.name.clone()
-    };
-    match cwd.filter(|c| !c.is_empty()) {
-        Some(folder) => format!(
-            "Always allow {} to use {program} in {}",
-            agent.name,
-            clean(Some(folder), 200)
-        ),
-        None => format!("Always allow {} to use {program}", agent.name),
     }
 }
 

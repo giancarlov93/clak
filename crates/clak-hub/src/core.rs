@@ -3,7 +3,8 @@
 //!
 //! Three registries and two rules. Programs connect (and the user allows it once per
 //! executable); agents connect (and the user allows it once per process). An agent uses a
-//! program only if the user lets it, for its session (or always); and it runs a command
+//! program only if the user lets it, for its session (or launched it with a preset that
+//! names the program: never for good); and it runs a command
 //! without asking only if the user approved that command as it is (`commands`), or allowed
 //! it for the agent's session. A command that is new, or changed since, asks; a program the
 //! user blocked is closed to the agent.
@@ -18,7 +19,6 @@ use crate::consent::{
 };
 use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
-use crate::rules::Rules;
 use crate::usage::Usage;
 use crate::wire::{ResourceDef, ToolDef, origin_label, origin_short};
 use crate::{cli_names, texts};
@@ -296,8 +296,8 @@ pub struct CallTarget {
     pub digest: String,
     /// Where the program's commands are in the cache, if they are.
     pub cache_key: Option<String>,
-    /// The agent's preset or rule lists the commands it may run, and not this one: approved
-    /// or not, it asks.
+    /// The agent's preset lists the commands it may run, and not this one: approved or not,
+    /// it asks.
     pub restricted: bool,
 }
 
@@ -365,17 +365,15 @@ pub enum Access {
     Granted,
     /// The preset it was launched with covers it; with the commands it lists, if it does.
     Preset(Option<Vec<String>>),
-    /// A standing rule covers it; with the commands it lists, if it does.
-    Rule(Option<Vec<String>>),
 }
 
 impl Access {
-    /// Whether the preset or the rule lists the commands, and not this one: then it asks,
-    /// approved or not.
+    /// Whether the preset lists the commands, and not this one: then it asks, approved or
+    /// not.
     pub fn restricts(&self, tool: &str) -> bool {
         match self {
             Access::Granted => false,
-            Access::Preset(tools) | Access::Rule(tools) => tools
+            Access::Preset(tools) => tools
                 .as_ref()
                 .is_some_and(|tools| !tools.iter().any(|t| t == tool)),
         }
@@ -385,7 +383,6 @@ impl Access {
         match self {
             Access::Granted => "granted",
             Access::Preset(_) => "preset",
-            Access::Rule(_) => "rule",
         }
     }
 }
@@ -465,13 +462,8 @@ pub struct Core {
     dirty: bool,
     /// How much the agents use the programs, kept across restarts.
     pub usage: Usage,
-    /// The permissions the user made standing.
-    pub rules: Rules,
     /// The programs' commands, and which ones the user approved.
     pub commands: CommandCache,
-    /// Each agent's identity for the rules (see `rules::agent_key`), by its process: read
-    /// once, since an unsigned agent's content is hashed.
-    pub agent_keys: HashMap<String, Option<String>>,
     sink: Option<mpsc::UnboundedSender<String>>,
     connectors: Value,
     apis: Value,
@@ -516,7 +508,6 @@ impl Core {
                 "since": float(l.created),
                 "expires": float(l.expires),
             })).collect::<Vec<_>>(),
-            "rules": self.rules.all().iter().map(|r| r.panel()).collect::<Vec<_>>(),
             "resources": self.apps.values().map(|a| json!({
                 "id": a.conn_id,
                 "name": a.name,
@@ -1082,8 +1073,7 @@ impl Core {
     }
 
     /// The user gave an allowed application a name or a command of their own (`None`: the
-    /// program's own). Its open documents follow at once, as a renamed connector does, and so
-    /// do its "Always allow" rules.
+    /// program's own). Its open documents follow at once, as a renamed connector does.
     pub fn edit_app(
         &mut self,
         key: &str,
@@ -1126,7 +1116,6 @@ impl Core {
         }
         self.permissions.edit(key, label.clone(), command.clone());
         let shown = label.unwrap_or(declared);
-        self.rules.follow(key, key, &shown);
         let open: Vec<(String, ResourceDef)> = self
             .apps
             .values()
@@ -1148,8 +1137,8 @@ impl Core {
     }
 
     /// An allowed application has moved (see [`Broker::move_app`]): remembered at its new
-    /// place under its new key, with its rules. Whoever is connected from the old place
-    /// stays as it is.
+    /// place under its new key, with its approved commands. Whoever is connected from the
+    /// old place stays as it is.
     pub fn move_app(&mut self, key: &str, to: &str, origin: &Value) -> Result<(), String> {
         let Some(entry) = self.permissions.get(key) else {
             return Err(GONE_APP.into());
@@ -1159,7 +1148,6 @@ impl Core {
         }
         let shown = entry.label.clone().unwrap_or_else(|| entry.name.clone());
         self.permissions.moved(key, to, origin);
-        self.rules.follow(key, to, &shown);
         self.commands
             .follow(&format!("app:{key}"), &format!("app:{to}"));
         let exe = origin.get("exe").and_then(Value::as_str).unwrap_or("");
@@ -1188,18 +1176,6 @@ impl Core {
             return false;
         }
         self.log(format!("application restored: {shown} ({exe})"));
-        self.touch();
-        true
-    }
-
-    /// An "Always allow" rule from a backup, its agent and folder already checked on this
-    /// computer. False if the same one is already here.
-    pub fn restore_rule(&mut self, rule: crate::rules::Rule) -> bool {
-        let line = format!("always allowed again: {} on «{}»", rule.agent, rule.label);
-        if !self.rules.restore(rule) {
-            return false;
-        }
-        self.log(line);
         self.touch();
         true
     }
@@ -1268,7 +1244,6 @@ impl Core {
             return;
         };
         let session = self.sessions.shift_remove(&key).expect("found above");
-        self.agent_keys.remove(&key);
         // A block outlives the session the user (or anyone on the channel) disconnects: it
         // ends with the agent's process, which the sweep watches.
         if reason == "harness_gone" {
@@ -1323,15 +1298,9 @@ impl Core {
     }
 
     /// How the agent may use the program, if it may: the user said yes for its session, or
-    /// the preset it was launched with, or a standing rule, covers it. With the commands it
-    /// may run, when the preset or the rule lists them (the others ask, even if approved).
-    pub fn may_use(
-        &self,
-        session_key: &str,
-        agent_key: Option<&str>,
-        cwd: Option<&str>,
-        app: &AppConn,
-    ) -> Option<Access> {
+    /// the preset it was launched with covers it. With the commands it may run, when the
+    /// preset lists them (the others ask, even if approved).
+    pub fn may_use(&self, session_key: &str, app: &AppConn) -> Option<Access> {
         if self
             .uses
             .iter()
@@ -1339,12 +1308,8 @@ impl Core {
         {
             return Some(Access::Granted);
         }
-        if let Some(program) = self.preset_program(session_key, &app.conn_id) {
-            return Some(Access::Preset(program.tools.clone()));
-        }
-        agent_key
-            .and_then(|k| self.rules.allowed(k, cwd, app))
-            .map(Access::Rule)
+        self.preset_program(session_key, &app.conn_id)
+            .map(|program| Access::Preset(program.tools.clone()))
     }
 
     /// The user lets the agent use the program, for its session: all the instances of the
@@ -1418,7 +1383,7 @@ impl Core {
     }
 
     /// Whether the command runs for this agent without asking, as it is now: approved in
-    /// Clak (and, if the agent's preset or rule lists commands, among them), or allowed for
+    /// Clak (and, if the agent's preset lists commands, among them), or allowed for
     /// the agent's session. Clak's settings: everything the session allowed.
     pub fn runs(&self, session_key: &str, conn_id: &str, tool: &ToolDef, restricted: bool) -> bool {
         let Some(app) = self.apps.get(conn_id) else {
@@ -1763,50 +1728,6 @@ impl Core {
         self.enter(session_key, conn_id)
     }
 
-    /// The permission a standing rule gives: the agent (by `agent_key`, its identity) in its
-    /// folder uses the program without a question, the session authorized if it is new.
-    /// None if no rule covers them.
-    pub fn rule_grant(
-        &mut self,
-        agent_key: &str,
-        agent: &AgentIdentity,
-        cwd: Option<&str>,
-        via: &str,
-        conn_id: &str,
-    ) -> Option<String> {
-        let app = self.apps.get(conn_id)?;
-        self.rules.allowed(agent_key, cwd, app)?;
-        let label = self
-            .rules
-            .find(agent_key, cwd, app)
-            .map(|r| r.label.clone())
-            .unwrap_or_default();
-        let session = self.authorize(agent, cwd, via);
-        let new = self.grant_of(&session, conn_id).is_none();
-        let grant = self.enter(&session, conn_id)?;
-        if new {
-            let who = self
-                .sessions
-                .get(&session)
-                .map(SessionEntry::label)
-                .unwrap_or_default();
-            self.log(format!("{who} uses «{label}»: always allowed"));
-        }
-        Some(grant)
-    }
-
-    /// Removes a standing rule: the next time, the agent asks again. Its permissions given
-    /// so far stay, as an answer given stays.
-    pub fn forget_rule(&mut self, id: Option<&str>) {
-        if let Some(rule) = id.and_then(|id| self.rules.remove(id)) {
-            self.log(format!(
-                "no longer always allowed: {} on «{}»",
-                rule.agent, rule.label
-            ));
-            self.touch();
-        }
-    }
-
     // =====================================================================
     // The commands, as the user decides about them in the panel
     // =====================================================================
@@ -1917,11 +1838,10 @@ impl Core {
 
     /// The connected programs as an agent sees them, each with how it may use it (`access`):
     /// `granted` (the user let it, for its session), `preset` (the preset it was launched
-    /// with covers it), `rule` (an "Always allow" covers it), or null (the first use asks
-    /// the user); `blocked` if the user closed it to the agent (then `access` is null: an
-    /// older `clak` takes it as one to ask about). The commands the user hasn't approved
-    /// still ask. `agent_key` and `cwd` are the agent's, for the rules.
-    pub fn listing(&self, session_key: &str, agent_key: Option<&str>, cwd: Option<&str>) -> Value {
+    /// with covers it), or null (the first use asks the user); `blocked` if the user closed
+    /// it to the agent (then `access` is null: an older `clak` takes it as one to ask about).
+    /// The commands the user hasn't approved still ask.
+    pub fn listing(&self, session_key: &str) -> Value {
         Value::Array(
             self.apps
                 .values()
@@ -1930,8 +1850,7 @@ impl Core {
                     let access = if blocked {
                         None
                     } else {
-                        self.may_use(session_key, agent_key, cwd, a)
-                            .map(|access| access.as_str())
+                        self.may_use(session_key, a).map(|access| access.as_str())
                     };
                     json!({
                         "name": a.name,
@@ -1966,17 +1885,15 @@ impl Core {
 
     /// A program's commands as the agent sees them, each with whether it runs without
     /// asking (`approved`) and how Clak knows it (`status`). The ones the user turned off
-    /// aren't there. `agent_key` and `cwd` are the agent's, for the rules.
+    /// aren't there.
     pub fn describe(
         &self,
         session_key: &str,
-        agent_key: Option<&str>,
-        cwd: Option<&str>,
         conn_id: &str,
         query: Option<&str>,
     ) -> Option<Map<String, Value>> {
         let app = self.apps.get(conn_id)?;
-        let access = self.may_use(session_key, agent_key, cwd, app);
+        let access = self.may_use(session_key, app);
         let terms: Vec<String> = query
             .unwrap_or("")
             .split(' ')
@@ -2340,9 +2257,7 @@ impl Broker {
             events: VecDeque::new(),
             dirty: false,
             usage: Usage::default(),
-            rules: Rules::default(),
             commands: CommandCache::default(),
-            agent_keys: HashMap::new(),
             sink,
             connectors: json!([]),
             apis: json!([]),

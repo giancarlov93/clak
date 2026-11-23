@@ -173,6 +173,8 @@ button.accent { --fill: var(--accent); background: var(--fill); color: var(--acc
 /* Lighter under the pointer: the plain button's hover above would otherwise grey it out. */
 button.accent:hover:not(:disabled) { background: color-mix(in srgb, var(--fill) 78%, #fff); }
 button.link { background: none; border: none; color: var(--accent); padding: 0; min-height: 0; box-shadow: none; }
+/* On the Mac the plain button's padding and shadow would win over the link's: a link stays text. */
+html.mac button.link { padding: 0; min-height: 0; box-shadow: none; }
 
 /* A choice among a few, side by side (a span of time, a kind of server): one look in every
    window, the Mac's segmented control. The chosen button has `selected` or `on`. */

@@ -56,7 +56,7 @@ scripts/           packaging, release notes and the version; the git hook
 
 The hub, the app and the command line share only `daemon.json` (in `~/.clak`, or
 `CLAK_HOME`), the control channel, the programs' WebSocket and the hub's files (`apps.json`,
-`rules.json`, `presets.json`, `connectors.json`, `apis.json` and their `.secrets`). Only the
+`presets.json`, `connectors.json`, `apis.json` and their `.secrets`). Only the
 app writes `backup.json`, the settings of the automatic backup.
 
 ## Extensions
@@ -157,7 +157,7 @@ chosen the first time or with `clak-daemon --set-password`: only its hash is kep
 `--url https://<server>.<tailnet>.ts.net` so the links point there). An agent that needs a
 permission isn't kept waiting: it gets the link of its question at once, gives it to the user,
 and tries again after the answer. The page also lists what is allowed now (permissions, agents,
-"Always allow", applications) and takes it away.
+applications) and takes it away.
 
 The agents run as the same user and can reach the page too: what keeps them from answering
 their own questions is the password, which they don't know. So it must be long, a phrase rather

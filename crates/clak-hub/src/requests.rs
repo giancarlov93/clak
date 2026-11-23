@@ -16,7 +16,7 @@ use crate::commands::Status;
 use crate::consent::{AgentIdentity, Reply, Scope, Verdict};
 use crate::core::{Asked, Broker, CallTarget, Core, Gone, Progress, outcome};
 use crate::wire::{Malformed, ToolDef};
-use crate::{flags, rules, texts};
+use crate::{flags, texts};
 use clak_wire::json::{self};
 use clak_wire::names;
 use serde_json::{Map, Value, json};
@@ -242,28 +242,9 @@ async fn list(cx: &Context<'_>) -> Result<Map<String, Value>, Gone> {
         Ok(key) => key,
         Err(answer) => return Ok(answer),
     };
-    let agent_key = agent_key(cx).await;
     Ok(ok(object(json!({
-        "resources": cx.broker.run(|c| c.listing(&key, agent_key.as_deref(), cx.cwd)),
+        "resources": cx.broker.run(|c| c.listing(&key)),
     }))))
-}
-
-/// Who the agent is, for the standing rules: read once per process, outside the lock (an
-/// unsigned agent's content is hashed). None if it can't be told.
-async fn agent_key(cx: &Context<'_>) -> Option<String> {
-    let process = cx.agent.key();
-    if let Some(known) = cx.broker.run(|c| c.agent_keys.get(&process).cloned()) {
-        return known;
-    }
-    let platform = cx.broker.options().platform.clone();
-    let agent = cx.agent.clone();
-    let found = tokio::task::spawn_blocking(move || rules::agent_key(platform.as_ref(), &agent))
-        .await
-        .ok()
-        .flatten();
-    cx.broker
-        .run(|c| c.agent_keys.insert(process, found.clone()));
-    found
 }
 
 /// A program that is not there. The closest name is suggested only to an already connected
@@ -312,11 +293,10 @@ async fn tools(cx: &Context<'_>, request: &Map<String, Value>) -> Result<Map<Str
     };
     let name = request.get("resource").and_then(Value::as_str);
     let query = request.get("query").and_then(Value::as_str);
-    let agent_key = agent_key(cx).await;
     let described = cx.broker.run(|c| {
         let app = c.app(name?)?;
         let conn_id = app.conn_id.clone();
-        c.describe(&key, agent_key.as_deref(), cx.cwd, &conn_id, query)
+        c.describe(&key, &conn_id, query)
     });
     Ok(match described {
         Some(body) => ok(body),
@@ -375,39 +355,26 @@ async fn call(
     if cx.broker.run(|c| c.blocks(&key, &app)) {
         return Ok(Ok(blocked(&app_name)));
     }
-    // Who the agent is, for the standing rules: read outside the lock (an unsigned agent's
-    // content is hashed), once per process.
-    let agent_key = agent_key(cx).await;
     let mut waited = false;
 
-    // First, may the agent use the program at all? Asked the first time, even when all its
-    // commands are approved: approving a command doesn't choose who uses it.
-    let mut access = cx
-        .broker
-        .run(|c| c.may_use(&key, agent_key.as_deref(), cx.cwd, &app));
+    // First, may the agent use the program at all? Asked the first time in each of its
+    // sessions, even when all its commands are approved: approving a command doesn't choose
+    // who uses it. Only a preset the user launched the agent with lets it in without asking.
+    let mut access = cx.broker.run(|c| c.may_use(&key, &app));
     if access.is_none() {
         let asked = if app.is_hub() {
             use_settings(cx, &app).await?
         } else {
-            ask_use(cx, &app, agent_key.clone()).await?
+            ask_use(cx, &app).await?
         };
         match asked {
             Ok(()) => waited = true,
             Err(answer) => return Ok(Ok(answer)),
         }
-        access = cx
-            .broker
-            .run(|c| c.may_use(&key, agent_key.as_deref(), cx.cwd, &app));
+        access = cx.broker.run(|c| c.may_use(&key, &app));
     }
-    // A preset or a rule: connected, and its permission on this instance, without a question.
-    let entered = cx.broker.run(|c| {
-        if c.session(cx.agent).is_none()
-            && let Some(agent_key) = &agent_key
-        {
-            c.rule_grant(agent_key, cx.agent, cx.cwd, cx.via, &conn_id);
-        }
-        c.enter(&key, &conn_id)
-    });
+    // A preset: its permission on this instance, without a question.
+    let entered = cx.broker.run(|c| c.enter(&key, &conn_id));
     let (Some(access), Some(_)) = (access, entered) else {
         return Ok(Ok(error(
             "gone",
@@ -415,8 +382,8 @@ async fn call(
         )));
     };
 
-    // Then the command: it runs if the user approved it as it is (and the agent's preset or
-    // rule doesn't leave it out), or allowed it for the agent's session; otherwise this call
+    // Then the command: it runs if the user approved it as it is (and the agent's preset
+    // doesn't leave it out), or allowed it for the agent's session; otherwise this call
     // asks. The same call (agent, program, command and arguments) asked twice waits for the
     // same answer; "only this call" lets one of them run, the others ask again.
     let arguments_digest = json::digest(&Value::Object(arguments.clone().unwrap_or_default()));
@@ -607,7 +574,6 @@ async fn use_settings(
 async fn ask_use(
     cx: &Context<'_>,
     app: &crate::core::AppConn,
-    agent_key: Option<String>,
 ) -> Result<Result<(), Map<String, Value>>, Gone> {
     let key = cx.agent.key();
     let app_name = app.name.clone();
@@ -620,10 +586,6 @@ async fn ask_use(
             format!("for permission to use '{app_name}'")
         },
     );
-    // "Always": offered only for an agent and a program that can be recognized next time:
-    // an application by its key, a connector or an API by the name the user gave it.
-    let agent_key = agent_key.filter(|_| app.key.is_some() || app.is_connector());
-    let standing = agent_key.is_some();
     let (agent, cwd, via, target) = (
         cx.agent.clone(),
         cx.cwd.map(str::to_owned),
@@ -651,7 +613,6 @@ async fn ask_use(
                         new_session,
                         app,
                         statuses,
-                        standing,
                     },
                 )
             },
@@ -661,11 +622,8 @@ async fn ask_use(
                 }
                 match reply {
                     Reply::Block => c.block(&agent, &target),
-                    Reply::Allow { always, .. } => {
+                    Reply::Allow { .. } => {
                         c.allow_use(&agent, cwd.as_deref(), via, &target);
-                        if always && let Some(agent_key) = &agent_key {
-                            remember(c, agent_key, &agent, cwd.as_deref(), &target);
-                        }
                     }
                     Reply::Deny => {}
                 }
@@ -801,8 +759,8 @@ async fn ask_call(
                             c.commands.approve(cache, shown, "question");
                             c.log(format!("approved: “{}” of {program}", shown.name));
                         }
-                        // Nothing to keep it in, or the preset or the rule leaves it out: for
-                        // this session, or it would ask again. Otherwise the approval alone,
+                        // Nothing to keep it in, or the preset leaves it out: for this
+                        // session, or it would ask again. Otherwise the approval alone,
                         // which the panel can take back.
                         if restricted || cache_for.is_none() {
                             c.allow_for_session(
@@ -833,34 +791,6 @@ async fn ask_call(
         Asked::Verdict(verdict) => Err(refused(verdict, &what)),
         Asked::Link(link) => Err(pending(&link, &what)),
     })
-}
-
-/// "Always" ticked with a yes to use a program: the standing rule.
-fn remember(
-    c: &mut Core,
-    agent_key: &str,
-    agent: &AgentIdentity,
-    cwd: Option<&str>,
-    conn_id: &str,
-) {
-    let Some(app) = c.app_by_id(conn_id).cloned() else {
-        return;
-    };
-    let line = {
-        let rule = c.rules.add(agent_key, agent, cwd, &app);
-        match &rule.folder {
-            Some(folder) => format!(
-                "always allowed from now: {} on «{}» in {folder}",
-                rule.agent, rule.label
-            ),
-            None => format!(
-                "always allowed from now: {} on «{}»",
-                rule.agent, rule.label
-            ),
-        }
-    };
-    c.log(line);
-    c.touch();
 }
 
 /// Seconds as the hub writes them: at most three decimals, no trailing zeros.

@@ -1,14 +1,18 @@
 // The hub's question. The buttons light up after a moment, and neither of them is the
 // default: an Enter meant for another window must not answer here.
 //
-// The question to use a program offers "always" and the block. A command's question shows
-// what the agent sends, and what changed since the user approved it, and asks how far a yes
-// goes: this call only (the default), the command for the agent's session, or approved in
-// Clak; it can block the program too.
+// The question to use a program offers the block; a yes to it holds for the agent's session
+// only. When a program first connects, "always" approves its commands. A command's question
+// shows what the agent sends, and what changed since the user approved it, and asks how far
+// a yes goes: this call only (the default), the command for the agent's session, or
+// approved in Clak; it can block the program too.
 //
 // Up front only what decides the answer: who is asking (with its real icon and who signed
 // it), what it wants, the commands by name. Paths, pids and the process chain are under
-// "Details".
+// "Details"; what a command does opens under the list on a click. A command's question shows
+// its command as a row that opens it in a window of its own (command.html): what it does,
+// what it takes, what changed, what the agent sends. How far a yes goes (and "always", where
+// offered) sits by the buttons, never scrolled out of sight.
 //
 // An MCP server's question halfway through a command (`request.form` or `request.page`):
 // its form, to fill in and send, or its page, which the app opens in the browser when the
@@ -104,35 +108,33 @@
   // The header shows who is asking, with its own icon when it has one.
   if (isPath(agentExe)) Clak.withIcon($("icon"), agentExe, 52);
 
-  // The commands: few, or new and changed ones, in full; many, as names to tap.
   $("tools-block").classList.toggle("hidden", tools.length === 0);
   if (kind === "change") $("tools-heading").textContent = "Endpoints";
-  if (kind === "call") $("tools-heading").textContent = "Command";
-  // In full when few, when one is new or changed, and when approving them is offered: the
-  // user approves what they read, parameters included.
-  const full = tools.length <= 2 || tools.some((t) => t.note || (t.parameters || []).length) || !!choices?.always;
-  if (full) {
-    $("tools").className = "card tools-full";
-    $("tools").replaceChildren(...tools.map((t) =>
-      el("div", { class: "tool" },
-        el("div", null, el("span", { class: "name" }, t.name), t.note ? el("span", { class: "note" }, t.note) : null),
-        t.description ? el("div", { class: "description" }, t.description) : null,
-        // What changed since the user approved it.
-        (t.changes || []).length
-          ? el("dl", { class: "lines changes" }, t.changes.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]))
-          : null,
-        // What it takes.
-        (t.parameters || []).length
-          ? el("dl", { class: "lines parameters" }, t.parameters.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]))
-          : null)));
+  if (kind === "call" && tools.length) {
+    // The command as one row: its name, whether it is new or changed, how much the agent
+    // sends. All of it in the window the row opens.
+    const t = tools[0];
+    $("tools-heading").classList.add("hidden");
+    const row = el("button", { class: "command", type: "button", title: "Opens the command, with what the agent sends, in a window of its own" },
+      el("span", { class: "name ellipsis" }, t.name),
+      t.note ? el("span", { class: "tag" }, t.note) : null,
+      el("span", { class: "more" }, args.length ? Clak.plural(args.length, "argument", "arguments") : "no arguments"),
+      el("span", { class: "chevron", "aria-hidden": "true" }, "›"));
+    row.addEventListener("click", () => invoke("consent_command", { id }).catch(() => {}));
+    $("tools").className = "";
+    $("tools").replaceChildren(row);
   } else {
+    // The others: names to tap, each with its note (new, changed, asks every time); what one
+    // does opens under them.
     $("tools-heading").append(el("span", { class: "count" }, String(tools.length)));
     const text = el("div", { class: "chip-text quiet hidden" });
     let open = null;
     const chips = tools.map((t) => {
-      const chip = el("button", { class: "chip", type: "button", title: t.description || "" }, t.name);
+      const chip = el("button", { class: "chip", type: "button", "aria-expanded": "false" },
+        t.name, t.note ? el("span", { class: "chip-note" }, t.note) : null);
       chip.addEventListener("click", () => {
         open?.classList.remove("on");
+        open?.setAttribute("aria-expanded", "false");
         if (open === chip) {
           open = null;
           text.classList.add("hidden");
@@ -140,7 +142,8 @@
         }
         open = chip;
         chip.classList.add("on");
-        text.textContent = t.description || "No description.";
+        chip.setAttribute("aria-expanded", "true");
+        text.replaceChildren(el("span", { class: "chip-name" }, t.name), t.description || "No description.");
         text.classList.remove("hidden");
       });
       return chip;
@@ -159,12 +162,6 @@
   $("details").classList.toggle("hidden", who.length === 0 && (kind === "change" || what.length === 0));
 
   $("note").textContent = request.note || "";
-
-  // What the agent sends with the command, as the hub cleaned it (secrets masked).
-  if (args.length) {
-    $("arguments").replaceChildren(...args.flatMap((l) => [el("dt", null, l.label), el("dd", { class: "selectable" }, l.value)]));
-    $("arguments-block").classList.remove("hidden");
-  }
 
   // A server's question: a form, a page, or a plain confirmation.
   const page = request.page;
@@ -200,8 +197,7 @@
   }
 
   // How far a yes goes, for a command: the first choice (this call only), unless the user
-  // picks more. "Always", for the question to use a program: a yes that holds from now on,
-  // offered by the hub only where it can recognize the agent and the program next time,
+  // picks more. "Always", when a program first connects: its commands approved as they are,
   // never ticked from the start. The block closes the program to the agent.
   const scopes = choices?.scopes || [];
   let scope = scopes[0]?.value || "once";
@@ -219,6 +215,7 @@
     $("always-text").textContent = choices.always;
     $("always-row").classList.remove("hidden");
   }
+  $("decide").classList.toggle("hidden", !scopes.length && !choices?.always);
   if (choices?.block) {
     $("block").textContent = choices.block;
     $("block").classList.remove("hidden");
@@ -310,8 +307,8 @@
 
   // As tall as the content wants: the window is capped to the screen, and the content scrolls.
   // Measured on the sheet, not on the box that scrolls it: that box takes the window's
-  // height, so the window could only grow. Around it, what the window has besides (the
-  // buttons, the borders) is what isn't the box.
+  // height, so the window could only grow. Around it, what the window has besides (how far
+  // a yes goes, the buttons, the borders) is what isn't the box.
   const main = $("content");
   const sheet = $("sheet");
   const fit = () => {
@@ -321,6 +318,7 @@
   };
   const resized = new ResizeObserver(fit);
   resized.observe(sheet);
+  resized.observe($("decide"));
   resized.observe(document.querySelector("footer"));
   fit();
 

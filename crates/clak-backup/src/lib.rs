@@ -4,8 +4,9 @@
 //!
 //! - [`seal`]: the password opens a key, the key opens the backups; the automatic ones need
 //!   only its public half, so the password is never kept.
-//! - [`contents`]: what goes in (servers, APIs, presets, allowed applications, rules, with
-//!   their secrets) and its fingerprint, to write one only when something changed.
+//! - [`contents`]: what goes in (servers, APIs, presets, allowed applications, approved
+//!   commands, with their secrets) and its fingerprint, to write one only when something
+//!   changed.
 //! - [`file`]: the file, its name, the folder and how many are kept.
 //! - [`settings`]: `backup.json`, off until the user turns it on.
 //! - [`plan`]: what a backup would restore here, checked item by item: a path of another

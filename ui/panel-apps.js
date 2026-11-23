@@ -1,8 +1,8 @@
 // The Applications tab: the programs the user allowed once and that the hub
 // remembers, by executable. Open (play) starts one; Edit gives it a name and a command of
 // the user's own, or the place it has moved to; Forget (the bin) makes it ask again on the
-// next connection. Below, the standing permissions made with "Always allow" in a consent
-// window: "Remove" makes the agent ask again.
+// next connection. An agent's permission to use a program is never kept here: it ends with
+// the agent's process, and only a preset lets an agent in without asking.
 "use strict";
 
 (() => {
@@ -128,31 +128,15 @@
     return el("button", { class: "link small-link", title: "Which commands run without asking", onclick: () => Panel.show(`status:commands:${key}`) }, text);
   };
 
-  const ruleRow = (r, now) =>
-    el("div", { class: Clak.mac ? "row allowed" : "card allowed", "data-id": `rule:${r.id}` },
-      Kit.tile("shield", 36, "#34c759", r.exe),
-      el("div", { class: "lines" },
-        el("div", { class: "name" }, el("strong", null, `${r.agent} → ${r.program}`)),
-        el("div", { class: "mono quiet ellipsis selectable", title: r.folder || "" }, r.folder || "In any folder"),
-        el("div", { class: "quiet" }, `${r.commands ? `May always use it, only for ${r.commands.join(", ")}` : "May always use it"} · since ${D.ago(r.since, now)}`)),
-      el("div", { class: "actions" },
-        el("button", { title: "It will ask again the next time it starts", onclick: () => Panel.send({ type: "forget_rule", id: r.id }) }, "Remove")));
-
   const draw = () => {
     if (!page) return;
     const now = Date.now();
     const apps = [...(state.apps || [])].sort((a, b) => a.since - b.since);
     const rows = apps.flatMap((a) => (draft?.key === a.key ? [row(a, now), editor()] : [row(a, now)]));
-    const rules = [...(state.rules || [])].sort((a, b) => a.since - b.since);
-    const ruleRows = rules.map((r) => ruleRow(r, now));
     const group = (items) => (Clak.mac ? el("div", { class: "card group rows" }, items) : items);
     Kit.replace(list,
       Kit.section("Allowed", { count: apps.length, help: "Remembered by executable: same path and same developer or, if unsigned, same content" }),
-      apps.length === 0 ? Kit.empty("apps", "None allowed") : group(rows),
-      Kit.section("Always allowed", { count: rules.length, help: "An agent that may use a program without asking first: made with “Always allow” in the question to use it. The commands you haven't approved still ask" }),
-      rules.length === 0
-        ? Kit.empty("shield", "None", "Tick “Always allow” in the question to use a program: that agent won't ask again to use it")
-        : group(ruleRows));
+      apps.length === 0 ? Kit.empty("apps", "None allowed") : group(rows));
   };
 
   Panel.tab({

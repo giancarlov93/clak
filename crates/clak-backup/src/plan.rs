@@ -5,8 +5,6 @@
 //!   program (the same signer, or if unsigned the same content), as when it connects: a file
 //!   must not be able to allow a program. If it isn't there, or something else is, the user
 //!   may point to where it is now; its key is made again from that file.
-//! - An **"Always allow" rule** only if its agent is the same program at the same path, its
-//!   folder is here, and its application is allowed (here, or restored with it).
 //! - An **MCP server that is a program** is restored turned off if its program or a path on
 //!   its command line isn't on this computer, so that the user changes it first.
 //! - A **preset** whose folder isn't here is restored to be changed.
@@ -18,10 +16,8 @@ use crate::contents::Contents;
 use crate::file::Header;
 use clak_apis::ApiEntry;
 use clak_connectors::ConnectorEntry;
-use clak_hub::launch::Target;
+use clak_hub::Platform;
 use clak_hub::permissions::{AppPermissions, Entry};
-use clak_hub::rules::{self, Rule};
-use clak_hub::{AgentIdentity, Platform};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -33,7 +29,6 @@ pub enum Kind {
     Connector,
     Api,
     Preset,
-    Rule,
 }
 
 impl Kind {
@@ -43,7 +38,6 @@ impl Kind {
             Kind::Connector => "connector",
             Kind::Api => "api",
             Kind::Preset => "preset",
-            Kind::Rule => "rule",
         }
     }
 }
@@ -104,7 +98,6 @@ pub struct Item {
 #[derive(Default)]
 pub struct Here {
     pub apps: Vec<Entry>,
-    pub rules: Vec<Rule>,
     pub connectors: Vec<HereConnector>,
     pub apis: Vec<HereApi>,
     pub presets: Vec<String>,
@@ -205,9 +198,6 @@ impl Plan {
             };
             items.push(item);
         }
-        for (index, rule) in contents.rules.iter().enumerate() {
-            items.push(check_rule(index, rule, here, platform));
-        }
         for item in &mut items {
             item.chosen = matches!(item.check, Check::Ready | Check::Secret);
         }
@@ -258,36 +248,6 @@ impl Plan {
         Ok(&self.items[at])
     }
 
-    /// How an item stands, given the others: a rule whose application can't be restored
-    /// can't be either.
-    pub fn effective(&self, item: &Item) -> Check {
-        if item.kind != Kind::Rule || !item.check.restorable() {
-            return item.check.clone();
-        }
-        match self.rule_app(item) {
-            Some(app) if !matches!(app.check, Check::Ready | Check::Here) => Check::Blocked(
-                format!("Its application, “{}”, can't be restored.", app.name),
-            ),
-            _ => item.check.clone(),
-        }
-    }
-
-    /// The application item a rule's program is, if it is one of the backup's.
-    pub fn rule_app(&self, item: &Item) -> Option<&Item> {
-        let rule = self.contents.rules.get(item.index)?;
-        let Target::App(key) = &rule.program.target else {
-            return None;
-        };
-        self.items.iter().find(|i| {
-            i.kind == Kind::App
-                && self
-                    .contents
-                    .apps
-                    .get(i.index)
-                    .is_some_and(|a| &a.key == key)
-        })
-    }
-
     /// For the panel: no secret, no key.
     pub fn view(&self) -> Value {
         json!({
@@ -300,8 +260,8 @@ impl Plan {
     }
 
     pub fn item_view(&self, item: &Item) -> Value {
-        let check = self.effective(item);
-        let message = match &check {
+        let check = &item.check;
+        let message = match check {
             Check::Warn(why) | Check::Blocked(why) => Some(why.clone()),
             Check::Secret => Some(
                 match item.kind {
@@ -347,9 +307,6 @@ impl Plan {
                 .as_ref()
                 .map(|_| "With its secret.".into()),
             Kind::App => item.moved.as_ref().map(|_| "Checked at this path.".into()),
-            Kind::Rule => self
-                .rule_app(item)
-                .map(|app| format!("With “{}”.", app.name)),
             Kind::Preset => None,
         }
     }
@@ -404,61 +361,6 @@ fn check_app(index: usize, app: &Entry, here: &Here, platform: &dyn Platform) ->
         }
     };
     item
-}
-
-fn check_rule(index: usize, rule: &Rule, here: &Here, platform: &dyn Platform) -> Item {
-    let mut detail = rule.agent.clone();
-    if let Some(folder) = &rule.folder {
-        detail.push_str(&format!(" · in {folder}"));
-    }
-    let mut item = item(Kind::Rule, index, &rule.label, detail);
-    let same = |r: &Rule| {
-        r.agent_key == rule.agent_key && r.folder == rule.folder && r.program == rule.program
-    };
-    item.check = if here.rules.iter().any(same) {
-        Check::Here
-    } else if rule.exe.is_empty() || !Path::new(&rule.exe).is_file() {
-        Check::Blocked(format!(
-            "{} isn't at {} on this computer.",
-            rule.agent, rule.exe
-        ))
-    } else if agent_key_at(platform, &rule.exe, &rule.agent).as_deref() != Some(&rule.agent_key) {
-        Check::Blocked(format!(
-            "{} at {} is another program, or another version.",
-            rule.agent, rule.exe
-        ))
-    } else if let Some(folder) = rule.folder.as_ref().filter(|f| !Path::new(f).is_dir()) {
-        Check::Blocked(format!("The folder {folder} isn't on this computer."))
-    } else {
-        // An application not allowed here must come with it: [`Plan::effective`] says
-        // whether it can.
-        Check::Ready
-    };
-    item
-}
-
-/// The key the agent at `exe` would have, as when it asks: its path, its name, and its
-/// signer or content.
-fn agent_key_at(platform: &dyn Platform, exe: &str, name: &str) -> Option<String> {
-    let origin = platform.origin_of(exe);
-    let agent = AgentIdentity {
-        pid: 0,
-        started: 0,
-        started_at: None,
-        exe: Some(exe.to_owned()),
-        name: name.to_owned(),
-        chain: Vec::new(),
-        signed: origin
-            .get("signed")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_owned(),
-        signer: origin
-            .get("signer")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    };
-    rules::agent_key(platform, &agent)
 }
 
 /// What of a command line isn't on this computer: the program, or a path among its

@@ -50,14 +50,6 @@ impl Question {
         });
     }
 
-    /// Yes to use a program, with "Always allow" ticked.
-    pub fn allow_always(self) {
-        self.answer(Reply::Allow {
-            scope: Scope::Once,
-            always: true,
-        });
-    }
-
     pub fn deny(self) {
         self.answer(Reply::Deny);
     }

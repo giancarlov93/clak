@@ -2,8 +2,8 @@
 //! starts at once (a server connects, an application is allowed), as if the user had added
 //! it now. Nothing already here is removed or replaced, but a missing secret.
 //!
-//! The order matters: the applications first, because the presets and the rules name them
-//! by their key, which may have changed if the user pointed one to where it is now. The
+//! The order matters: the applications first, because the presets name them by their key,
+//! which may have changed if the user pointed one to where it is now. The
 //! commands the user approved come last, with the programs restored: an application under
 //! its key here, a server or an API under its id here (found by its address).
 
@@ -11,7 +11,6 @@ use crate::plan::{Check, Here, HereApi, HereConnector, Kind, Plan};
 use clak_apis::{ApiDraft, ApiHub};
 use clak_connectors::ConnectorHub;
 use clak_hub::Broker;
-use clak_hub::launch::Target;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -28,12 +27,9 @@ impl Targets<'_> {
     /// What is here now, to check a backup against. `path` is the user's PATH (see
     /// `clak_connectors::launch::user_path`, slow on the Mac).
     pub fn here(&self, path: std::ffi::OsString) -> Here {
-        let (apps, rules) = self
-            .broker
-            .run(|c| (c.permissions().all(), c.rules.all().to_vec()));
+        let apps = self.broker.run(|c| c.permissions().all());
         Here {
             apps,
-            rules,
             connectors: self
                 .connectors
                 .entries()
@@ -96,7 +92,7 @@ pub async fn restore(plan: &Plan, chosen: &HashSet<String>, to: &Targets<'_>) ->
         plan.items
             .iter()
             .filter(move |i| i.kind == kind && chosen.contains(&i.id))
-            .filter(|i| plan.effective(i).restorable())
+            .filter(|i| i.check.restorable())
     };
 
     // The applications, and where each old key leads now.
@@ -238,30 +234,6 @@ pub async fn restore(plan: &Plan, chosen: &HashSet<String>, to: &Targets<'_>) ->
     }
     to.broker.run(|c| c.settle_calls(None));
 
-    for item in picked(Kind::Rule) {
-        let mut rule = plan.contents.rules[item.index].clone();
-        if let Target::App(key) = &rule.program.target {
-            let key = keys.get(key).cloned().unwrap_or_else(|| key.clone());
-            if to.broker.run(|c| c.permissions().get(&key).is_none()) {
-                outcomes.push(outcome(
-                    item,
-                    Err(format!("“{}” wasn't restored.", rule.label)),
-                ));
-                continue;
-            }
-            rule.program.target = Target::App(key);
-        }
-        let done = to.broker.run(|c| c.restore_rule(rule));
-        outcomes.push(outcome(
-            item,
-            Ok(if done {
-                "Always allowed again."
-            } else {
-                "Already here."
-            }
-            .to_owned()),
-        ));
-    }
     outcomes
 }
 
