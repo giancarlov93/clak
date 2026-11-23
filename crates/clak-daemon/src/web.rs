@@ -622,7 +622,6 @@ async fn revoke(
     let message = match body.get("kind").and_then(Value::as_str) {
         Some("grant") => json!({ "type": "revoke", "grant_id": id }),
         Some("agent") => json!({ "type": "forget_session", "session_id": id }),
-        Some("rule") => json!({ "type": "forget_rule", "id": id }),
         Some("app") => json!({ "type": "forget_app", "key": id }),
         Some("block") => json!({ "type": "unblock", "id": id }),
         _ => {
@@ -692,7 +691,6 @@ fn permissions(snapshot: &Value) -> Value {
         "blocks": blocks,
         "commands": snapshot["commands"],
         "agents": agents,
-        "rules": list("rules"),
         "apps": list("apps"),
     })
 }
@@ -814,7 +812,7 @@ mod tests {
         }
     }
 
-    /// A command's question; with `always`, it can be made standing.
+    /// A command's question; with `always`, it offers a box to tick besides the scopes.
     fn question(id: &str, always: bool) -> ConsentRequest {
         ConsentRequest {
             asks: None,
@@ -834,7 +832,7 @@ mod tests {
                     (Scope::Session, "“read” for this agent's session".into()),
                     (Scope::Approve, "Approve “read”, as it is, for notes".into()),
                 ],
-                always: always.then(|| "Always allow Claude Code to use notes".into()),
+                always: always.then(|| "Also approve its commands, as they are".into()),
                 block: Some("Block notes for Claude Code".into()),
             }),
         }
@@ -1185,13 +1183,14 @@ mod tests {
         let served = Served::start().await;
         let cookie = served.session().await;
         let state = served.state(&cookie).await;
-        for key in ["grants", "agents", "rules", "apps"] {
+        for key in ["grants", "agents", "apps"] {
             assert_eq!(state[key], json!([]), "{key}");
         }
         for (kind, status) in [
             ("grant", 200),
             ("agent", 200),
-            ("rule", 200),
+            // "Always allow" is gone: an agent's permission never outlives its process.
+            ("rule", 400),
             ("app", 200),
             ("block", 200),
             ("everything", 400),
@@ -1219,7 +1218,6 @@ mod tests {
             "sessions": [{ "id": "s1", "label": "Claude Code", "exe": "/x/claude", "cwd": "/srv", "via": "cli", "since": 1.0, "pid": 9 }],
             "resources": [{ "id": "r1", "name": "notes" }],
             "grants": [{ "id": "g1", "session_id": "s1", "resource_id": "r1", "since": 2.0, "tools": ["read"], "calls": 3 }],
-            "rules": [{ "id": "rule1" }],
             "apps": [{ "key": "k1" }],
         });
         let view = permissions(&snapshot);
@@ -1228,7 +1226,6 @@ mod tests {
         assert_eq!(view["grants"][0]["calls"], 3);
         assert_eq!(view["agents"][0]["cwd"], "/srv");
         assert!(view["agents"][0].get("pid").is_none());
-        assert_eq!(view["rules"][0]["id"], "rule1");
         assert_eq!(view["apps"][0]["key"], "k1");
     }
 }

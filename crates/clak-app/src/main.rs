@@ -168,6 +168,7 @@ fn main() {
             commands::consent_answer,
             commands::consent_fill,
             commands::consent_open,
+            commands::consent_command,
             commands::consent_resize,
             commands::flyout_resize,
             commands::open_panel,

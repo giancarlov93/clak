@@ -9,9 +9,7 @@ use clak_apis::{ApiAuth, ApiDraft, ApiEndpoint, ApiHub, ApiStore, AuthKind};
 use clak_backup::{Backup, Check, Contents, Cost, Done, Lock, Plan, Settings, Targets};
 use clak_connectors::launch::Launch;
 use clak_connectors::{ConnectorHub, ConnectorStore};
-use clak_hub::launch::{PresetProgram, Target};
 use clak_hub::permissions::{AppPermissions, Entry};
-use clak_hub::rules::{Rule, Rules};
 use clak_hub::{AgentIdentity, Hub, HubOptions, Platform};
 use clak_platform::{PlainBox, SecretBox};
 use serde_json::{Map, Value, json};
@@ -95,32 +93,6 @@ fn app(exe: &str, name: &str) -> Entry {
     }
 }
 
-fn rule(agent_exe: &str, folder: Option<&Path>, app_key: &str, label: &str) -> Rule {
-    let agent = AgentIdentity {
-        pid: 1,
-        started: 1,
-        started_at: None,
-        exe: Some(agent_exe.to_owned()),
-        name: "Claude Code".into(),
-        chain: Vec::new(),
-        signed: "valid".into(),
-        signer: Some("Tests".into()),
-    };
-    Rule {
-        id: clak_wire::json::new_id("rule"),
-        agent_key: clak_hub::rules::agent_key(&FakePlatform, &agent).unwrap(),
-        agent: "Claude Code".into(),
-        exe: agent_exe.to_owned(),
-        folder: folder.map(text),
-        program: PresetProgram {
-            target: Target::App(app_key.to_owned()),
-            tools: None,
-        },
-        label: label.to_owned(),
-        since: 2.0,
-    }
-}
-
 fn endpoint() -> ApiEndpoint {
     ApiEndpoint {
         name: "list".into(),
@@ -150,17 +122,18 @@ fn first() -> First {
     std::fs::create_dir_all(disk.join("work")).unwrap();
     let rhino = app(&program(&disk, "rhino.exe", "rhino 8"), "Rhino");
     let tool = app(&program(&disk, "unsigned-tool.exe", "tool 1"), "Tool");
-    let agent = program(&disk, "claude.exe", "claude");
     let server = program(&disk, "server.js", "// a server");
 
     let mut apps = AppPermissions::load(home.join("apps.json"));
     std::fs::create_dir_all(&home).unwrap();
     assert!(apps.restore(rhino.clone()));
     assert!(apps.restore(tool.clone()));
-    let mut rules = Rules::load(home.join("rules.json"));
-    assert!(rules.restore(rule(&agent, Some(&disk.join("work")), &rhino.key, "Rhino")));
-    assert!(rules.restore(rule(&agent, None, &tool.key, "Tool")));
-    assert!(rules.restore(rule(&agent, Some(&disk.join("gone")), &rhino.key, "Rhino")));
+    // An "Always allow" an older version kept: never in a backup.
+    std::fs::write(
+        home.join("rules.json"),
+        json!({ "rules": [{ "id": "rule_1", "agent_key": "k", "agent": "Claude Code", "exe": "claude.exe", "program": { "app": rhino.key }, "label": "Rhino", "since": 2.0 }] }).to_string(),
+    )
+    .unwrap();
 
     let connectors = ConnectorStore::new(&home, secrets(&home, "connectors.secrets"));
     connectors
@@ -345,7 +318,8 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
     let first = first();
     let contents = backed_up(&first);
     assert_eq!(contents.connectors.len(), 3);
-    assert_eq!(contents.rules.len(), 3);
+    assert!(contents.to_json().get("rules").is_none());
+    assert!(contents.counts().get("rules").is_none());
 
     // On the other computer the unsigned tool is another version, and a folder is missing.
     std::fs::write(&first.tool.exe, "tool 2").unwrap();
@@ -373,13 +347,6 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
     assert_eq!(state(&plan, "Shop", Api).check, Check::Ready);
     assert_eq!(state(&plan, "Work", Preset).check, Check::Ready);
     assert!(matches!(state(&plan, "Gone", Preset).check, Check::Warn(_)));
-    let rules: Vec<_> = plan.items.iter().filter(|i| i.kind == Rule).collect();
-    assert_eq!(rules[0].check, Check::Ready);
-    assert!(
-        matches!(plan.effective(rules[1]), Check::Blocked(why) if why.contains("“Tool”")),
-        "a rule follows its application"
-    );
-    assert!(matches!(&rules[2].check, Check::Blocked(why) if why.contains("gone")));
 
     // The panel's view has no secret, no key.
     let view = clak_wire::json::text(&plan.view());
@@ -388,7 +355,7 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
     }
     assert!(view.contains("\"locate\":true"));
 
-    // The user points the tool to where it is now: a new key, and its rule can come along.
+    // The user points the tool to where it is now: a new key.
     let moved = program(&first.disk, "unsigned-tool-2.exe", "tool 2");
     let here = second.targets().here(Default::default());
     let located = plan
@@ -399,7 +366,6 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
     assert!(located.chosen);
     let new_key = located.moved.as_ref().unwrap().0.clone();
     assert_ne!(new_key, first.tool.key);
-    assert_eq!(plan.effective(rules_of(&plan)[1]), Check::Ready);
 
     // Everything ticked, the blocked ones too: they are skipped all the same.
     let all: HashSet<String> = plan.items.iter().map(|i| i.id.clone()).collect();
@@ -420,22 +386,16 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
         said("Gone", Preset).unwrap().1,
         "Restored: change its folder."
     );
-    assert_eq!(
-        outcomes.iter().filter(|o| o.kind == Rule).count(),
-        2,
-        "the rule without its folder isn't tried: {outcomes:?}"
-    );
     assert!(outcomes.iter().all(|o| o.ok), "{outcomes:?}");
 
     // What the second computer has now.
     let broker = second.hub.as_ref().unwrap().broker().clone();
-    let (apps, rules) = broker.run(|c| (c.permissions().all(), c.rules.all().to_vec()));
+    let apps = broker.run(|c| c.permissions().all());
     let keys: Vec<&str> = apps.iter().map(|a| a.key.as_str()).collect();
     assert_eq!(keys, vec![first.rhino.key.as_str(), new_key.as_str()]);
     assert_eq!(apps[1].exe, moved);
     assert_eq!(apps[1].command.as_deref(), Some("tool"));
-    assert_eq!(rules.len(), 2);
-    assert_eq!(rules[1].program.target, Target::App(new_key.clone()));
+    assert!(!second.home.join("rules.json").exists());
 
     let store = ConnectorStore::new(&second.home, secrets(&second.home, "connectors.secrets"));
     let entries = store.all();
@@ -463,7 +423,7 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
         &first.apis,
     ));
     for item in &again.items {
-        let check = again.effective(item);
+        let check = &item.check;
         assert!(
             !matches!(check, Check::Ready | Check::Secret),
             "{} again: {check:?}",
@@ -473,13 +433,6 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
 
     second.stop().await;
     std::fs::remove_dir_all(&first.disk).ok();
-}
-
-fn rules_of(plan: &Plan) -> Vec<&clak_backup::Item> {
-    plan.items
-        .iter()
-        .filter(|i| i.kind == clak_backup::Kind::Rule)
-        .collect()
 }
 
 #[test]

@@ -6,8 +6,8 @@
 //! one does. A command line goes as it is: if one carries a key, the panel says so before
 //! saving.
 //!
-//! Nor does a permission: the allowed applications and the "Always allow" rules stay on this
-//! computer. They are given only in the consent windows; a file must not be able to give
+//! Nor does a permission: the allowed applications stay on this computer. They are given
+//! only in the consent windows; a file must not be able to give
 //! one. The backup (`backup.rs`) is what carries the secrets and the permissions: locked with
 //! the user's password, and each permission checked against the program on this computer.
 

@@ -16,11 +16,10 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// panel: the question windows show text programs and agents wrote.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, window: WebviewWindow, message: Map<String, Value>) {
-    const ALLOWED: [&str; 14] = [
+    const ALLOWED: [&str; 13] = [
         "revoke",
         "forget_session",
         "forget_app",
-        "forget_rule",
         "unblock",
         "commands",
         "command_state",
@@ -129,6 +128,20 @@ pub fn consent_open(app: AppHandle, window: WebviewWindow, id: String) -> Result
         return Err("Not this question's window.".into());
     }
     bridge::of(&app).prompt().open_page(&id)
+}
+
+/// The command a question is about, in full, in a window of its own: only from that question's
+/// window. Async: a window is built off the main thread's command queue.
+#[tauri::command]
+pub async fn consent_command(
+    app: AppHandle,
+    window: WebviewWindow,
+    id: String,
+) -> Result<(), String> {
+    if window.label() != crate::prompt::label(&id) {
+        return Err("Not this question's window.".into());
+    }
+    bridge::of(&app).prompt().show_command(&id)
 }
 
 #[tauri::command]

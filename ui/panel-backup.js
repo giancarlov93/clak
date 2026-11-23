@@ -224,7 +224,6 @@ const Backup = (() => {
     ["connector", "MCP servers"],
     ["api", "APIs"],
     ["preset", "Presets"],
-    ["rule", "Always allow"],
   ];
 
   const from = (h) => {
@@ -294,7 +293,7 @@ const Backup = (() => {
       r.plan.foreign
         ? Kit.bar("warn", "This backup comes from another system: each path of that computer was checked here.")
         : null,
-      el("div", { class: "quiet hint" }, "Nothing here is removed or replaced. An application or a rule is restored only if its program is the same one at the same place; a server whose program isn't here comes back turned off."
+      el("div", { class: "quiet hint" }, "Nothing here is removed or replaced. An application is restored only if its program is the same one at the same place; a server whose program isn't here comes back turned off."
         + (r.plan.counts?.commands ? " The commands you approved come back with the applications, servers and APIs restored, each as it was approved." : "")),
       GROUPS.map(([kind, title]) => {
         const items = r.plan.items.filter((i) => i.kind === kind);

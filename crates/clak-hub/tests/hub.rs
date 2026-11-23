@@ -234,7 +234,7 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
     let (_, _) = tokio::join!(
         hub.call("claude", "test-notepad", "get_text", None, None),
         async {
-            hub.prompt.next(ConsentKind::Use).await.allow_always();
+            hub.prompt.next(ConsentKind::Use).await.allow();
             hub.prompt.next(ConsentKind::Call).await.approve();
         }
     );
@@ -256,7 +256,7 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
             .is_err()
     );
 
-    // The open document follows at once: its name for the agents, and the rule's program.
+    // The open document follows at once: its name for the agents.
     broker
         .run(|c| c.edit_app(&key, Some(" Shopping "), Some("shop")))
         .unwrap();
@@ -266,7 +266,6 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
     assert_eq!(state["apps"][0]["name"], "Test Notepad");
     assert_eq!(state["resources"][0]["name"], "shop");
     assert_eq!(state["resources"][0]["resource"]["app"], "Shopping");
-    assert_eq!(state["rules"][0]["program"], "Shopping");
     assert!(ok(&hub
         .call("claude", "shop", "get_text", None, None)
         .await));
@@ -297,7 +296,7 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
     assert_eq!(state["apps"][0]["command"], Value::Null);
     assert_eq!(state["resources"][0]["name"], "test-notepad");
 
-    // Moved: remembered by the new file, with the rule; nowhere is refused.
+    // Moved: remembered by the new file; nowhere is refused.
     assert!(
         broker
             .move_app(&key, hub.home.join("nothing.exe").display().to_string())
@@ -314,13 +313,6 @@ async fn the_user_renames_an_allowed_application_gives_it_a_command_and_moves_it
     assert_eq!(state["apps"].as_array().unwrap().len(), 1);
     assert_eq!(state["apps"][0]["exe"], moved.display().to_string());
     assert_ne!(state["apps"][0]["key"], key.as_str());
-    // Read as JSON: on Windows the keys hold backslashes, escaped in the file.
-    let saved: Value =
-        serde_json::from_slice(&std::fs::read(hub.home.join("rules.json")).unwrap()).unwrap();
-    assert_eq!(
-        saved["rules"][0]["program"]["app"], state["apps"][0]["key"],
-        "{saved}"
-    );
     // The old place is another executable now: it asks again.
     let old = hub.new_app("Test Notepad", "other.txt");
     old.resource.connect().await.unwrap();
@@ -1147,96 +1139,34 @@ async fn using_and_approving_are_for_the_application_not_the_instance() {
 }
 
 #[tokio::test]
-async fn always_allow_makes_a_standing_rule_for_that_agent_and_program() {
+async fn a_yes_to_use_a_program_never_outlives_the_agent_s_process() {
     let hub = TestHub::start().await;
     let _app = hub.register().await;
 
+    // No "Always allow": the yes holds for this process only.
     let (result, _) = tokio::join!(
         hub.call("claude", "test-notepad", "get_text", None, None),
         async {
             let question = hub.prompt.next(ConsentKind::Use).await;
-            let offer = question.request.choices.clone().unwrap().always.unwrap();
-            assert!(offer.contains("claude"), "{offer}");
-            assert!(
-                offer.contains("Test Notepad (all its instances)"),
-                "{offer}"
-            );
-            assert!(offer.contains(r"C:\Projects\demo"), "{offer}");
-            question.allow_always();
+            assert_eq!(question.request.choices.clone().unwrap().always, None);
+            question.allow();
             // The command is another matter: it asks, and here it is approved.
             hub.prompt.next(ConsentKind::Call).await.approve();
         }
     );
     assert!(ok(&result));
-    let rules = hub.snapshot().await["rules"].as_array().unwrap().clone();
-    assert_eq!(rules.len(), 1);
-    assert_eq!(rules[0]["program"], "Test Notepad");
-    assert_eq!(rules[0]["folder"], r"C:\Projects\demo");
-    assert!(rules[0]["commands"].is_null());
-    let saved = std::fs::read_to_string(hub.home.join("rules.json")).unwrap();
-    assert!(saved.contains("Test Notepad"), "{saved}");
 
-    // The same agent in a new process: no question, the rule covers it and the command is
-    // approved. Another command still asks.
+    // The same agent in a new process, in the same folder: it asks again to use the
+    // program. The command, approved, then runs without asking.
     hub.platform.restart("claude");
-    let again = hub
-        .call("claude", "test-notepad", "get_text", None, None)
-        .await;
-    assert_eq!(content(&again), Some("milk"));
-    hub.prompt.quiet(100).await;
-    let (_, _) = tokio::join!(
-        hub.call(
-            "claude",
-            "test-notepad",
-            "append_text",
-            Some(json!({"text": "x"})),
-            None
-        ),
-        async {
-            hub.prompt.next(ConsentKind::Call).await.allow();
-        }
-    );
-
-    // A new process in another folder, or another agent: they ask.
-    hub.platform.restart("claude");
-    let (elsewhere, _) = tokio::join!(
-        hub.ask(
-            "claude",
-            "call",
-            Some(json!({ "resource": "test-notepad", "tool": "get_text", "arguments": {}, "cwd": r"C:\Projects\other" })),
-        ),
-        async {
-            hub.prompt.next(ConsentKind::Use).await.deny();
-        }
-    );
-    assert_eq!(code(&elsewhere), Some("denied"));
-    let (other, _) = tokio::join!(
-        hub.call("codex", "test-notepad", "get_text", None, None),
-        async {
-            hub.prompt.next(ConsentKind::Use).await.deny();
-        }
-    );
-    assert_eq!(code(&other), Some("denied"));
-
-    // Removed from the panel: the next new process asks again.
-    let (outbox, _replies) = clak_hub::core::Outbox::channel();
-    clak_hub::control_channel::panel_message(
-        hub.hub().broker(),
-        json!({ "type": "forget_rule", "id": rules[0]["id"] })
-            .as_object()
-            .unwrap(),
-        &outbox,
-        true,
-    );
-    assert!(hub.snapshot().await["rules"].as_array().unwrap().is_empty());
-    hub.platform.restart("claude");
-    let (asked, _) = tokio::join!(
+    let (again, _) = tokio::join!(
         hub.call("claude", "test-notepad", "get_text", None, None),
         async {
-            hub.prompt.next(ConsentKind::Use).await.deny();
+            hub.prompt.next(ConsentKind::Use).await.allow();
         }
     );
-    assert_eq!(code(&asked), Some("denied"));
+    assert_eq!(content(&again), Some("milk"));
+    hub.prompt.quiet(100).await;
     hub.stop().await;
 }
 
@@ -1346,11 +1276,11 @@ async fn the_list_says_how_the_agent_may_use_each_program() {
     });
     assert_eq!(access(&first), Value::Null);
 
-    // Used, with "Always allow": granted now, and a rule for the next process.
+    // Used: granted, for this process only. A new one asks again.
     let (_, _) = tokio::join!(
         hub.call("claude", "test-notepad", "get_text", None, None),
         async {
-            hub.prompt.next(ConsentKind::Use).await.allow_always();
+            hub.prompt.next(ConsentKind::Use).await.allow();
             hub.prompt.next(ConsentKind::Call).await.allow();
         }
     );
@@ -1359,7 +1289,7 @@ async fn the_list_says_how_the_agent_may_use_each_program() {
     let (again, _) = tokio::join!(hub.ask("claude", "list", None), async {
         hub.prompt.next(ConsentKind::Session).await.allow();
     });
-    assert_eq!(access(&again), "rule");
+    assert_eq!(access(&again), Value::Null);
 
     // Another agent, the program blocked from a command's question.
     let (_, _) = tokio::join!(

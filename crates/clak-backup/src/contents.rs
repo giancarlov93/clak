@@ -1,7 +1,9 @@
 //! What a backup holds: the MCP servers with their tokens, sign-ins and environment
-//! variables, the REST APIs with their secrets, the presets, the allowed applications, the
-//! "Always allow" rules and the commands the user approved. Not the usage counts, the prices, the icons nor the app's
-//! preferences: they are made again, or belong to this computer.
+//! variables, the REST APIs with their secrets, the presets, the allowed applications and
+//! the commands the user approved. Not the usage counts, the prices, the icons nor the app's
+//! preferences: they are made again, or belong to this computer. The "Always allow" rules
+//! of older versions are left out, read or written: an agent's permission to use a program
+//! never outlives its process.
 //!
 //! It is read from the hub's folder and from the secret store, the same ones the hub reads
 //! (on the Mac the Keychain), and exists in plain text only in memory: sealed in the file,
@@ -12,7 +14,6 @@ use clak_connectors::launch::Launch;
 use clak_connectors::{ConnectorEntry, ConnectorStore, OAuthGrant};
 use clak_hub::commands::{self, CommandCache, Program};
 use clak_hub::permissions::{AppPermissions, Entry};
-use clak_hub::rules::{Rule, Rules};
 use clak_wire::json as wire;
 use hmac::{Hmac, Mac};
 use serde_json::{Map, Value, json};
@@ -49,7 +50,6 @@ pub struct Contents {
     pub apis: Vec<SavedApi>,
     pub presets: Vec<Map<String, Value>>,
     pub apps: Vec<Entry>,
-    pub rules: Vec<Rule>,
     /// The programs' commands, with what the user approved: restored with the programs.
     pub commands: Vec<Program>,
 }
@@ -82,7 +82,6 @@ impl Contents {
                 .collect(),
             presets: clak_setup::presets::all(home),
             apps: AppPermissions::load(home.join("apps.json")).all(),
-            rules: Rules::load(home.join("rules.json")).all().to_vec(),
             commands: CommandCache::load(home.join("commands.json"))
                 .all()
                 .cloned()
@@ -97,7 +96,6 @@ impl Contents {
             "apis": self.apis.len(),
             "presets": self.presets.len(),
             "apps": self.apps.len(),
-            "rules": self.rules.len(),
             "commands": self.commands.iter().map(|p| p.commands.len()).sum::<usize>(),
         })
     }
@@ -107,7 +105,6 @@ impl Contents {
             && self.apis.is_empty()
             && self.presets.is_empty()
             && self.apps.is_empty()
-            && self.rules.is_empty()
             && self.commands.is_empty()
     }
 
@@ -121,7 +118,6 @@ impl Contents {
             }).collect::<Vec<_>>(),
             "presets": self.presets,
             "apps": self.apps.iter().map(app_json).collect::<Vec<_>>(),
-            "rules": self.rules.iter().map(Rule::to_json).collect::<Vec<_>>(),
             "commands": { "programs": self.commands.iter().map(commands::program_to_json).collect::<Vec<_>>() },
         })
     }
@@ -157,7 +153,6 @@ impl Contents {
                 })
                 .collect(),
             apps: list("apps").iter().filter_map(app_from).collect(),
-            rules: list("rules").iter().filter_map(Rule::from_json).collect(),
             commands: value
                 .get("commands")
                 .map(CommandCache::programs_from_json)

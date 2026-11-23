@@ -163,8 +163,8 @@ const serverCard = (q) => {
 
 const questionCard = (q) => {
   if (q.form || q.page) return serverCard(q);
-  // The scopes of a command's question (this call by default), "always" for the question to
-  // use a program, and the block.
+  // The scopes of a command's question (this call by default), "always" where the question
+  // offers it, and the block.
   const choices = q.choices;
   const scopeList = choices?.scopes || [];
   let scope = scopeList[0]?.value || "once";
@@ -313,12 +313,6 @@ const render = (state) => {
         el("p", { class: "title" }, a.label),
         el("p", { class: "meta" }, [a.exe, a.cwd ? `in ${a.cwd}` : null, `since ${ago(a.since, now)}`].filter(Boolean).join(" · "))),
       takeAway("agent", a.id, a.label)));
-  list($("rules"), state.rules || [], "No standing rule.", (r) =>
-    el("div", { class: "card row" },
-      el("div", {},
-        el("p", { class: "title" }, `${r.agent} → ${r.program}`),
-        el("p", { class: "meta" }, [r.folder ? `in ${r.folder}` : "in any folder", `since ${ago(r.since, now)}`].join(" · "))),
-      takeAway("rule", r.id, `${r.agent} → ${r.program}`)));
   list($("apps"), state.apps || [], "No application allowed.", (a) =>
     el("div", { class: "card row" },
       el("div", {},

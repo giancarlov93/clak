@@ -126,7 +126,9 @@ pub enum Elicited {
 pub struct Choices {
     /// How far a yes goes: «Only this call», «For this agent's session», «Approve…».
     pub scopes: Vec<(Scope, String)>,
-    /// The offer to make the yes standing, when it can be.
+    /// The offer to approve, with the yes, a program's commands as they are: only when it
+    /// first connects. Never an agent's permission to use a program: that one ends with the
+    /// agent's process.
     pub always: Option<String>,
     /// «Block Notion for Claude Code».
     pub block: Option<String>,
@@ -234,7 +236,8 @@ pub enum Reply {
     Block,
     Allow {
         scope: Scope,
-        /// The user also ticked "always": the yes becomes a standing rule.
+        /// The user also ticked "always", where the question offers it: when a program
+        /// first connects, its commands approved as they are.
         always: bool,
     },
 }

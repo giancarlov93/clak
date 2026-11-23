@@ -9,7 +9,7 @@
 :root[data-theme="dark"] { --sheet: rgba(40, 40, 42, 0.78); }
 
 /* The window can't grow past the screen: what doesn't fit scrolls, and the buttons stay in
-   sight at the bottom. What can be long (the commands, their arguments, a change, the
+   sight at the bottom. What can be long (the commands, a change, the
    details) scrolls in its own box first, so one long part doesn't push the others away. */
 body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 html.mac body { background: var(--sheet); }
@@ -71,39 +71,42 @@ html.win .caption { text-transform: none; letter-spacing: 0; font-size: 12px; }
 .sig.runtime { color: var(--quiet); background: color-mix(in srgb, var(--quiet) 14%, transparent); }
 .lines.change { padding: 8px 0; grid-template-columns: 100px 1fr; max-height: 200px; overflow-y: auto; }
 
-/* --- the commands ------------------------------------------------------------------ */
+/* --- the commands: names, and the one a command's question is about ------------------ */
 
 #tools-block h2 { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
 .count { font-weight: 500; letter-spacing: 0; color: var(--faint); }
-.tools-full { max-height: 180px; overflow-y: auto; padding: 8px 14px; }
-.tool { margin: 3px 0; }
-.tool .name { font-family: var(--mono); font-weight: 600; }
-.tool .note { color: var(--caution); margin-left: 6px; }
-.tool .description { color: var(--quiet); font-size: 12px; }
-.tool .changes, .tool .parameters { margin: 6px 0 2px; font-size: 12px; grid-template-columns: minmax(80px, max-content) 1fr; }
-.tool .changes dd, .tool .parameters dd { overflow-wrap: anywhere; }
-.tool .parameters dt { font-family: var(--mono); }
-.tool + .tool { margin-top: 10px; }
 
 /* Four rows of names and half of the fifth, so that it shows there are more: they scroll. */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 136px; overflow-y: auto; }
 html button.chip {
+  display: inline-flex; align-items: baseline; gap: 6px;
   font-family: var(--mono); font-size: 12px;
   min-height: 0; padding: 3px 10px; border-radius: 999px;
   background: var(--subtle); border: 1px solid transparent; box-shadow: none;
 }
 html button.chip:hover:not(:disabled) { background: var(--control-hover); border-color: var(--stroke); }
 html button.chip.on { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.chip-note { font-family: -apple-system, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; font-size: 11px; color: var(--caution); }
 .chip-text { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--subtle); max-height: 120px; overflow-y: auto; }
+.chip-name { display: block; font-family: var(--mono); font-weight: 600; color: var(--text); margin-bottom: 2px; }
 
-/* --- a command's arguments, and how far the yes goes --------------------------------- */
+/* A command's question: its command as one row, that opens it in a window of its own. */
+html button.command {
+  display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 12px;
+  text-align: left; padding: 8px 12px; min-height: 0;
+  background: var(--card); border: 1px solid var(--stroke); border-radius: var(--radius-card); box-shadow: none;
+}
+html button.command:hover:not(:disabled) { background: var(--subtle-hover); }
+.command .name { font-family: var(--mono); font-weight: 600; min-width: 0; }
+.command .tag { flex: none; font-size: 11px; font-weight: 500; color: var(--caution); padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--caution) 14%, transparent); }
+.command .more { margin-left: auto; flex: none; font-size: 12px; color: var(--quiet); }
+.command .chevron { flex: none; color: var(--faint); font-size: 18px; line-height: 1; margin-top: -2px; }
 
-#arguments-block h2 { display: flex; align-items: center; gap: 6px; margin-top: 16px; }
-.arguments { margin: 0; padding: 8px 14px; font-size: 12px; grid-template-columns: minmax(60px, max-content) 1fr; max-height: 160px; overflow-y: auto; }
-.arguments dt { font-family: var(--mono); }
-.arguments dd { font-family: var(--mono); overflow-wrap: anywhere; }
+/* --- how far a yes goes: by the buttons, never scrolled away ------------------------- */
 
-.scope { border: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+#decide { flex: none; padding: 12px 24px 0; }
+html.mac #decide { padding: 10px 22px 0; }
+.scope { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .scope legend { padding: 0; margin-bottom: 4px; font-size: 12px; color: var(--quiet); }
 .scope label { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: default; }
 .scope input { margin-top: 2px; flex: none; }
@@ -133,7 +136,8 @@ html.mac .buttons button { min-width: 90px; min-height: 28px; }
 
 /* --- "Always allow": a yes that holds from now on, never ticked from the start ------- */
 
-.always { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; font-size: 13px; cursor: default; }
+.always { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: default; }
+.scope:not(.hidden) + .always { margin-top: 10px; }
 .always input { margin-top: 2px; flex: none; }
 .queue { font-variant-numeric: tabular-nums; }
 

@@ -28,7 +28,8 @@ pub enum Which {
 }
 
 /// Whether the agent may use it now without being asked first (its commands not approved
-/// still ask). A hub that doesn't say `access` says `allowed`.
+/// still ask). A hub that doesn't say `access` says `allowed`; `rule` is an older hub's
+/// "Always allow".
 pub fn usable(resource: &Object) -> bool {
     if flag(resource, "blocked") {
         return false;

@@ -289,7 +289,7 @@ denied without asking. Don't reconnect on your own: wait for the user to try aga
 {"type": "granted", "grant_id": "grant_6fb2ce07232e", "harness": "Claude Code · shopping"}
 ```
 
-An agent may now use the resource: the user allowed it (or a preset, or an "Always allow",
+An agent may now use the resource: the user allowed it, for the agent's session (or a preset
 did). The commands the user hasn't approved still ask, at each call. `harness` names the agent
 for the user, as the agent and the folder it works in: showing who is using the resource is
 good practice.
@@ -436,9 +436,9 @@ precise `app` name: allowing one plugin of a host doesn't allow another with a d
 `app`.
 
 **Agents.** Every agent asks the user before it uses a program the first time, for its
-session (or the user ticks "Always allow"); an agent the user launched from Clak with a
-preset doesn't, for the programs the preset names, so its grants arrive without a question
-(still as `granted`). Then each command the user hasn't approved asks, showing the arguments
+session, and never for good; an agent the user launched from Clak with a preset doesn't,
+for the programs the preset names, so its grants arrive without a question (still as
+`granted`). Then each command the user hasn't approved asks, showing the arguments
 the agent sends. Grants end when the agent's process ends, when the user revokes them or
 blocks the program, or when the connection closes.
 

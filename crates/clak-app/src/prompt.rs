@@ -13,8 +13,10 @@
 //!
 //! A command's question says how far a yes goes: this call, the command for the agent's
 //! session, or approved in Clak; the questions about a program can also block it for the
-//! agent. The yes to use a program can come with "Always allow" ticked, when the question
-//! offers it: the hub then makes it a standing rule (`clak_hub::rules`).
+//! agent. The command itself is one row: what it does, what it takes and what the agent sends
+//! open in a window of their own beside the question ([`WindowPrompt::show_command`]), which
+//! goes with it. The yes to use a program holds for the agent's session only: nothing makes
+//! it standing. When a program first connects, its commands can be approved with the yes.
 //!
 //! An MCP server's question halfway through a command (elicitation) can be a form: the user
 //! clicks into the window to type, since it doesn't take the focus by itself, and what they
@@ -40,6 +42,9 @@ const GAP: f64 = 12.0;
 const HEIGHT: f64 = 420.0;
 /// If the page never says its height, the question appears anyway after this.
 const FALLBACK: Duration = Duration::from_millis(1500);
+/// The window with a command's question in full.
+const COMMAND_WIDTH: f64 = 560.0;
+const COMMAND_HEIGHT: f64 = 600.0;
 
 struct Open {
     request: Value,
@@ -81,6 +86,14 @@ pub struct WindowPrompt {
 pub fn label(id: &str) -> String {
     format!(
         "consent-{}",
+        id.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+    )
+}
+
+/// The window of a question's command, in full: never taken for a question's own.
+fn command_label(id: &str) -> String {
+    format!(
+        "command-{}",
         id.replace(|c: char| !c.is_ascii_alphanumeric(), "-")
     )
 }
@@ -220,6 +233,67 @@ impl WindowPrompt {
         self.close(id);
     }
 
+    /// The command a question is about, in full, in a window of its own beside it: what it
+    /// does, what it takes, what changed, what the agent sends. It answers nothing, and goes
+    /// with the question. Asked again, the one already open comes to the front.
+    pub fn show_command(&self, id: &str) -> Result<(), String> {
+        let name = {
+            let questions = self.questions();
+            let open = questions
+                .open
+                .get(id)
+                .ok_or("This question is no longer open.")?;
+            open.request["tools"][0]["name"]
+                .as_str()
+                .unwrap_or("command")
+                .to_owned()
+        };
+        if let Some(window) = self.app.get_webview_window(&command_label(id)) {
+            let _ = window.set_focus();
+            return Ok(());
+        }
+        let url = WebviewUrl::App(format!("command.html?id={id}").into());
+        let builder = WebviewWindowBuilder::new(&self.app, command_label(id), url)
+            .title(format!("Clak — {name}"))
+            .inner_size(COMMAND_WIDTH, COMMAND_HEIGHT)
+            .min_inner_size(420.0, 280.0)
+            .maximizable(false)
+            .minimizable(false)
+            // Above the other windows, as its question: behind it, it would never be seen.
+            .always_on_top(true);
+        let builder = match self.beside(id) {
+            Some((x, y)) => builder.position(x, y),
+            None => builder.center(),
+        };
+        crate::look::window(builder)
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Where the command's window goes: beside its question, away from the corner, inside the
+    /// screen. Logical, as the builder takes it.
+    fn beside(&self, id: &str) -> Option<(f64, f64)> {
+        let question = self.app.get_webview_window(&label(id))?;
+        let at = question.outer_position().ok()?;
+        let monitor = question.current_monitor().ok().flatten()?;
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let (left, top) = (area.position.x as f64, area.position.y as f64);
+        let bottom = top + area.size.height as f64;
+        let (width, height, gap) = (COMMAND_WIDTH * scale, COMMAND_HEIGHT * scale, GAP * scale);
+        let x = (at.x as f64 - width - gap).max(left + gap);
+        let y = (at.y as f64).min(bottom - height - gap).max(top + gap);
+        Some((x / scale, y / scale))
+    }
+
+    /// The command's window goes with its question.
+    fn close_command(&self, id: &str) {
+        if let Some(window) = self.app.get_webview_window(&command_label(id)) {
+            let _ = window.destroy();
+        }
+    }
+
     /// The page says how tall it is: the window adapts and the stack is rebuilt. The first
     /// time, the question appears.
     pub fn resize(&self, id: &str, height: f64) {
@@ -275,12 +349,13 @@ impl WindowPrompt {
         if let Some(window) = self.app.get_webview_window(&label(id)) {
             let _ = window.destroy();
         }
+        self.close_command(id);
         self.stack();
     }
 
     /// Closed with the X (or by the system): it is a no, unless there was already an answer.
     pub fn closed_window(&self, window: &str) {
-        let sender = {
+        let (id, sender) = {
             let mut questions = self.questions();
             let Some(id) = questions
                 .order
@@ -291,7 +366,8 @@ impl WindowPrompt {
                 return;
             };
             questions.order.retain(|o| *o != id);
-            questions.open.remove(&id).and_then(|mut o| o.answer.take())
+            let sender = questions.open.remove(&id).and_then(|mut o| o.answer.take());
+            (id, sender)
         };
         match sender {
             Some(Answer::Reply(sender)) => drop(sender.send(Reply::Deny)),
@@ -299,6 +375,7 @@ impl WindowPrompt {
             Some(Answer::Elicited(sender)) => drop(sender.send(Elicited::Cancelled)),
             None => {}
         }
+        self.close_command(&id);
         self.stack();
     }
 

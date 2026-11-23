@@ -224,6 +224,19 @@ Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from t
   Windows Update does; the two switches stay in their own rows.
 - On Windows too, Status lays the connected programs out in a grid, as on the Mac.
 - The protocol's session diagram is a Mermaid diagram.
+- The questions take less room. The commands are names only: a tap shows what one does. A
+  command's question shows its command as one row, which opens what it does, what it takes
+  and what the agent sends (code keeps its lines) in a window of its own beside the
+  question. How far a yes goes stays by the buttons, never scrolled out of sight. On the Mac
+  "Block…" is a link again, not a button.
+
+### Removed
+
+- "Always allow" in the question to use a program: an agent's permission to use a program
+  ends with its process, and only a preset you launch it with lets it in without asking.
+  The rules made with it no longer count, are no longer listed (in Applications and on the
+  hub's web page) and no longer go into backups; `rules.json` is left where it is.
+  Approving a command, for every agent you let use its program, stays.
 
 ### Fixed
 

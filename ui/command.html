@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clak — command</title>
+  <link rel="stylesheet" href="clak.css">
+  <link rel="stylesheet" href="command.css">
+</head>
+<body>
+  <div class="titlebar" data-tauri-drag-region></div>
+  <main id="content">
+    <header>
+      <h1><span id="name" class="name selectable"></span><span id="tag" class="tag hidden"></span></h1>
+      <p id="context" class="quiet"></p>
+    </header>
+    <section id="changes-block" class="hidden">
+      <h2>What changed since you approved it</h2>
+      <dl id="changes" class="card lines"></dl>
+    </section>
+    <section id="arguments-block" class="hidden">
+      <h2>Arguments <span class="count">sent by the agent</span></h2>
+      <dl id="arguments" class="card lines code"></dl>
+    </section>
+    <section id="description-block" class="hidden">
+      <h2>What it does</h2>
+      <p id="description" class="card selectable"></p>
+    </section>
+    <section id="parameters-block" class="hidden">
+      <h2>What it takes</h2>
+      <dl id="parameters" class="card lines named"></dl>
+    </section>
+  </main>
+  <script src="clak.js"></script>
+  <script src="command.js"></script>
+</body>
+</html>
