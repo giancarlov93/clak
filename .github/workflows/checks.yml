@@ -1,13 +1,15 @@
-# On every pull request, and on main: formatting, clippy and the tests, before review. On main
-# a green run starts the release (release.yml); the same files already checked on their pull
-# request are not checked again.
+# On every pull request: formatting, clippy, the tests with coverage, and what the release does
+# besides compiling (preflight). All a release needs checked: once merged, release.yml only
+# builds and publishes, if these passed on the very same files. A pull request that changes only
+# the documentation (DOCS) skips them and, once merged, starts no release.
+# release.yml calls these checks itself only when the files on main didn't pass here (a direct
+# push, a pull request merged while main had moved on).
 # No secrets and no environment here: it runs the same for a fork.
 name: Checks
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
 
 concurrency:
   group: checks-${{ github.ref }}
@@ -24,17 +26,13 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
-  # On main: whether the files of this commit are those of a pull request whose checks passed.
-  # With a rebase the commits change but, if main hadn't moved, the files (the tree) don't.
-  # A direct push, a pull request not found or a doubt: everything runs.
-  # Only main saves the caches the pull requests start from: when this skips, caches.yml
-  # builds them after it, if the push changed what goes in them.
+  # Whether the pull request changes anything but the documentation. Called by release.yml:
+  # always.
   needed:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
-      actions: read
     outputs:
       run: ${{ steps.look.outputs.run }}
     steps:
@@ -42,21 +40,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          # The documentation: the same files as paths-ignore in release.yml.
+          DOCS: '\.md$|^docs/|^examples/|^scripts/hooks/|^\.github/CODEOWNERS$|^\.gitignore$'
         run: |
           run=true
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            tree() { gh api "repos/$REPO/git/commits/$1" --jq .tree.sha || true; }
-            pulls="repos/$REPO/commits/$SHA/pulls"
-            head=$(gh api "$pulls" --jq '[.[] | select(.merged_at != null)][0].head.sha // empty' || true)
-            mine=$(tree "$SHA")
-            if [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
-              runs="repos/$REPO/actions/workflows/checks.yml/runs?head_sha=$head&event=pull_request&status=success"
-              passed=$(gh api "$runs" --jq .total_count || echo 0)
-              if [ "${passed:-0}" -gt 0 ]; then
-                run=false
-                echo "The same files passed on their pull request ($head): nothing to check again." >> "$GITHUB_STEP_SUMMARY"
-              fi
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename') || files='?'
+            if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -qvE "$DOCS"; then
+              run=false
+              echo "Documentation only: nothing to check, and no release once merged." >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
@@ -94,6 +87,8 @@ jobs:
           for toolchain in $(rustup toolchain list --quiet | tr -d '\r'); do
             if [ "$toolchain" != "$active" ]; then rustup toolchain uninstall "$toolchain"; fi
           done
+      # Only main saves its caches (caches.yml, or these checks called by release.yml): those the
+      # pull requests start from.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -194,3 +189,44 @@ jobs:
       - name: Floor
         shell: bash
         run: cargo llvm-cov report --summary-only --fail-under-lines "$COVERAGE_FLOOR" > /dev/null
+
+  # What the release does besides compiling, so that once merged it can't stop halfway: the
+  # version, the Tauri CLI pinned in release.yml for each system the app is built on, the
+  # dependency notices of each target that ships, the release's own scripts. No build.
+  preflight:
+    needs: needed
+    if: needs.needed.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Rust
+        run: rustup toolchain install
+      - name: Version
+        run: node scripts/version.mjs | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'
+      # The systems of build in release.yml, by their Rust host.
+      - name: Tauri CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pin=$(sed -n 's/^ *TAURI_CLI: *//p' .github/workflows/release.yml)
+          test -n "$pin"
+          assets=$(gh release view "tauri-cli-v$pin" --repo tauri-apps/tauri --json assets --jq '.assets[].name')
+          for host in x86_64-pc-windows-msvc aarch64-apple-darwin; do
+            if ! printf '%s\n' "$assets" | grep -qx "cargo-tauri-$host.zip"; then
+              echo "::error::Tauri CLI $pin has nothing for $host"
+              exit 1
+            fi
+          done
+      # The targets of build and linux in release.yml.
+      - name: Notices
+        run: |
+          for target in x86_64-pc-windows-msvc aarch64-apple-darwin; do
+            node scripts/notices.mjs --target "$target" --out "$RUNNER_TEMP/notices-$target.txt"
+          done
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            node scripts/notices.mjs --target "$target" --crates clak-agent,clak-daemon \
+              --out "$RUNNER_TEMP/notices-$target.txt"
+          done
+      - name: Scripts
+        run: |
+          for script in scripts/*.mjs; do node --check "$script"; done
