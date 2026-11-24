@@ -1,71 +1,197 @@
-# Clak
+<p align="center">
+  <img src="crates/clak-app/icons/icon.svg" width="112" height="112" alt="Clak">
+</p>
 
-Clak lets the AI agents on your computer (Claude Code, Codex, Gemini CLI, OpenCode…) use your
-programs and services: what is open in a desktop program, an MCP server, a REST API.
-Nothing happens without your say: you decide which programs connect, and which agent may use
-each of them.
+<h1 align="center">Clak</h1>
 
-## How
+<p align="center">
+  <strong>Let the AI agents on your computer use your programs.</strong><br>
+  Claude Code, Codex, Gemini CLI, OpenCode… work with what is open in your desktop programs, with your MCP servers and your REST APIs, all from one command line.
+</p>
 
-- **Programs offer commands.** An open program connects to the Clak *hub* on your computer and
-  offers the commands that fit its context and its state: what is open, what is selected,
-  what can be done right now. MCP servers and REST APIs are connected too and become programs.
-- **Agents work from the command line.** Not through tools that fill their context and can't be
-  chained by a program: `clak list` shows what an agent can use, `clak <program> -h` its
-  commands, and their calls compose in scripts and pipes. What would take an agent several
-  MCP turns takes one command line. Clak installs a skill that teaches agents this.
-- **You give the permissions.** A program connects only once you allow it. Each agent asks
-  you the first time it uses each program. Clak keeps each program's commands: one you
-  haven't approved asks at each call, showing what the agent sends, and one that changes
-  after you approved it asks again, showing what changed. You can also block a program for
-  an agent. A permission ends with the agent, with the program's connection, or when you
-  revoke it. Who is asking comes from the system (the process, its executable and its
-  signature), not from what a program says about itself.
-- **Each system's own means.** The Windows tray and the Mac menu bar, the system
-  notifications, Mica on Windows 11 and glass on the Mac; the hub listens on loopback only,
-  behind a token; secrets are kept with DPAPI on Windows and in the keychain on the Mac. On
-  Linux, for servers and containers, there is the hub without an interface (see below).
+<p align="center">
+  <a href="https://github.com/giancarlov93/clak/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/giancarlov93/clak?style=flat-square&label=release&color=2F5BEA"></a>
+  <a href="https://github.com/giancarlov93/clak/actions/workflows/release.yml"><img alt="Release build" src="https://img.shields.io/github/actions/workflow/status/giancarlov93/clak/release.yml?branch=main&style=flat-square&label=build"></a>
+  <a href="https://github.com/giancarlov93/clak/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/giancarlov93/clak/total?style=flat-square&color=2F5BEA"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=flat-square">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/giancarlov93/clak?style=flat-square&color=555"></a>
+  <br>
+  <a href="rust-toolchain.toml"><img alt="Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgiancarlov93%2Fclak%2Fmain%2Frust-toolchain.toml&query=%24.toolchain.channel&label=Rust&color=000&logo=rust&logoColor=white&style=flat-square"></a>
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white">
+  <img alt="MCP 2025-11-25" src="https://img.shields.io/badge/MCP-2025--11--25-6E56CF?style=flat-square">
+  <a href="https://github.com/giancarlov93/clak/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/giancarlov93/clak/main?style=flat-square&color=555"></a>
+</p>
 
-The app around the hub shows what is connected and who is using it, asks the consent
-questions, launches agents with programs already allowed (presets), and shows what the agents'
-tokens would cost at the API's prices.
+<p align="center">
+  <a href="#install"><strong>Install</strong></a> ·
+  <a href="#how-it-works"><strong>How it works</strong></a> ·
+  <a href="docs/extensions.md"><strong>Write an extension</strong></a> ·
+  <a href="docs/protocol.md"><strong>Protocol</strong></a> ·
+  <a href="CHANGELOG.md"><strong>Changelog</strong></a>
+</p>
 
-## The pieces
+<br>
 
-```text
-crates/
-  clak-wire        strict JSON, locations (home, lockfile, pipe/socket), IPC channel
-  clak-platform    the real system: who the agent is, signatures, loopback ports, secrets
-  clak-hub         the core: programs, agents, permissions, questions, the two channels
-  clak-connectors  MCP servers: over HTTP, with a token or OAuth, or local programs over stdio
-  clak-apis        REST APIs, from OpenAPI or by hand
-  clak-settings    the settings as a program: `clak settings …`
-  clak-host        everything together, with the real system
-  clak-agent       `clak` (command line) and `clak-shim` (MCP over stdio)
-  clak-setup       the skill, PATH, start with the system, clak://, MCP clients, the agents'
-                   conversations, presets, token costs
-  clak-backup      backups locked with the user's password, and their restore after a check
-  clak-kit         the program side, for writing programs in Rust
-  clak-daemon      the hub on its own, without an interface
-  clak-app         the Tauri app: tray, notifications, consent, panel
-ui/                the app's pages (plain HTML, CSS and JS, no bundler)
-docs/              the program protocol and the extension guide
-examples/          the same minimal extension in Python, JavaScript and C#
-scripts/           packaging, release notes and the version; the git hook
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/hero-dark.png">
+  <img alt="An agent in a terminal lists the programs it can use, reads Blender's commands and exports the open scene; beside it, the Clak panel shows the agents at work in Blender, Rhino and GitHub" src="docs/images/hero-light.png" width="100%">
+</picture>
+
+<sub>The pictures show example data: the agents, programs and files are made up.</sub>
+
+## What it does
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🧩 Your programs, as they are right now</h3>
+      An open program connects to Clak and offers the commands that fit its state: what is
+      open, what is selected, what can be done right now. The agent works on the file you
+      have open, not on a copy.
+    </td>
+    <td width="50%" valign="top">
+      <h3>⌨️ One command line for everything</h3>
+      <code>clak list</code> shows what an agent can use, <code>clak &lt;program&gt; -h</code>
+      its commands, and the calls compose in scripts and pipes: what would take an agent
+      several MCP turns takes one command line, without filling its context. Clak installs a
+      skill that teaches agents this.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🔌 MCP servers and REST APIs too</h3>
+      MCP servers over HTTP, with a token or OAuth, or local ones over stdio; REST APIs from
+      their OpenAPI description or by hand. Once connected they are programs like the others,
+      under a name of your choice: <code>clak github</code>, <code>clak weather</code>.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🚀 Agents ready to work</h3>
+      Launch an agent in a folder with the programs it needs already at hand (presets), find
+      its past conversations again, and see what its tokens would cost at the API's prices.
+      Agents that only speak MCP reach the same programs through <code>clak-shim</code>.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>👀 Everything in view</h3>
+      The panel shows which programs are connected, which agent is using which, and every
+      command they run, with its result and how long it took.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🖥️ At home on each system</h3>
+      In the Windows tray and the Mac menu bar, with the system's notifications, Mica on
+      Windows 11 and glass on the Mac. On Linux, for servers and containers,
+      <a href="docs/linux.md">the hub without an interface</a>.
+    </td>
+  </tr>
+</table>
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph agents [Agents]
+    cc(Claude Code)
+    cx(Codex)
+    more(Gemini CLI, OpenCode…)
+  end
+  hub{{"Clak hub<br/>on your computer"}}
+  subgraph programs [Programs]
+    desk("Desktop programs<br/>through an extension")
+    mcp(MCP servers)
+    api(REST APIs)
+  end
+  app["Clak app<br/>tray, panel"]
+  you((You))
+
+  cc & cx & more -- "clak" --> hub
+  hub <--> desk & mcp & api
+  hub <--> app
+  app -- "what is connected, who uses it" --> you
+
+  classDef brand fill:#2F5BEA,stroke:#2F5BEA,color:#fff
+  class hub,app brand
 ```
 
-The hub, the app and the command line share only `daemon.json` (in `~/.clak`, or
-`CLAK_HOME`), the control channel, the programs' WebSocket and the hub's files (`apps.json`,
-`presets.json`, `connectors.json`, `apis.json` and their `.secrets`). Only the
-app writes `backup.json`, the settings of the automatic backup.
+1. **A program connects** to the Clak hub on your computer and offers its commands. MCP
+   servers and REST APIs are connected from the panel.
+2. **An agent finds them** with `clak list`, and reads a program's commands with
+   `clak <program> -h`.
+3. **It runs a command**: the command runs in the program, and its result comes back on the
+   agent's command line, ready for the next one.
+4. **You follow it in the panel**: who is using what, every call, what it costs.
+
+The first time an agent uses a program, Clak asks you; who is asking is read from the system,
+not from what the agent says. The hub listens on loopback only, behind a token, and keeps
+secrets in the keychain on the Mac and with DPAPI on Windows.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="58%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/programs-dark.png">
+        <img alt="The panel's connected programs: Blender, Rhino, QGIS, an MCP server and a REST API, each with the agents using it" src="docs/images/programs-light.png" width="100%">
+      </picture>
+    </td>
+    <td width="42%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/consent-dark.png">
+        <img alt="Clak's question: Claude Code wants to run a new command in Blender; allow only this call, for the agent's session, or approve the command" src="docs/images/consent-light.png" width="100%">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>The panel</b>: what is connected and who is using it</sub></td>
+    <td align="center"><sub><b>A question</b>: an agent's first call to a new command</sub></td>
+  </tr>
+</table>
+
+## Install
+
+<table>
+  <tr>
+    <th>Windows</th>
+    <th>macOS</th>
+    <th>Linux</th>
+  </tr>
+  <tr>
+    <td valign="top">x64 installer, per user, without administrator rights<br><code>Clak_&lt;version&gt;_x64-setup.exe</code></td>
+    <td valign="top">Apple silicon, signed with a Developer ID and notarized<br><code>Clak_&lt;version&gt;_aarch64.dmg</code></td>
+    <td valign="top">x64 and ARM, linked statically: <code>clak</code>, <code>clak-shim</code> and <code>clak-daemon</code><br><code>clak_&lt;version&gt;_linux_x64.tar.gz</code></td>
+  </tr>
+</table>
+
+<p align="center">
+  <a href="https://github.com/giancarlov93/clak/releases/latest"><img alt="Download the latest release" src="https://img.shields.io/badge/Download-latest%20release-2F5BEA?style=for-the-badge"></a>
+</p>
+
+The app sets up what the agents need: the skill that teaches them `clak`, `clak` in the PATH,
+the MCP clients, the start with the system. Then it keeps itself up to date. On Linux the questions are answered on a web page or in the daemon's
+terminal: see [Clak on Linux](docs/linux.md).
 
 ## Extensions
 
-- [Writing an extension](docs/extensions.md): the guide, with examples in four languages.
+A desktop program joins Clak through an extension, which connects over a WebSocket on
+loopback and offers its commands.
+
+- [Writing an extension](docs/extensions.md): the guide, with the same minimal extension in
+  [Python, JavaScript and C#](examples/), and in Rust with `clak-kit`.
 - [The Clak extension protocol](docs/protocol.md): every message.
 
 The protocol version is `clak_wire::PROTOCOL`. It changes only when an extension written for
 the previous one would stop working, and the specification changes with it.
+
+## Documentation
+
+| | |
+| --- | --- |
+| [Writing an extension](docs/extensions.md) | Connect a program to Clak, with examples in four languages |
+| [The extension protocol](docs/protocol.md) | Every message between a program and the hub |
+| [Clak on Linux](docs/linux.md) | The hub without an interface, for servers and containers |
+| [Developing Clak](docs/development.md) | The crates, building, CI, packaging and releases |
+| [Changelog](CHANGELOG.md) | What changes from one version to the next |
 
 ## Building
 
@@ -73,145 +199,22 @@ The Rust version is fixed in `rust-toolchain.toml`.
 
 ```bash
 cargo build
-```
-
-```bash
 cargo test
+cargo build -p clak-app    # the app, with Tauri: not among the default members
 ```
 
-The app isn't among the default members, because it pulls in Tauri:
-
-```bash
-cargo build -p clak-app
-```
-
-The checks of CI (`.github/workflows/checks.yml`) run on every pull request that changes more
-than the documentation: formatting, clippy without warnings, the tests on Windows, the Mac and
-Linux (there without the app), a coverage floor (`COVERAGE_FLOOR`), and what the release does
-besides compiling. The first ones, by hand:
-
-```bash
-cargo fmt --all
-```
-
-```bash
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-```bash
-cargo llvm-cov --workspace --summary-only
-```
-
-A git hook runs formatting and clippy before every commit that touches Rust:
-
-```bash
-git config core.hooksPath scripts/hooks
-```
-
-## Trying it
-
-With a home of its own, so as not to touch the real one:
-
-```bash
-CLAK_HOME=/tmp/clak-try cargo run -p clak-app -- --show
-```
-
-A test program, a notepad that agents read and extend:
-
-```bash
-CLAK_HOME=/tmp/clak-try cargo run -p clak-kit --example notes
-```
-
-```bash
-CLAK_HOME=/tmp/clak-try cargo run -p clak-agent --bin clak -- notes append --line "milk"
-```
-
-## The app
-
-```text
-ClakApp                       in the tray, with the hub (or watching the one already running)
-ClakApp --show                and the panel open
-ClakApp --no-broker           only watch, without starting a hub
-ClakApp --quit [--update]     closes the running copy (and reopens it after the update)
-ClakApp --setup | --uninstall from the installer
-ClakApp clak://…              a link, to the running copy
-```
-
-If a hub is already running (another copy, the daemon), the app watches it from the control
-channel, read-only for connectors and APIs, and takes its place as soon as it goes away.
-
-## Linux, without an interface
-
-On a server or in a container there is no app. Each release has an archive for Linux x64 and
-ARM, linked statically so that it runs on any distribution, with `clak`, `clak-shim` and
-`clak-daemon`, the hub on its own. Without an option every new permission is denied; the
-questions can be answered on a web page, or in the daemon's terminal.
-
-```bash
-clak-daemon --web
-```
-
-The page listens on `127.0.0.1:7780` only (`--port` for another one) and asks for a password,
-chosen the first time or with `clak-daemon --set-password`: only its hash is kept, in
-`web.password` in the hub's folder. From another computer it is reached through a tunnel
-(`ssh -L 7780:127.0.0.1:7780 server`) or Tailscale (`tailscale serve 7780`, then
-`--url https://<server>.<tailnet>.ts.net` so the links point there). An agent that needs a
-permission isn't kept waiting: it gets the link of its question at once, gives it to the user,
-and tries again after the answer. The page also lists what is allowed now (permissions, agents,
-applications) and takes it away.
-
-The agents run as the same user and can reach the page too: what keeps them from answering
-their own questions is the password, which they don't know. So it must be long, a phrase rather
-than a PIN, since whoever reads the hash can try passwords one by one; and the daemon reads it
-only when it starts. Against an agent set on getting around Clak (changing its files,
-restarting the hub) only another user, or a container, protects: as on the other systems,
-consent is there so that agents ask, not as a sandbox.
-
-```bash
-clak-daemon --ask
-```
-
-With `--ask` the questions are in the daemon's terminal instead, answered y or n: only a line
-typed while a question is on screen answers it.
-
-The agents reach it with `clak` in the PATH, or with `clak-shim` as an MCP server over stdio
-(`claude mcp add clak -- clak-shim`): the skill and the MCP clients are set up by the app,
-which Linux doesn't have yet.
-
-Who is asking is read from `/proc`: the agent among the ancestors of the process, up to the
-session (sshd, tmux, screen, the user's systemd). Linux has no signatures for executables:
-an agent or a program is remembered by its content, and asked about again when it changes.
-The connectors' tokens and the APIs' secrets are in `connectors.secrets` and `apis.secrets`
-in the hub's folder, which only the user can read (0600), not encrypted: a server has no vault
-to count on.
-
-## Installer and release
-
-```bash
-node scripts/bundle.mjs
-```
-
-On Windows a per-user NSIS installer, without administrator rights, that calls
-`ClakApp --setup` after copying and `ClakApp --uninstall` before removal; on the Mac `.app` and
-`.dmg`. `clak` and `clak-shim` go next to the app.
-
-Every merge into `main` is released at once, without approval (`.github/workflows/release.yml`):
-it doesn't check again what passed on the pull request, and runs the checks only for files that
-weren't checked there. A merge of documentation only (Markdown, `docs/`, `examples/`) releases
-nothing. Installers for Windows x64 and the Mac with Apple silicon, the Linux archives for x64
-and ARM, with notes that start from the
-**Unreleased** section of `CHANGELOG.md`. The version is `X.Y` from `[workspace.package]` in
-`Cargo.toml` plus the run number; `node scripts/version.mjs 0.4.0` moves to a new `X.Y`.
-
-The Mac app is signed with a Developer ID and notarized. The installed apps update themselves
-through Tauri's updater, which installs only files signed with Clak's key: its public half is
-in `crates/clak-app/tauri.conf.json`, the private one in the `release` environment's secrets
-(`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) or, for a local build, in
-`.secrets/updater.key` and `.secrets/updater.password`. Without it the installers have no
-updater files.
+The crates, the checks of CI, trying Clak without touching your own, and the release are in
+[Developing Clak](docs/development.md).
 
 ## License
 
 MIT: see [LICENSE](LICENSE). The dependencies' notices are written by `scripts/notices.mjs` for
 every installer and go next to the app as `THIRD-PARTY-NOTICES.txt`, with `LICENSE.txt`; in
 the Linux archives, next to the binaries.
+
+<br>
+
+<p align="center">
+  <img src="crates/clak-app/icons/icon.svg" width="28" height="28" alt=""><br>
+  <sub>Made with Rust and Tauri, for Windows, macOS and Linux.</sub>
+</p>

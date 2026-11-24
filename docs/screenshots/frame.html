@@ -1,0 +1,186 @@
+<!doctype html>
+<!-- The app's real pages (ui/), each in a window as the Mac draws it, on a transparent
+     background: what shoot.mjs photographs. ?shot=hero | programs | consent.
+     The hero puts a terminal beside the panel, with what an agent runs and reads: the text
+     in #transcript is what `clak` prints (crates/clak-agent/src/render.rs) for the example
+     data of demo.js. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Clak screenshots</title>
+  <style>
+    :root {
+      /* As the pages': an iframe whose scheme differs from its parent's gets an opaque backdrop. */
+      color-scheme: light dark;
+      --sidebar: #e8e8eb;
+      --window-stroke: rgba(0, 0, 0, 0.12);
+      --shadow: 0 22px 48px rgba(0, 0, 0, 0.22), 0 4px 12px rgba(0, 0, 0, 0.10);
+      --term-bg: #ffffff;
+      --term-bar: #f1f1f3;
+      --term-text: #1d1d1f;
+      --term-quiet: #6e6e73;
+      --term-prompt: #2f5bea;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --sidebar: #2b2b2f;
+        --window-stroke: rgba(255, 255, 255, 0.16);
+        --shadow: 0 22px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35);
+        --term-bg: #1c1c1e;
+        --term-bar: #2a2a2d;
+        --term-text: #e8e8ea;
+        --term-quiet: #9a9aa0;
+        --term-prompt: #7fa0ff;
+      }
+    }
+    html, body { margin: 0; background: transparent; }
+    #stage { position: relative; }
+    .window {
+      position: absolute; overflow: hidden; border-radius: 12px;
+      background: var(--sidebar); box-shadow: var(--shadow);
+    }
+    /* The hairline around the window, above its content as AppKit draws it. */
+    .window::after {
+      content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+      box-shadow: inset 0 0 0 1px var(--window-stroke);
+    }
+    .window iframe { display: block; border: 0; background: transparent; }
+    .lights { position: absolute; top: 18px; left: 18px; display: flex; gap: 9px; z-index: 2; }
+    .lights span { width: 13px; height: 13px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18); }
+    .lights span:nth-child(1) { background: #ff5f57; }
+    .lights span:nth-child(2) { background: #febc2e; }
+    .lights span:nth-child(3) { background: #28c840; }
+
+    .terminal { background: var(--term-bg); }
+    .terminal .bar {
+      height: 48px; background: var(--term-bar); display: grid; place-items: center;
+      font: 600 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--term-quiet);
+      border-bottom: 1px solid var(--window-stroke);
+    }
+    .terminal pre {
+      margin: 0; padding: 16px 20px 20px; color: var(--term-text);
+      font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap;
+    }
+    .terminal .command { font-weight: 700; }
+    .terminal .command::before { content: "$ "; color: var(--term-prompt); }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+
+<script type="text/plain" id="transcript">$ clak list
+Programs you can use (3):
+
+  blender  Blender — pavilion.blend
+           Blender, signed by Stichting Blender Foundation · 5 commands · you may use it
+  rhino    Rhino 8 — pavilion-structure.3dm
+           Rhinoceros, signed by Robert McNeel & Associates · 6 commands · you may use it
+  github   GitHub — api.githubcopilot.com
+           MCP server, https://api.githubcopilot.com · 5 commands · you may use it
+
+Other connected programs: 3. The first use of each asks the user for permission. List them: clak list --others
+
+A program's commands: clak <name> list
+
+$ clak blender list
+Blender — pavilion.blend  (clak blender)
+
+  scene_info — The open scene: objects, collections, cameras, frame range and units.
+      clak blender scene_info
+  list_objects — The objects in the scene, or in one collection, with their type and dimensions.
+      clak blender list_objects [--collection TEXT]
+  set_material — Assigns a material to the selected objects, creating it if it doesn't exist.
+      clak blender set_material --material TEXT [--color TEXT]
+  render_view — Renders the active camera to a PNG and returns its path.
+      clak blender render_view [--engine eevee|cycles] [--samples N]
+  export_gltf — Exports the scene, or the selected objects, as a glTF 2.0 file.
+      clak blender export_gltf --path TEXT [--selection_only]
+
+Details of a command: clak blender <command> -h
+
+$ clak blender export_gltf --path out/pavilion.glb
+Exported 214 objects (3 collections) to out/pavilion.glb, 18.4 MB.</script>
+
+  <script>
+    const shot = new URLSearchParams(location.search).get("shot") || "hero";
+    const MARGIN = 56; // room for the shadow
+    const PANEL = { width: 920, height: 640 };
+    const CONSENT = { width: 500, height: 520 };
+    const TERMINAL = { width: 800 };
+
+    const stage = document.getElementById("stage");
+    const place = (win, size, x, y, lights) => {
+      win.classList.add("window");
+      Object.assign(win.style, { left: x + "px", top: y + "px", width: size.width + "px" });
+      if (size.height) win.style.height = size.height + "px";
+      if (lights) win.insertAdjacentHTML("afterbegin", '<div class="lights"><span></span><span></span><span></span></div>');
+      stage.append(win);
+      return win;
+    };
+    const page = (src, size, x, y, lights) => {
+      const win = document.createElement("div");
+      const frame = document.createElement("iframe");
+      frame.src = src;
+      frame.width = size.width;
+      frame.height = size.height;
+      win.append(frame);
+      return { win: place(win, size, x, y, lights), frame };
+    };
+    const terminal = (x, y) => {
+      const win = document.createElement("div");
+      win.className = "terminal";
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.textContent = "~/Projects/harbor-pavilion";
+      const pre = document.createElement("pre");
+      for (const line of document.getElementById("transcript").textContent.split("\n")) {
+        const row = document.createElement("div");
+        if (line.startsWith("$ ")) {
+          row.className = "command";
+          row.textContent = line.slice(2);
+        } else {
+          row.textContent = line || " ";
+        }
+        pre.append(row);
+      }
+      win.append(bar, pre);
+      return { win: place(win, TERMINAL, x, y, true) };
+    };
+
+    const layout = [];
+    if (shot === "hero") {
+      // The panel behind, on the right; in front, the terminal where the agent works.
+      layout.push(["panel", page("../../ui/panel.html#status", PANEL, MARGIN + TERMINAL.width - 260, MARGIN, true)]);
+      layout.push(["terminal", terminal(MARGIN, MARGIN + 70)]);
+    }
+    // The panel further down: the programs connected, with who is using each one.
+    if (shot === "programs") layout.push(["panel", page("../../ui/panel.html?scroll=Connected%20programs#status", PANEL, MARGIN, MARGIN, true)]);
+    if (shot === "consent") layout.push(["consent", page("../../ui/consent.html?id=q1", CONSENT, MARGIN, MARGIN, false)]);
+
+    // The question's window is as tall as what it says: the page asks, as in the app.
+    window.addEventListener("message", (e) => {
+      const height = e.data?.clakConsentHeight;
+      if (!height) return;
+      for (const [name, { win, frame }] of layout) {
+        if (name !== "consent") continue;
+        win.style.height = height + "px";
+        frame.height = height;
+      }
+      measure();
+    });
+
+    // The size of the picture, read by shoot.mjs.
+    const measure = () => {
+      let right = 0, bottom = 0;
+      for (const [, { win }] of layout) {
+        right = Math.max(right, win.offsetLeft + win.offsetWidth);
+        bottom = Math.max(bottom, win.offsetTop + win.offsetHeight);
+      }
+      stage.style.width = right + MARGIN + "px";
+      stage.style.height = bottom + MARGIN + "px";
+      window.__size = { width: right + MARGIN, height: bottom + MARGIN };
+    };
+    measure();
+  </script>
+</body>
+</html>
