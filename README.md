@@ -85,9 +85,10 @@ The app isn't among the default members, because it pulls in Tauri:
 cargo build -p clak-app
 ```
 
-The checks of CI (`.github/workflows/checks.yml`) are formatting, clippy without warnings, the
-tests on Windows, the Mac and Linux (there without the app), and a coverage floor
-(`COVERAGE_FLOOR`):
+The checks of CI (`.github/workflows/checks.yml`) run on every pull request that changes more
+than the documentation: formatting, clippy without warnings, the tests on Windows, the Mac and
+Linux (there without the app), a coverage floor (`COVERAGE_FLOOR`), and what the release does
+besides compiling. The first ones, by hand:
 
 ```bash
 cargo fmt --all
@@ -194,9 +195,11 @@ On Windows a per-user NSIS installer, without administrator rights, that calls
 `ClakApp --setup` after copying and `ClakApp --uninstall` before removal; on the Mac `.app` and
 `.dmg`. `clak` and `clak-shim` go next to the app.
 
-Every commit on `main` that passes the checks is released (`.github/workflows/release.yml`):
-installers for Windows x64 and the Mac with Apple silicon, the Linux archives for x64 and
-ARM, with notes that start from the
+Every merge into `main` is released at once, without approval (`.github/workflows/release.yml`):
+it doesn't check again what passed on the pull request, and runs the checks only for files that
+weren't checked there. A merge of documentation only (Markdown, `docs/`, `examples/`) releases
+nothing. Installers for Windows x64 and the Mac with Apple silicon, the Linux archives for x64
+and ARM, with notes that start from the
 **Unreleased** section of `CHANGELOG.md`. The version is `X.Y` from `[workspace.package]` in
 `Cargo.toml` plus the run number; `node scripts/version.mjs 0.4.0` moves to a new `X.Y`.
 

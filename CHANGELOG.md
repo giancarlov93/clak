@@ -3,8 +3,9 @@
 What changes in Clak from one version to the next, for the people who use it and for those
 who write extensions. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-Every push to `main` publishes a release, `X.Y.<run number>`: `X.Y` comes from the root
-`Cargo.toml` (see `.github/workflows/release.yml`). So the entries are grouped by `X.Y`:
+Every merge into `main` publishes a release, `X.Y.<run number>`, unless it changes only the
+documentation: `X.Y` comes from the root `Cargo.toml` (see `.github/workflows/release.yml`).
+So the entries are grouped by `X.Y`:
 
 - a pull request that changes something worth telling adds a line under **Unreleased**;
 - every release puts the **Unreleased** section at the top of its GitHub notes;

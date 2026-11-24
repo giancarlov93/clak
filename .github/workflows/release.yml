@@ -1,16 +1,25 @@
-# Once the checks pass on main (checks.yml, which runs the tests): installers for Windows and
-# Mac, archives for Linux, and a GitHub release, of the very commit the checks ran on. Red
-# checks, no release.
+# On every merge into main, as soon as it lands: installers for Windows and Mac, archives for
+# Linux, and a GitHub release. No checks and no approval here: the checks ran on the pull
+# request (checks.yml), and merging it is the consent. The release goes out only if they passed
+# on these very files; if they didn't (a direct push, a pull request merged while main had moved
+# on), the same checks run here, alongside the builds, and red means no release.
+# A merge that changes only the documentation (paths-ignore) starts nothing.
 #
 # The version is X.Y from the root Cargo.toml plus the run number: 0.3.0 in Cargo.toml
 # gives 0.3.17 on the seventeenth run. To move to 0.4, just change it there.
 name: Release
 
 on:
-  workflow_run:
-    workflows: [Checks]
-    types: [completed]
+  push:
     branches: [main]
+    # The documentation: the same files as DOCS in checks.yml.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "examples/**"
+      - "scripts/hooks/**"
+      - ".github/CODEOWNERS"
+      - ".gitignore"
   workflow_dispatch:
 
 concurrency:
@@ -18,37 +27,79 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_TARGET_DIR: ${{ github.workspace }}/target
-  # The commit the checks passed on; by hand, the head of main.
-  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
-  version:
-    # Only the checks of a push to main that passed: not a pull request's, not a red or
-    # cancelled run.
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+  # The version, and whether these files are those of a pull request whose checks all ran and
+  # passed. With a squash or a rebase the commits change but, if main hadn't moved, the files
+  # (the tree) don't. A direct push, a pull request not found or a doubt: not checked.
+  ready:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     outputs:
       version: ${{ steps.v.outputs.version }}
+      checked: ${{ steps.look.outputs.checked }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ env.SHA }}
+          sparse-checkout: |
+            Cargo.toml
+            scripts/version.mjs
+          sparse-checkout-cone-mode: false
       - id: v
         run: |
           base=$(node scripts/version.mjs | cut -d. -f1,2)
           echo "version=$base.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      # Every job of the run, not just the run: on a pull request of documentation only they
+      # are skipped, and the run still passes.
+      - id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          checked=false
+          tree() { gh api "repos/$REPO/git/commits/$1" --jq .tree.sha || true; }
+          pull=$(gh api "repos/$REPO/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)][0] // empty' || true)
+          head=$(printf '%s' "$pull" | jq -r '.head.sha // empty')
+          mine=$(tree "$GITHUB_SHA")
+          if [ -n "$head" ] && [ -n "$mine" ] && [ "$(tree "$head")" = "$mine" ]; then
+            runs="repos/$REPO/actions/workflows/checks.yml/runs?head_sha=$head&event=pull_request&status=success"
+            run=$(gh api "$runs" --jq '.workflow_runs[0].id // empty' || true)
+            if [ -n "$run" ]; then
+              all=$(gh api "repos/$REPO/actions/runs/$run/jobs" \
+                --jq '[.jobs[] | select(.name != "needed") | .conclusion] | length > 0 and all(. == "success")' || true)
+              if [ "$all" = true ]; then checked=true; fi
+            fi
+          fi
+          if [ "$checked" = true ]; then
+            number=$(printf '%s' "$pull" | jq -r .number)
+            echo "Checked on pull request #$number ($head): the same files, nothing to check again." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "These files weren't checked on a pull request: the checks run here before the release." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "checked=$checked" >> "$GITHUB_OUTPUT"
+
+  # Only when they hadn't passed on the pull request: the same checks, alongside the builds.
+  checks:
+    needs: ready
+    if: needs.ready.outputs.checked != 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/checks.yml
 
   build:
-    needs: version
+    needs: ready
     # The signing secrets live only in this environment, which GitHub gives only to runs
-    # from main: a workflow pushed on another branch asks for it and is refused.
+    # from main: a workflow pushed on another branch asks for it and is refused. No reviewer:
+    # merging into main is the consent.
     environment: release
     strategy:
       fail-fast: true
@@ -63,8 +114,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ env.SHA }}
 
       # The Rust of rust-toolchain.toml (rustup is already on the runners), with this target.
       # Only that one: rust-cache puts every installed toolchain in its key, and the runner
@@ -105,7 +154,7 @@ jobs:
 
       - name: Version
         shell: bash
-        run: node scripts/version.mjs "${{ needs.version.outputs.version }}"
+        run: node scripts/version.mjs "${{ needs.ready.outputs.version }}"
 
       # The Mac: signed with the Developer ID if the repository has the secrets (without them,
       # signed ad hoc as before). With the updater key, the files for the updater too.
@@ -150,7 +199,7 @@ jobs:
       - name: Files
         shell: bash
         env:
-          VERSION: ${{ needs.version.outputs.version }}
+          VERSION: ${{ needs.ready.outputs.version }}
         run: |
           bundle="target/${{ matrix.target }}/release/bundle"
           mkdir -p dist
@@ -176,7 +225,7 @@ jobs:
   # containers; no app. Linked statically (musl), so one archive runs on any distribution.
   # Nothing is signed, so no secrets and no environment.
   linux:
-    needs: version
+    needs: ready
     strategy:
       fail-fast: true
       matrix:
@@ -190,8 +239,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ env.SHA }}
 
       # As in build.
       - name: Rust
@@ -217,7 +264,7 @@ jobs:
 
       - name: Version
         shell: bash
-        run: node scripts/version.mjs "${{ needs.version.outputs.version }}"
+        run: node scripts/version.mjs "${{ needs.ready.outputs.version }}"
 
       - name: Build
         shell: bash
@@ -230,7 +277,7 @@ jobs:
       - name: Files
         shell: bash
         env:
-          VERSION: ${{ needs.version.outputs.version }}
+          VERSION: ${{ needs.ready.outputs.version }}
         run: |
           bin="target/${{ matrix.target }}/release"
           name="clak_${VERSION}_linux_${{ matrix.arch }}"
@@ -251,21 +298,29 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # Once everything is built, and the checks passed: on the pull request or here.
   release:
-    needs: [version, build, linux]
+    needs: [ready, checks, build, linux]
+    if: >-
+      !cancelled() && needs.build.result == 'success' && needs.linux.result == 'success' &&
+      (needs.ready.outputs.checked == 'true' || needs.checks.result == 'success')
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ env.SHA }}
           sparse-checkout: |
             CHANGELOG.md
             scripts/updater-manifest.mjs
           sparse-checkout-cone-mode: false
 
+      # The builds' files only: when the checks ran here, their coverage report is among the
+      # artifacts too.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
+          pattern: clak-*
           merge-multiple: true
 
       # The notes: the changelog's Unreleased section first, then what GitHub generates.
@@ -273,14 +328,14 @@ jobs:
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version.outputs.version }}
+          VERSION: ${{ needs.ready.outputs.version }}
         run: |
           ls -l dist
           awk '/^## \[Unreleased\]/ { on = 1; next } /^## \[/ { on = 0 } on' CHANGELOG.md > notes.md
           node scripts/updater-manifest.mjs dist "$VERSION" "${{ github.repository }}" notes.md
           gh release create "v$VERSION" dist/* \
             --repo "${{ github.repository }}" \
-            --target "$SHA" \
+            --target "$GITHUB_SHA" \
             --title "Clak $VERSION" \
             --notes-file notes.md \
             --generate-notes

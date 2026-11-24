@@ -1,15 +1,19 @@
-# The caches the pull requests start from. Only main saves them, and on main Checks skips its
-# jobs for the files already checked on their pull request, so the release starts at once. When
-# that merge changed what goes in the caches (Cargo.lock, a Cargo.toml, the toolchain, the
-# checks), this builds what the checks build, without checking or running anything again, and
-# saves it. Alongside the release, holding nothing up.
+# The caches the pull requests start from. Only main saves them (a pull request's stay its own),
+# and on main nothing runs the checks: their builds are made here, without checking or running
+# anything, when a merge changes what goes in them (Cargo.lock, a Cargo.toml, the toolchain, the
+# checks). Alongside the release, holding nothing up.
 name: Caches
 
 on:
-  workflow_run:
-    workflows: [Checks]
-    types: [completed]
+  push:
     branches: [main]
+    paths:
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - rust-toolchain.toml
+      - .github/workflows/checks.yml
+      - .github/workflows/caches.yml
+  workflow_dispatch:
 
 concurrency:
   group: caches
@@ -17,7 +21,6 @@ concurrency:
 
 permissions:
   contents: read
-  actions: read
 
 # As in checks.yml: part of the caches' keys.
 env:
@@ -25,43 +28,13 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
-  # Whether Checks skipped its jobs (when it ran them, they saved the caches) on a commit that
-  # changes what the caches hold.
-  needed:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
-    runs-on: ubuntu-latest
-    outputs:
-      run: ${{ steps.look.outputs.run }}
-    steps:
-      - id: look
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN: ${{ github.event.workflow_run.id }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          run=false
-          ran=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '[.jobs[] | select(.name == "coverage" and .conclusion == "success")] | length' || echo 1)
-          if [ "$ran" = 0 ]; then
-            changed=$(gh api "repos/$REPO/commits/$SHA" --jq '(.files // [])[].filename' || echo '?')
-            if printf '%s\n' "$changed" | grep -qE '^\?$|(^|/)Cargo\.(toml|lock)$|^rust-toolchain\.toml$|^\.github/workflows/(checks|caches)\.yml$'; then
-              run=true
-              echo "This commit changes what the caches hold: they are built again." >> "$GITHUB_STEP_SUMMARY"
-            fi
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
   # The job ids are those of checks.yml: rust-cache keys a cache by job id, system, Rust, the
   # environment and the lockfile, so the pull requests' checks find these. The steps up to the
   # cache are the same too.
   clippy-test:
-    needs: needed
-    if: needs.needed.outputs.run == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Rust
         shell: bash
         run: |
@@ -84,13 +57,9 @@ jobs:
         run: cargo test --workspace --locked --no-run
 
   linux:
-    needs: needed
-    if: needs.needed.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Rust
         shell: bash
         run: |
@@ -113,13 +82,9 @@ jobs:
         run: cargo test --workspace --exclude clak-app --locked --no-run
 
   coverage:
-    needs: needed
-    if: needs.needed.outputs.run == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Rust
         shell: bash
         run: |
