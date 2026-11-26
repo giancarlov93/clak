@@ -122,7 +122,7 @@ pub fn tools() -> Vec<ToolDef> {
         tool(
             "add-server",
             format!(
-                "Add an MCP server: at an address (--url, Streamable HTTP), or a program on this computer that Clak starts and talks to over stdio (--stdio, the command line from the server's docs, e.g. \"npx -y @scope/server --flag\"). Its commands become `clak <command> …` for the agents the user allows.{CONFIRMED} If an HTTP server wants an OAuth sign-in, the user does it from the panel."
+                "Add an MCP server: at an address (--url, Streamable HTTP or the older HTTP+SSE), or a program on this computer that Clak starts and talks to over stdio (--stdio, the command line from the server's docs, e.g. \"npx -y @scope/server --flag\"). Its commands become `clak <command> …` for the agents the user allows.{CONFIRMED} If an HTTP server wants an OAuth sign-in, the user does it from the panel."
             ),
             props(&[
                 ("name", s("string", "What to call it, e.g. Notion.")),
