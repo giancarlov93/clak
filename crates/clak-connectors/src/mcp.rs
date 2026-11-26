@@ -72,19 +72,20 @@ impl McpClient {
         }
     }
 
-    /// Arrives when the server says its commands have changed. Never over HTTP: the list
-    /// is re-read every so often.
+    /// Arrives when the server says its commands have changed. Over HTTP only with the
+    /// older HTTP+SSE transport: otherwise the list is re-read every so often.
     pub async fn changed(&self) {
         match self {
-            McpClient::Http(_) => std::future::pending().await,
+            McpClient::Http(c) => c.changed().await,
             McpClient::Stdio(c) => c.changed().await,
         }
     }
 
-    /// Arrives when the program stops, with the reason. Never over HTTP.
+    /// Arrives when the program stops, or the HTTP+SSE stream closes, with the reason. Never
+    /// over Streamable HTTP.
     pub async fn ended(&self) -> String {
         match self {
-            McpClient::Http(_) => std::future::pending().await,
+            McpClient::Http(c) => c.ended().await,
             McpClient::Stdio(c) => c.ended().await,
         }
     }

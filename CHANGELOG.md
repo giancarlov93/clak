@@ -15,6 +15,13 @@ So the entries are grouped by `X.Y`:
 
 ### Added
 
+- MCP: servers that still speak the older HTTP+SSE transport (a GET that opens a stream,
+  then the messages POSTed to the endpoint it names), like the one inside Affinity at
+  `http://localhost:6767/sse`. Nothing to choose: when a server refuses the POST that opens
+  the session with 400, 404 or 405, Clak tries that transport at the same address by itself.
+  The endpoint must be on the same server as the stream, so the token doesn't travel
+  elsewhere; when the stream closes (the program quits) the connector shows it unreachable
+  and reconnects when it's back.
 - MCP and APIs: the servers and the APIs are grouped by the domain of their address, so
   that the services of one provider stay together (`storage.googleapis.com` and
   `bigquery.googleapis.com` under `googleapis.com`). The programs on this computer come

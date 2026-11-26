@@ -3,6 +3,7 @@
 //! - [`hub`]: the hub's connectors ([`ConnectorHub`]): add, probe, change token or
 //!   credential, turn off, remove; each one is a program connected to the broker;
 //! - [`mcp_http`]: the MCP "Streamable HTTP" client (JSON or SSE, session, server confirmations);
+//! - [`mcp_sse`]: the older HTTP+SSE transport, which `mcp_http` falls back to by itself;
 //! - [`oauth`]: the OAuth sign-in of MCP servers (discovery, registration, PKCE, loopback,
 //!   refresh, revocation) and the variants for REST APIs (known addresses, "app only");
 //! - [`token`]: the OAuth sign-in as a token that refreshes itself and saves every refresh;
@@ -21,6 +22,7 @@ mod live;
 mod loopback;
 mod mcp;
 pub mod mcp_http;
+pub mod mcp_sse;
 pub mod mcp_stdio;
 pub mod oauth;
 pub mod store;
