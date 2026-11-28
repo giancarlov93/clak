@@ -222,7 +222,7 @@
       const done = await Clak.invoke("config_export");
       if (done) {
         const c = done.counts;
-        transfer = { ...transfer, results: null, note: `Exported ${Clak.plural(c.presets, "preset", "presets")}, ${Clak.plural(c.connectors, "MCP server", "MCP servers")}, ${Clak.plural(c.apis, "API", "APIs")} to ${done.path}` };
+        transfer = { ...transfer, results: null, note: `Exported ${Clak.plural(c.connectors, "MCP server", "MCP servers")} and ${Clak.plural(c.apis, "API", "APIs")} to ${done.path}` };
       }
     } catch (e) {
       transfer = { ...transfer, results: null, note: String(e) };
@@ -252,7 +252,7 @@
       results ? el("div", { class: "transfer-results" }, results.length ? results.map(line) : el("div", { class: "quiet" }, "Nothing in that file.")) : null,
     ];
     return el("div", { class: "card group settings" },
-      setting("file", "#8e8e93", "Configuration", "Presets, MCP servers and APIs, in one file: for another computer, or to keep aside",
+      setting("file", "#8e8e93", "Configuration", "MCP servers and APIs, in one file: for another computer, or to keep aside",
         [el("button", { onclick: importConfig, disabled: !!state.offline }, "Import…"), el("button", { onclick: exportConfig }, "Export…")],
         { help: "No token, key or sign-in goes in the file, and no permission: each server asks for what it needs, and each agent asks as usual", below }));
   };

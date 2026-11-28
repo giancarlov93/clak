@@ -28,11 +28,10 @@
     broker: { pid: 4127, since: ago(185), ws_port: 7779, control: "", can_ask: true },
     sessions: [
       { id: "s1", label: "Claude Code · harbor-pavilion", name: "Claude Code", exe: CLAUDE, pid: 8812,
-        signed: "valid", signer: "Anthropic PBC", cwd: "~/Projects/harbor-pavilion", via: "cli", since: ago(42), launched: false, preset: null },
+        signed: "valid", signer: "Anthropic PBC", cwd: "~/Projects/harbor-pavilion", via: "cli", since: ago(42) },
       { id: "s2", label: "Codex · site-survey", name: "Codex", exe: CODEX, pid: 9034,
-        signed: "valid", signer: "OpenAI", cwd: "~/Projects/site-survey", via: "cli", since: ago(17), launched: false, preset: null },
+        signed: "valid", signer: "OpenAI", cwd: "~/Projects/site-survey", via: "cli", since: ago(17) },
     ],
-    launches: [],
     resources: [
       program("r1", "Blender", "pavilion.blend", "blender", signedExe(BLENDER, "Stichting Blender Foundation", 5120),
         ["scene_info", "list_objects", "set_material", "render_view", "export_gltf"], 120),

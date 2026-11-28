@@ -1210,15 +1210,7 @@ async fn the_user_tries_a_command_and_each_program_says_how_it_has_been_answerin
     assert_eq!(missing["ok"], false);
     hub.prompt.quiet(50).await;
 
-    // Not an agent's: neither in the usage nor in the program's health.
-    let usage = hub.panel(&[json!({"type": "usage"})], "usage").await;
-    let calls: u64 = usage["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|r| r["calls"].as_u64().unwrap())
-        .sum();
-    assert_eq!(calls, 2);
+    // Not an agent's: not in the program's health.
     assert_eq!(hub.snapshot().await["resources"][0]["health"]["calls"], 2);
     hub.stop().await;
 }
@@ -1806,14 +1798,6 @@ async fn each_permission_has_call_history_and_per_command_counts() {
         .await;
     assert_eq!(missing["found"], false);
 
-    // The usage counts every command that ran, the slow one too, by agent and program:
-    // names and numbers only.
-    let usage = hub.panel(&[json!({"type": "usage"})], "usage").await;
-    let rows = usage["rows"].as_array().unwrap();
-    let calls: u64 = rows.iter().map(|r| r["calls"].as_u64().unwrap()).sum();
-    assert_eq!(calls, 7);
-    assert!(rows.iter().all(|r| r["program"] == "test-notepad"));
-    assert!(!clak_wire::json::text(&Value::Object(usage)).contains("classified"));
     hub.stop().await;
 }
 

@@ -2,7 +2,7 @@
 // remembers, by executable. Open (play) starts one; Edit gives it a name and a command of
 // the user's own, or the place it has moved to; Forget (the bin) makes it ask again on the
 // next connection. An agent's permission to use a program is never kept here: it ends with
-// the agent's process, and only a preset lets an agent in without asking.
+// the agent's process.
 "use strict";
 
 (() => {
@@ -82,7 +82,7 @@
       command.setAttribute("value", command.value);
     });
     const moved = draft.exe !== draft.was;
-    return el("div", { class: (Clak.mac ? "" : "card ") + "preset-editor app-editor", "data-id": `edit:${draft.key}` },
+    return el("div", { class: (Clak.mac ? "" : "card ") + "inline-editor app-editor", "data-id": `edit:${draft.key}` },
       el("label", { class: "field" }, el("span", null, "Name"), name),
       el("label", { class: "field" }, el("span", null, "Command"), el("div", { class: "command-line" }, el("span", { class: "mono quiet" }, "clak"), command)),
       el("div", { class: "field" }, el("span", null, "Location"),

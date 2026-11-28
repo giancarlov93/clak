@@ -182,6 +182,19 @@ So the entries are grouped by `X.Y`:
 
 ### Changed
 
+- A program's commands, in Status: one row per command, with its name and its state as three
+  icons to choose from (disabled, ask every time, always approved), each explained on hover.
+  A click on the name opens what the command does, what changed since it was approved and
+  when it was approved. New and changed commands come first, marked, and count as asking
+  until you choose. A command stays in its place when its state changes.
+- The skill is several files instead of one: `SKILL.md` keeps when to use Clak, the commands
+  and the rules, and says what Clak is; `programs.md` (what a program is and how applications,
+  MCP servers and REST APIs are added, with the repository for writing an extension),
+  `calling.md` (parameters, results, exit codes) and `permissions.md` sit next to it and are
+  read only when needed. On Windows the installer updates the skills already installed; on
+  the Mac they show as outdated in Settings › Integration until updated there. The text to
+  paste for agents without skills carries everything.
+
 - Clak keeps each program's commands, and what you decided about each: approved (it runs,
   as it is, for every agent you let use the program), asking at every call, or off. A
   command that is new, or changed since you approved it, asks you at the call, showing what
@@ -240,8 +253,22 @@ So the entries are grouped by `X.Y`:
 
 ### Removed
 
+- The Agents tab, with everything in it: launching agents from Clak, the presets, the agents'
+  conversations, their instructions files and their versions. Clak is what stands between
+  agents and programs, not a place to start agents from. With it goes the only way an agent
+  got in without a question: every agent now asks before it uses a program, each time it
+  starts; `CLAK_LAUNCH` is no longer read. `presets.json` and the presets' folders are left
+  where they are; backups and exported configurations no longer carry presets, and the ones
+  an older file holds are left out when it is restored or imported.
+- The Usage tab: what the agents' tokens would cost. The price list kept in `~/.clak` is
+  left where it is.
+- Show, next to an agent in Status, and the eye in the tray box, next to agents and
+  programs. In the panel, the eye and Show still bring a program to the front.
+- The count of the commands each agent ran, per hour, kept for a month in `usage.json`:
+  nothing showed it any more. The file is left where it is. The calls of each permission,
+  with their times and errors, stay in Status.
 - "Always allow" in the question to use a program: an agent's permission to use a program
-  ends with its process, and only a preset you launch it with lets it in without asking.
+  ends with its process.
   The rules made with it no longer count, are no longer listed (in Applications and on the
   hub's web page) and no longer go into backups; `rules.json` is left where it is.
   Approving a command, for every agent you let use its program, stays.

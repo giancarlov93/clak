@@ -3,8 +3,7 @@
 //!
 //! Three registries and two rules. Programs connect (and the user allows it once per
 //! executable); agents connect (and the user allows it once per process). An agent uses a
-//! program only if the user lets it, for its session (or launched it with a preset that
-//! names the program: never for good); and it runs a command
+//! program only if the user lets it, for its session: never for good; and it runs a command
 //! without asking only if the user approved that command as it is (`commands`), or allowed
 //! it for the agent's session. A command that is new, or changed since, asks; a program the
 //! user blocked is closed to the agent.
@@ -17,9 +16,7 @@ use crate::commands::{CommandCache, Status};
 use crate::consent::{
     AgentIdentity, Asks, ConsentRequest, Elicitation, Elicited, HubOptions, Reply, Verdict,
 };
-use crate::launch::{self, Launch, Preset, PresetProgram};
 use crate::permissions::AppPermissions;
-use crate::usage::Usage;
 use crate::wire::{ResourceDef, ToolDef, origin_label, origin_short};
 use crate::{cli_names, texts};
 use clak_wire::json::{self, float, new_id, now, quoted, round3};
@@ -100,7 +97,7 @@ pub struct AppConn {
     /// How the program wants to be used, if it says so: `clak <program> -h` shows it.
     pub instructions: Option<String>,
     /// The key of its application in `apps.json` (executable and signature), for a program
-    /// that connected from a process: a preset names the application by it.
+    /// that connected from a process.
     pub key: Option<String>,
     /// All the commands it declared, also those not active now (see [`Core::observe`]).
     manifest: Vec<ToolDef>,
@@ -132,10 +129,6 @@ pub struct SessionEntry {
     /// Where it came from the first time: the command line or the MCP shim.
     pub via: String,
     pub since: f64,
-    /// Launched from Clak: authorized without a question.
-    pub launched: bool,
-    /// The preset it was launched with: its programs need no question either.
-    pub preset: Option<Preset>,
 }
 
 impl SessionEntry {
@@ -296,9 +289,6 @@ pub struct CallTarget {
     pub digest: String,
     /// Where the program's commands are in the cache, if they are.
     pub cache_key: Option<String>,
-    /// The agent's preset lists the commands it may run, and not this one: approved or not,
-    /// it asks.
-    pub restricted: bool,
 }
 
 impl CallTarget {
@@ -358,35 +348,6 @@ impl ProgramRef {
     }
 }
 
-/// How an agent may use a program (see [`Core::may_use`]).
-#[derive(Debug, Clone, PartialEq)]
-pub enum Access {
-    /// The user said yes, for the agent's session.
-    Granted,
-    /// The preset it was launched with covers it; with the commands it lists, if it does.
-    Preset(Option<Vec<String>>),
-}
-
-impl Access {
-    /// Whether the preset lists the commands, and not this one: then it asks, approved or
-    /// not.
-    pub fn restricts(&self, tool: &str) -> bool {
-        match self {
-            Access::Granted => false,
-            Access::Preset(tools) => tools
-                .as_ref()
-                .is_some_and(|tools| !tools.iter().any(|t| t == tool)),
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Access::Granted => "granted",
-            Access::Preset(_) => "preset",
-        }
-    }
-}
-
 /// How long "only this call" waits for the agent to ask again, when the questions are on a
 /// web page and the agent didn't wait for the answer.
 const PERMIT_TTL: std::time::Duration = std::time::Duration::from_secs(600);
@@ -418,9 +379,6 @@ struct PendingCall {
     session_key: String,
     grant_id: Option<String>,
     tool: String,
-    /// Who asked and of whom, by name: for the usage, also if one of them is gone by the end.
-    agent: String,
-    program: String,
     /// What the agent sent, already trimmed, for the call's detail.
     arguments: Value,
     started: f64,
@@ -460,15 +418,11 @@ pub struct Core {
     monitors: IndexMap<String, Outbox>,
     events: VecDeque<Value>,
     dirty: bool,
-    /// How much the agents use the programs, kept across restarts.
-    pub usage: Usage,
     /// The programs' commands, and which ones the user approved.
     pub commands: CommandCache,
     sink: Option<mpsc::UnboundedSender<String>>,
     connectors: Value,
     apis: Value,
-    /// Launches waiting for their agent.
-    launches: Vec<Launch>,
 }
 
 impl Core {
@@ -498,15 +452,6 @@ impl Core {
                 "cwd": s.cwd,
                 "via": s.via,
                 "since": float(s.since),
-                "launched": s.launched,
-                "preset": s.preset.as_ref().map(|p| &p.name),
-            })).collect::<Vec<_>>(),
-            "launches": self.launches.iter().map(|l| json!({
-                "id": l.id,
-                "agent": l.agent,
-                "preset": l.preset.as_ref().map(|p| &p.name),
-                "since": float(l.created),
-                "expires": float(l.expires),
             })).collect::<Vec<_>>(),
             "resources": self.apps.values().map(|a| json!({
                 "id": a.conn_id,
@@ -566,7 +511,6 @@ impl Core {
     }
 
     fn publish(&mut self) {
-        self.usage.flush(now(), false);
         if !self.dirty {
             return;
         }
@@ -1218,8 +1162,6 @@ impl Core {
             cwd: cwd.map(str::to_owned),
             via: via.to_owned(),
             since: now(),
-            launched: false,
-            preset: None,
         };
         let line = format!(
             "agent connected: {} [{}, pid {}, via {via}]",
@@ -1297,19 +1239,11 @@ impl Core {
         self.grants.get_mut(grant_id)
     }
 
-    /// How the agent may use the program, if it may: the user said yes for its session, or
-    /// the preset it was launched with covers it. With the commands it may run, when the
-    /// preset lists them (the others ask, even if approved).
-    pub fn may_use(&self, session_key: &str, app: &AppConn) -> Option<Access> {
-        if self
-            .uses
+    /// Whether the agent may use the program: the user said yes, for its session.
+    pub fn may_use(&self, session_key: &str, app: &AppConn) -> bool {
+        self.uses
             .iter()
             .any(|(session, program)| session == session_key && program.covers(app))
-        {
-            return Some(Access::Granted);
-        }
-        self.preset_program(session_key, &app.conn_id)
-            .map(|program| Access::Preset(program.tools.clone()))
     }
 
     /// The user lets the agent use the program, for its session: all the instances of the
@@ -1383,16 +1317,16 @@ impl Core {
     }
 
     /// Whether the command runs for this agent without asking, as it is now: approved in
-    /// Clak (and, if the agent's preset lists commands, among them), or allowed for
-    /// the agent's session. Clak's settings: everything the session allowed.
-    pub fn runs(&self, session_key: &str, conn_id: &str, tool: &ToolDef, restricted: bool) -> bool {
+    /// Clak, or allowed for the agent's session. Clak's settings: everything the session
+    /// allowed.
+    pub fn runs(&self, session_key: &str, conn_id: &str, tool: &ToolDef) -> bool {
         let Some(app) = self.apps.get(conn_id) else {
             return false;
         };
         let session = self
             .grant_of(session_key, conn_id)
             .is_some_and(|g| g.approves(tool));
-        let approved = !restricted && self.status_of(app, tool) == Status::Approved;
+        let approved = self.status_of(app, tool) == Status::Approved;
         session || approved
     }
 
@@ -1536,9 +1470,8 @@ impl Core {
                     return Some((key.clone(), Verdict::Blocked));
                 }
                 let tool = app.tools.iter().find(|t| t.name == call.tool)?;
-                (tool.digest == call.digest
-                    && self.runs(&call.session_key, &call.conn_id, tool, call.restricted))
-                .then(|| (key.clone(), Verdict::Allowed))
+                (tool.digest == call.digest && self.runs(&call.session_key, &call.conn_id, tool))
+                    .then(|| (key.clone(), Verdict::Allowed))
             })
             .collect();
         for (key, verdict) in settled {
@@ -1605,127 +1538,6 @@ impl Core {
             }
         }
         self.touch();
-    }
-
-    // =====================================================================
-    // Launches
-    // =====================================================================
-
-    /// The user pressed Launch: the agent that shows up is authorized without a question.
-    /// A command-line agent gets a secret, returned for its `CLAK_LAUNCH`; an app none (see
-    /// [`launch`]).
-    pub fn prepare_launch(
-        &mut self,
-        agent: &str,
-        secret: bool,
-        preset: Option<Preset>,
-    ) -> Option<String> {
-        self.expire_launches();
-        let created = now();
-        let token = secret.then(|| clak_wire::json::random_hex(24));
-        let ttl = if secret {
-            launch::TOKEN_TTL
-        } else {
-            launch::APP_TTL
-        };
-        self.log(match &preset {
-            Some(p) => format!("launch of {agent} with the preset «{}»", p.name),
-            None => format!("launch of {agent}"),
-        });
-        self.launches.push(Launch {
-            id: new_id("launch"),
-            agent: agent.to_owned(),
-            token: token.clone(),
-            preset,
-            created,
-            expires: created + ttl,
-        });
-        self.touch();
-        token
-    }
-
-    /// Whether an app's launch is waiting: only then the processes above an agent are read.
-    pub fn awaits_app(&self) -> bool {
-        let now = now();
-        self.launches
-            .iter()
-            .any(|l| l.token.is_none() && l.expires > now)
-    }
-
-    /// Whether any launch is waiting.
-    pub fn awaits_launch(&self) -> bool {
-        let now = now();
-        self.launches.iter().any(|l| l.expires > now)
-    }
-
-    fn expire_launches(&mut self) {
-        let now = now();
-        let before = self.launches.len();
-        self.launches.retain(|l| l.expires > now);
-        if self.launches.len() != before {
-            self.touch();
-        }
-    }
-
-    /// A launched agent shows up: it is authorized, with its preset, and the launch is used
-    /// up; the programs of the preset already connected get their permission. False if no
-    /// launch waits for it, or it is already connected (a session stays as it is).
-    pub fn redeem(
-        &mut self,
-        agent: &AgentIdentity,
-        token: Option<&str>,
-        above: &[String],
-        cwd: Option<&str>,
-        via: &str,
-    ) -> bool {
-        self.expire_launches();
-        if self.session(agent).is_some() {
-            return false;
-        }
-        let Some(at) = self
-            .launches
-            .iter()
-            .position(|l| l.admits(agent, token, above))
-        else {
-            return false;
-        };
-        let launch = self.launches.remove(at);
-        let key = self.authorize(agent, cwd, via);
-        let session = self.sessions.get_mut(&key).expect("just authorized");
-        session.launched = true;
-        session.preset = launch.preset;
-        let line = match &session.preset {
-            Some(p) => format!(
-                "{} launched from Clak, preset «{}»",
-                session.label(),
-                p.name
-            ),
-            None => format!("{} launched from Clak", session.label()),
-        };
-        self.log(line);
-        let ready: Vec<String> = self
-            .apps
-            .keys()
-            .filter(|id| self.preset_program(&key, id).is_some())
-            .cloned()
-            .collect();
-        for conn_id in ready {
-            self.preset_grant(&key, &conn_id);
-        }
-        true
-    }
-
-    fn preset_program(&self, session_key: &str, conn_id: &str) -> Option<&PresetProgram> {
-        let preset = self.sessions.get(session_key)?.preset.as_ref()?;
-        preset.program_for(self.apps.get(conn_id)?)
-    }
-
-    /// The permission a preset gives on a program: the agent uses it without a question (the
-    /// commands it lists, if it lists them; approved or allowed for the session, the others
-    /// ask). None if the session's preset doesn't cover the program.
-    pub fn preset_grant(&mut self, session_key: &str, conn_id: &str) -> Option<String> {
-        self.preset_program(session_key, conn_id)?;
-        self.enter(session_key, conn_id)
     }
 
     // =====================================================================
@@ -1837,21 +1649,16 @@ impl Core {
     // =====================================================================
 
     /// The connected programs as an agent sees them, each with how it may use it (`access`):
-    /// `granted` (the user let it, for its session), `preset` (the preset it was launched
-    /// with covers it), or null (the first use asks the user); `blocked` if the user closed
-    /// it to the agent (then `access` is null: an older `clak` takes it as one to ask about).
-    /// The commands the user hasn't approved still ask.
+    /// `granted` (the user let it, for its session) or null (the first use asks the user);
+    /// `blocked` if the user closed it to the agent (then `access` is null: an older `clak`
+    /// takes it as one to ask about). The commands the user hasn't approved still ask.
     pub fn listing(&self, session_key: &str) -> Value {
         Value::Array(
             self.apps
                 .values()
                 .map(|a| {
                     let blocked = self.blocks(session_key, a);
-                    let access = if blocked {
-                        None
-                    } else {
-                        self.may_use(session_key, a).map(|access| access.as_str())
-                    };
+                    let access = (!blocked && self.may_use(session_key, a)).then_some("granted");
                     json!({
                         "name": a.name,
                         "app": a.resource.app,
@@ -1865,9 +1672,6 @@ impl Core {
                         "allowed": access == Some("granted"),
                         "access": access,
                         "blocked": blocked,
-                        "preset": (access == Some("preset"))
-                            .then(|| self.sessions.get(session_key).and_then(|s| s.preset.as_ref()).map(|p| p.name.clone()))
-                            .flatten(),
                     })
                 })
                 .collect(),
@@ -1915,8 +1719,7 @@ impl Core {
             .map(|t| {
                 let mut item = t.to_json();
                 // Whether it runs without a question once the agent may use the program.
-                let restricted = access.as_ref().is_some_and(|a| a.restricts(&t.name));
-                item["approved"] = Value::Bool(self.runs(session_key, conn_id, t, restricted));
+                item["approved"] = Value::Bool(self.runs(session_key, conn_id, t));
                 item["status"] = Value::String(self.status_of(app, t).as_str().into());
                 item
             })
@@ -1925,7 +1728,7 @@ impl Core {
             "name": app.name,
             "app": app.resource.app,
             "title": app.resource.title,
-            "allowed": access.is_some() && !self.blocks(session_key, app),
+            "allowed": access && !self.blocks(session_key, app),
             "instructions": app.instructions,
             "tools": tools,
         });
@@ -1981,7 +1784,7 @@ impl Core {
     }
 
     /// A command run by the user from the panel, not by an agent: no permission to check,
-    /// the user is the one who gives them. Counted in no agent's usage.
+    /// the user is the one who gives them.
     pub fn begin_user_call(
         &mut self,
         conn_id: &str,
@@ -2001,8 +1804,7 @@ impl Core {
             "arguments": arguments,
             "harness": "You, from Clak's panel",
         }));
-        let program = app.name.clone();
-        self.log(format!("{program} {}: tried from the panel", tool.name));
+        self.log(format!("{} {}: tried from the panel", app.name, tool.name));
         self.calls.insert(
             routed.clone(),
             PendingCall {
@@ -2011,8 +1813,6 @@ impl Core {
                 session_key: String::new(),
                 grant_id: None,
                 tool: tool.name.clone(),
-                agent: String::new(),
-                program,
                 arguments: kept,
                 started: now(),
                 progress: Progress::default(),
@@ -2020,11 +1820,6 @@ impl Core {
         );
         self.touch();
         Some((routed, receiver))
-    }
-
-    /// How much the agents used the programs, for the panel.
-    pub fn panel_usage(&self) -> Value {
-        self.usage.panel()
     }
 
     /// A permission's history for the panel: the calls, most recent first, and the counts per
@@ -2096,9 +1891,7 @@ impl Core {
         let (conn_id, session_key) = (grant.app_id.clone(), grant.session_key.clone());
         let session = self.sessions.get(&session_key);
         let label = session.map(SessionEntry::label).unwrap_or_default();
-        let agent = session.map(|s| s.agent.name.clone()).unwrap_or_default();
         let app = self.apps.get(&conn_id)?;
-        let program = app.name.clone();
         let routed = new_id("call");
         let (answer, receiver) = oneshot::channel();
         let arguments = Value::Object(arguments.unwrap_or_default());
@@ -2118,8 +1911,6 @@ impl Core {
                 session_key,
                 grant_id: Some(grant_id.to_owned()),
                 tool: tool.name.clone(),
-                agent,
-                program,
                 arguments: kept,
                 started,
                 progress,
@@ -2133,11 +1924,6 @@ impl Core {
         let Some(call) = self.calls.remove(routed) else {
             return;
         };
-        // What ran, also if it failed: the program was used. An agent gone halfway, not, and
-        // nor the user trying a command from the panel.
-        if outcome != outcome::INTERRUPTED && !call.agent.is_empty() {
-            self.usage.count(call.started, &call.agent, &call.program);
-        }
         if let Some(grant) = call
             .grant_id
             .as_deref()
@@ -2256,12 +2042,10 @@ impl Broker {
             monitors: IndexMap::new(),
             events: VecDeque::new(),
             dirty: false,
-            usage: Usage::default(),
             commands: CommandCache::default(),
             sink,
             connectors: json!([]),
             apis: json!([]),
-            launches: Vec::new(),
         };
         Broker(Arc::new(Inner {
             core: Mutex::new(core),

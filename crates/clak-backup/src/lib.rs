@@ -4,7 +4,7 @@
 //!
 //! - [`seal`]: the password opens a key, the key opens the backups; the automatic ones need
 //!   only its public half, so the password is never kept.
-//! - [`contents`]: what goes in (servers, APIs, presets, allowed applications, approved
+//! - [`contents`]: what goes in (servers, APIs, allowed applications, approved
 //!   commands, with their secrets) and its fingerprint, to write one only when something
 //!   changed.
 //! - [`file`]: the file, its name, the folder and how many are kept.

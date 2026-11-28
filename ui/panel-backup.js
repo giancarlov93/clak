@@ -135,7 +135,7 @@ const Backup = (() => {
     } else {
       rows.push(el("div", { class: "quiet hint" }, "A folder another computer or a cloud keeps a copy of is a good one: the backups are locked with your password."));
     }
-    return el("div", { class: "card ed-dialog preset-editor" }, rows,
+    return el("div", { class: "card ed-dialog inline-editor" }, rows,
       form.error ? Kit.bar("err", form.error) : null,
       el("div", { class: "buttons" },
         el("button", { onclick: close, disabled: busy }, "Cancel"),
@@ -223,7 +223,6 @@ const Backup = (() => {
     ["app", "Allowed applications"],
     ["connector", "MCP servers"],
     ["api", "APIs"],
-    ["preset", "Presets"],
   ];
 
   const from = (h) => {
@@ -261,7 +260,7 @@ const Backup = (() => {
     const head = el("div", { class: "editor-title" }, el("strong", null, "Restore a backup"),
       el("div", { class: "quiet" }, from(r.header)));
     if (r.stage === "password") {
-      return el("div", { class: "card ed-dialog preset-editor" }, head,
+      return el("div", { class: "card ed-dialog inline-editor" }, head,
         el("div", { class: "field" }, el("span", null, "File"),
           el("span", { class: "mono ellipsis", title: r.path }, r.path)),
         el("label", { class: "field" }, el("span", null, "Password"), fields.unlock),
@@ -351,8 +350,8 @@ const Backup = (() => {
     const last = lastLine();
     const list = [
       setting("sync", "#34c759", "Back up automatically",
-        data.enabled ? "After every change: servers, APIs, presets and permissions, with their tokens"
-          : "Servers, APIs, presets and permissions, with their tokens, locked with a password of yours",
+        data.enabled ? "After every change: servers, APIs and permissions, with their tokens"
+          : "Servers, APIs and permissions, with their tokens, locked with a password of yours",
         Kit.toggle(data.enabled, "Back up automatically", toggle, busy)),
     ];
     if (ready) {

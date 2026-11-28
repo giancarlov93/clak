@@ -1,5 +1,5 @@
 //! The backup from Settings › General: written by itself a few seconds after something
-//! changes (a server, an API, a token, a preset, a permission), into the folder the user
+//! changes (a server, an API, a token, a permission), into the folder the user
 //! chose, locked with their password; and restored from a file, after a check of each item on
 //! this computer (see `clak_backup::plan`). Off until the user turns it on.
 //!

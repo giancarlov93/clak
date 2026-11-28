@@ -74,18 +74,8 @@ html .program:hover, html .agent-row:hover { background: var(--subtle-hover); }
 html.mac .program:hover, html.mac .agent-row:hover { background: var(--subtle); }
 html .program > button.hit:hover:not(:disabled), html .agent-row > button.hit:hover:not(:disabled) { background: none; }
 
-/* The eye: brings the agent or the program to the front. */
 .agent-row { display: flex; align-items: center; gap: 4px; }
 .agent-row > .hit { flex: 1; min-width: 0; }
-html button.show {
-  flex: none; display: inline-grid; place-items: center; width: 24px; height: 22px; min-height: 0; padding: 0;
-  background: none; border: none; box-shadow: none; border-radius: 6px; color: var(--quiet);
-}
-.agent-row > button.show { margin-right: 4px; }
-html button.show:hover:not(:disabled) { color: var(--text); background: var(--subtle-hover); }
-html button.show .glyph { font-size: 13px; }
-html button.show .glyph svg { width: 14px; height: 14px; }
-html button.show.failed { color: var(--danger); }
 .program .lines .title { font-weight: 400; }
 button.revoke { flex: none; font-size: 12px; min-height: 22px; padding: 1px 10px 2px; margin-right: 4px; }
 html.mac button.revoke { min-height: 20px; border-radius: 10px; }

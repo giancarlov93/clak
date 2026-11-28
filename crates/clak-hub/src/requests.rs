@@ -50,11 +50,6 @@ pub async fn handle(
     } else {
         "cli"
     };
-    let token = request
-        .get("launch")
-        .and_then(Value::as_str)
-        .filter(|t| !t.is_empty());
-    redeem(broker, &agent, token, cwd.as_deref(), via).await;
     let context = Context {
         broker,
         agent: &agent,
@@ -76,37 +71,6 @@ pub async fn handle(
     Ok(result.unwrap_or_else(|e: Malformed| {
         error("bad_request", &format!("malformed request: {}", e.text()))
     }))
-}
-
-/// An agent launched from Clak: authorized here, without a question, with its preset (see
-/// [`crate::launch`]). The processes above it are read only if an app's launch is waiting.
-async fn redeem(
-    broker: &Broker,
-    agent: &AgentIdentity,
-    token: Option<&str>,
-    cwd: Option<&str>,
-    via: &str,
-) {
-    let (known, waiting, app) = broker.run(|c| {
-        (
-            c.session(agent).is_some(),
-            c.awaits_launch(),
-            c.awaits_app(),
-        )
-    });
-    if known || !waiting || (token.is_none() && !app) {
-        return;
-    }
-    let above = if app {
-        let platform = broker.options().platform.clone();
-        let pid = agent.pid;
-        tokio::task::spawn_blocking(move || platform.above(pid))
-            .await
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    broker.run(|c| c.redeem(agent, token, &above, cwd, via));
 }
 
 struct Context<'a> {
@@ -359,9 +323,9 @@ async fn call(
 
     // First, may the agent use the program at all? Asked the first time in each of its
     // sessions, even when all its commands are approved: approving a command doesn't choose
-    // who uses it. Only a preset the user launched the agent with lets it in without asking.
+    // who uses it.
     let mut access = cx.broker.run(|c| c.may_use(&key, &app));
-    if access.is_none() {
+    if !access {
         let asked = if app.is_hub() {
             use_settings(cx, &app).await?
         } else {
@@ -373,24 +337,23 @@ async fn call(
         }
         access = cx.broker.run(|c| c.may_use(&key, &app));
     }
-    // A preset: its permission on this instance, without a question.
+    // Its permission on this instance: the yes covers all of the application's.
     let entered = cx.broker.run(|c| c.enter(&key, &conn_id));
-    let (Some(access), Some(_)) = (access, entered) else {
+    if !access || entered.is_none() {
         return Ok(Ok(error(
             "gone",
             "The permission changed in the meantime: try again.",
         )));
     };
 
-    // Then the command: it runs if the user approved it as it is (and the agent's preset
-    // doesn't leave it out), or allowed it for the agent's session; otherwise this call
-    // asks. The same call (agent, program, command and arguments) asked twice waits for the
+    // Then the command: it runs if the user approved it as it is, or allowed it for the
+    // agent's session; otherwise this call asks. The same call (agent, program, command and arguments) asked twice waits for the
     // same answer; "only this call" lets one of them run, the others ask again.
     let arguments_digest = json::digest(&Value::Object(arguments.clone().unwrap_or_default()));
     /// One look at the call, under one lock: what to do next.
     enum Step {
         Begun(String, tokio::sync::oneshot::Receiver<Value>, ToolDef),
-        Ask(Box<crate::core::AppConn>, ToolDef, Status, bool, String),
+        Ask(Box<crate::core::AppConn>, ToolDef, Status, String),
         Answer(Map<String, Value>),
     }
     let (routed, answer, tool) = loop {
@@ -419,7 +382,6 @@ async fn call(
                     ),
                 ));
             }
-            let restricted = access.restricts(&tool.name);
             let call_key = format!(
                 "call:{key}:{conn_id}:{}:{}:{arguments_digest}",
                 tool.name, tool.digest
@@ -430,7 +392,7 @@ async fn call(
                     "The permission was revoked in the meantime: ask again.",
                 ));
             };
-            if c.runs(&key, &conn_id, &tool, restricted) || c.take_permit(&call_key) {
+            if c.runs(&key, &conn_id, &tool) || c.take_permit(&call_key) {
                 // The command changed while the user decided: the parameters given on the
                 // command line are read again with its schema now.
                 let sent = match &flags_given {
@@ -450,14 +412,12 @@ async fn call(
                     )),
                 };
             }
-            Step::Ask(Box::new(app), tool, status, restricted, call_key)
+            Step::Ask(Box::new(app), tool, status, call_key)
         });
-        let (app, tool, status, restricted, call_key) = match step {
+        let (app, tool, status, call_key) = match step {
             Step::Begun(routed, answer, tool) => break (routed, answer, tool),
             Step::Answer(answer) => return Ok(Ok(answer)),
-            Step::Ask(app, tool, status, restricted, call_key) => {
-                (app, tool, status, restricted, call_key)
-            }
+            Step::Ask(app, tool, status, call_key) => (app, tool, status, call_key),
         };
         let call = CallAsk {
             key: &call_key,
@@ -465,7 +425,6 @@ async fn call(
             tool: &tool,
             arguments: arguments.as_ref(),
             status,
-            restricted,
         };
         match ask_call(cx, &call).await? {
             Ok(()) => waited = true,
@@ -649,7 +608,6 @@ struct CallAsk<'a> {
     tool: &'a ToolDef,
     arguments: Option<&'a Map<String, Value>>,
     status: Status,
-    restricted: bool,
 }
 
 /// One call of a command the user hasn't approved, asked of the user. Ok when it may run:
@@ -688,7 +646,7 @@ async fn ask_call(
         cache_key.clone(),
     );
     let conn_id = app.conn_id.clone();
-    let (status, arguments, restricted) = (call.status, call.arguments, call.restricted);
+    let (status, arguments) = (call.status, call.arguments);
     let verdict = cx
         .broker
         .agent_consent(
@@ -720,7 +678,6 @@ async fn ask_call(
                         status,
                         changes,
                         approvable: cache_key.is_some(),
-                        restricted,
                     },
                 )
             },
@@ -759,10 +716,9 @@ async fn ask_call(
                             c.commands.approve(cache, shown, "question");
                             c.log(format!("approved: “{}” of {program}", shown.name));
                         }
-                        // Nothing to keep it in, or the preset leaves it out: for this
-                        // session, or it would ask again. Otherwise the approval alone,
-                        // which the panel can take back.
-                        if restricted || cache_for.is_none() {
+                        // Nothing to keep it in: for this session, or it would ask again.
+                        // Otherwise the approval alone, which the panel can take back.
+                        if cache_for.is_none() {
                             c.allow_for_session(
                                 &session,
                                 &target,
@@ -779,7 +735,6 @@ async fn ask_call(
                 tool: tool.name.clone(),
                 digest: tool.digest.clone(),
                 cache_key: cache_key.clone(),
-                restricted: call.restricted,
             }),
             cx.gone,
         )

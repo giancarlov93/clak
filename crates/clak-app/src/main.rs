@@ -20,11 +20,9 @@ mod bridge;
 mod closing;
 mod commands;
 mod config_file;
-mod costs;
 mod editors;
 mod front;
 mod icon;
-mod launch;
 mod look;
 #[cfg(target_os = "macos")]
 mod menubar;
@@ -185,7 +183,7 @@ fn main() {
             updates::update_check_now,
             updates::update_open,
             updates::update_install,
-            // The Agents and Settings tabs (agents.rs).
+            // Settings › Integration and General (agents.rs).
             agents::agents_status,
             agents::agents_add,
             agents::agents_remove,
@@ -194,25 +192,6 @@ fn main() {
             agents::agents_repair,
             agents::settings_status,
             agents::settings_open,
-            // The Launch section and the presets (launch.rs).
-            launch::launch_status,
-            launch::launch_agent,
-            launch::preset_save,
-            launch::preset_remove,
-            launch::instructions_read,
-            launch::instructions_write,
-            launch::launch_choose_folder,
-            launch::conversations_list,
-            launch::conversations_rename,
-            launch::conversations_delete,
-            launch::conversations_open_folder,
-            launch::conversations_search,
-            launch::conversations_delete_many,
-            launch::conversations_export,
-            launch::agents_versions,
-            launch::agent_update,
-            // The Usage tab (costs.rs).
-            costs::costs_report,
             // The MCP and APIs tabs (editors.rs).
             editors::editor_fit,
             editors::editor_stop,

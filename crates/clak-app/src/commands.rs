@@ -16,7 +16,7 @@ pub fn hub_hello(app: AppHandle) -> Value {
 /// panel: the question windows show text programs and agents wrote.
 #[tauri::command]
 pub fn hub_send(app: AppHandle, window: WebviewWindow, message: Map<String, Value>) {
-    const ALLOWED: [&str; 13] = [
+    const ALLOWED: [&str; 12] = [
         "revoke",
         "forget_session",
         "forget_app",
@@ -29,7 +29,6 @@ pub fn hub_send(app: AppHandle, window: WebviewWindow, message: Map<String, Valu
         "describe",
         "history",
         "call",
-        "usage",
     ];
     let kind = message.get("type").and_then(Value::as_str);
     let gives = matches!(kind, Some("unblock" | "approve_all"))
@@ -167,11 +166,11 @@ pub async fn open_panel(app: AppHandle, tab: Option<String>) {
     crate::windows::panel(&app, tab.as_deref());
 }
 
-/// Brings an agent (`session`) or a program (`resource`) to the front. The page names it
-/// by its id: only what the hub sees connected now, never a pid chosen by the page.
+/// Brings a connected program to the front. The page names it by its id: only what the hub
+/// sees connected now, never a pid chosen by the page.
 #[tauri::command]
-pub async fn bring_to_front(app: AppHandle, kind: String, id: String) -> Result<(), String> {
-    let pid = crate::front::pid_of(&bridge::of(&app).state(), &kind, &id)
+pub async fn bring_to_front(app: AppHandle, id: String) -> Result<(), String> {
+    let pid = crate::front::pid_of(&bridge::of(&app).state(), &id)
         .ok_or("it is no longer connected, or it has no window")?;
     tauri::async_runtime::spawn_blocking(move || crate::front::bring(pid))
         .await
@@ -215,16 +214,6 @@ fn panel_broker(app: &AppHandle, window: &WebviewWindow) -> Result<clak_hub::Bro
 }
 
 /// The name an allowed application is shown by: the user's, or its own.
-fn shown_name(broker: &clak_hub::Broker, key: &str) -> Result<String, String> {
-    broker
-        .run(|c| {
-            c.permissions()
-                .get(key)
-                .map(|e| e.label.clone().unwrap_or_else(|| e.name.clone()))
-        })
-        .ok_or_else(|| "This application is no longer among the allowed ones.".into())
-}
-
 /// Gives one opening of a program, from Status, a suffix of the user's own («revit-test»
 /// instead of «revit-2»); empty, the automatic one. Its new name.
 #[tauri::command]
@@ -238,7 +227,7 @@ pub fn program_suffix(
 }
 
 /// Gives an allowed application a name and a command of its own (empty: its own ones) and,
-/// with `exe`, the place it has moved to. The presets that name it follow.
+/// with `exe`, the place it has moved to.
 #[tauri::command]
 pub async fn app_edit(
     app: AppHandle,
@@ -251,18 +240,10 @@ pub async fn app_edit(
     let broker = panel_broker(&app, &window)?;
     broker.run(|c| c.edit_app(&key, Some(&label), Some(&command)))?;
     let current = broker.run(|c| c.permissions().get(&key).map(|e| e.exe.clone()));
-    let to = match exe.filter(|e| current.as_ref() != Some(e)) {
-        Some(exe) => broker.move_app(&key, exe).await?,
-        None => key.clone(),
-    };
-    let shown = shown_name(&broker, &to)?;
-    let home = bridge::of(&app).home().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        clak_setup::presets::follow(&home, &key, &to, &shown)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())
+    if let Some(exe) = exe.filter(|e| current.as_ref() != Some(e)) {
+        broker.move_app(&key, exe).await?;
+    }
+    Ok(())
 }
 
 /// Where an allowed application is now, from the system picker, starting next to where it

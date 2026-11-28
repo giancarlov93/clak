@@ -117,7 +117,7 @@
       el("span", { class: "lines" }, el("strong", { class: "ellipsis" }, title),
         el("span", { class: "quiet ellipsis", title: "" }, `${D.grantDetail(g, now)} · ${scopeOf(g)}`)),
       g.errors > 0 ? Kit.badge(D.plural(g.errors, "error", "errors"), "err") : null);
-    const show = D.showable(r) ? Kit.iconButton("show", `Brings ${title} to the front`, (e) => Kit.bringToFront(e.currentTarget, "resource", r.id)) : null;
+    const show = D.showable(r) ? Kit.iconButton("show", `Brings ${title} to the front`, (e) => Kit.bringToFront(e.currentTarget, r.id)) : null;
     return el("div", { class: "grant", "data-id": g.id },
       Kit.clickRow(content, () => go({ page: "history", id: g.id }), "Calls and statistics", title),
       show,
@@ -135,7 +135,6 @@
           el("div", { class: "quiet" }, D.sessionDetail(s, now)),
           s.cwd ? el("div", { class: "folder quiet", title: s.cwd }, Kit.icon("folder"), el("span", { class: "mono ellipsis" }, s.cwd)) : null),
         el("div", { class: "actions" },
-          el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "session", s.id) }, "Show"),
           el("button", { title: "Ends all its permissions", onclick: () => Panel.send({ type: "forget_session", session_id: s.id }) }, "Disconnect"))),
       grants.length === 0 && blocks.length === 0
         ? el("div", { class: "quiet indent" }, "No programs in use")
@@ -260,7 +259,7 @@
             Kit.tag(`connected ${D.ago(r.since, now)}`)),
           naming ? nameEditor(r) : null,
           el("div", { class: "users" }, Kit.icon("people"), el("span", null, users(r.id)))),
-        D.showable(r) ? el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, "resource", r.id) }, "Show") : null),
+        D.showable(r) ? el("button", { title: "Brings its window to the front", onclick: (e) => Kit.bringToFront(e.currentTarget, r.id) }, "Show") : null),
       r.status ? Kit.bar("warn", r.status) : null,
       cacheRow(r),
       Kit.section("Commands", { count: Clak.mac && list ? list.length : undefined }),

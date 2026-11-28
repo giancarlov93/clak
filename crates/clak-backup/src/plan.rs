@@ -7,7 +7,6 @@
 //!   may point to where it is now; its key is made again from that file.
 //! - An **MCP server that is a program** is restored turned off if its program or a path on
 //!   its command line isn't on this computer, so that the user changes it first.
-//! - A **preset** whose folder isn't here is restored to be changed.
 //!
 //! What is already here stays as it is: a server or an API already here, without the token
 //! the backup has, only gets the token.
@@ -28,7 +27,6 @@ pub enum Kind {
     App,
     Connector,
     Api,
-    Preset,
 }
 
 impl Kind {
@@ -37,7 +35,6 @@ impl Kind {
             Kind::App => "app",
             Kind::Connector => "connector",
             Kind::Api => "api",
-            Kind::Preset => "preset",
         }
     }
 }
@@ -100,7 +97,6 @@ pub struct Here {
     pub apps: Vec<Entry>,
     pub connectors: Vec<HereConnector>,
     pub apis: Vec<HereApi>,
-    pub presets: Vec<String>,
     /// The user's PATH, where a program named without a folder is looked for.
     pub path: OsString,
 }
@@ -183,19 +179,6 @@ impl Plan {
                     }
                     None => Check::Ready,
                 };
-            items.push(item);
-        }
-        for (index, preset) in contents.presets.iter().enumerate() {
-            let text = |key: &str| preset.get(key).and_then(Value::as_str).unwrap_or("");
-            let (name, folder) = (text("name"), text("folder"));
-            let mut item = item(Kind::Preset, index, name, folder.to_owned());
-            item.check = if here.presets.iter().any(|p| p == name) {
-                Check::Here
-            } else if !folder.is_empty() && !Path::new(folder).is_dir() {
-                Check::Warn("Its folder isn't on this computer: change it in the preset.".into())
-            } else {
-                Check::Ready
-            };
             items.push(item);
         }
         for item in &mut items {
@@ -307,7 +290,6 @@ impl Plan {
                 .as_ref()
                 .map(|_| "With its secret.".into()),
             Kind::App => item.moved.as_ref().map(|_| "Checked at this path.".into()),
-            Kind::Preset => None,
         }
     }
 }

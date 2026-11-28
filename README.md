@@ -65,10 +65,11 @@
       under a name of your choice: <code>clak github</code>, <code>clak weather</code>.
     </td>
     <td width="50%" valign="top">
-      <h3>🚀 Agents ready to work</h3>
-      Launch an agent in a folder with the programs it needs already at hand (presets), find
-      its past conversations again, and see what its tokens would cost at the API's prices.
-      Agents that only speak MCP reach the same programs through <code>clak-shim</code>.
+      <h3>🛡️ You decide what runs</h3>
+      An agent asks before it uses a program, and each command is yours to set: always
+      approved, asking every time, or disabled. Who is asking is read from the system, not
+      from what the agent says. Agents that only speak MCP reach the same programs through
+      <code>clak-shim</code>.
     </td>
   </tr>
   <tr>
@@ -119,7 +120,7 @@ flowchart LR
    `clak <program> -h`.
 3. **It runs a command**: the command runs in the program, and its result comes back on the
    agent's command line, ready for the next one.
-4. **You follow it in the panel**: who is using what, every call, what it costs.
+4. **You follow it in the panel**: who is using what, and every call with its result.
 
 The first time an agent uses a program, Clak asks you; who is asking is read from the system,
 not from what the agent says. The hub listens on loopback only, behind a token, and keeps

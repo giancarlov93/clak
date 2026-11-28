@@ -19,11 +19,9 @@ pub mod core;
 pub mod elicitation;
 pub mod flags;
 pub mod hub;
-pub mod launch;
 pub mod permissions;
 pub mod requests;
 pub mod texts;
-pub mod usage;
 pub mod wire;
 
 pub use consent::{

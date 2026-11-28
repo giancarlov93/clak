@@ -1,9 +1,9 @@
 //! What a backup holds: the MCP servers with their tokens, sign-ins and environment
-//! variables, the REST APIs with their secrets, the presets, the allowed applications and
-//! the commands the user approved. Not the usage counts, the prices, the icons nor the app's
-//! preferences: they are made again, or belong to this computer. The "Always allow" rules
-//! of older versions are left out, read or written: an agent's permission to use a program
-//! never outlives its process.
+//! variables, the REST APIs with their secrets, the allowed applications and the commands
+//! the user approved. Not the icons nor the app's preferences: they are
+//! made again, or belong to this computer. The "Always allow" rules and the presets of older
+//! versions are left out, read or written: an agent's permission to use a program never
+//! outlives its process.
 //!
 //! It is read from the hub's folder and from the secret store, the same ones the hub reads
 //! (on the Mac the Keychain), and exists in plain text only in memory: sealed in the file,
@@ -16,7 +16,7 @@ use clak_hub::commands::{self, CommandCache, Program};
 use clak_hub::permissions::{AppPermissions, Entry};
 use clak_wire::json as wire;
 use hmac::{Hmac, Mac};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use sha2::Sha256;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -48,7 +48,6 @@ pub struct SavedApi {
 pub struct Contents {
     pub connectors: Vec<SavedConnector>,
     pub apis: Vec<SavedApi>,
-    pub presets: Vec<Map<String, Value>>,
     pub apps: Vec<Entry>,
     /// The programs' commands, with what the user approved: restored with the programs.
     pub commands: Vec<Program>,
@@ -80,7 +79,6 @@ impl Contents {
                     entry,
                 })
                 .collect(),
-            presets: clak_setup::presets::all(home),
             apps: AppPermissions::load(home.join("apps.json")).all(),
             commands: CommandCache::load(home.join("commands.json"))
                 .all()
@@ -94,7 +92,6 @@ impl Contents {
         json!({
             "connectors": self.connectors.len(),
             "apis": self.apis.len(),
-            "presets": self.presets.len(),
             "apps": self.apps.len(),
             "commands": self.commands.iter().map(|p| p.commands.len()).sum::<usize>(),
         })
@@ -103,7 +100,6 @@ impl Contents {
     pub fn is_empty(&self) -> bool {
         self.connectors.is_empty()
             && self.apis.is_empty()
-            && self.presets.is_empty()
             && self.apps.is_empty()
             && self.commands.is_empty()
     }
@@ -116,7 +112,6 @@ impl Contents {
                 item["secret"] = json!(a.secret);
                 item
             }).collect::<Vec<_>>(),
-            "presets": self.presets,
             "apps": self.apps.iter().map(app_json).collect::<Vec<_>>(),
             "commands": { "programs": self.commands.iter().map(commands::program_to_json).collect::<Vec<_>>() },
         })
@@ -143,13 +138,6 @@ impl Contents {
                         entry: ApiEntry::from_json(item)?,
                         secret: text(item.get("secret")),
                     })
-                })
-                .collect(),
-            presets: list("presets")
-                .into_iter()
-                .filter_map(|p| match p {
-                    Value::Object(map) => Some(map),
-                    _ => None,
                 })
                 .collect(),
             apps: list("apps").iter().filter_map(app_from).collect(),

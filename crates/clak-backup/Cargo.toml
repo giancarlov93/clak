@@ -12,7 +12,6 @@ clak-platform.workspace = true
 clak-hub.workspace = true
 clak-connectors.workspace = true
 clak-apis.workspace = true
-clak-setup.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 getrandom.workspace = true
