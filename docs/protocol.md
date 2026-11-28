@@ -23,19 +23,20 @@ and call them. The hub sits in the middle and asks the user before anything happ
 
 The program never decides who may use it: it is told (`granted`, `revoked`).
 
-A connection represents one **live resource**, not an application: a document, a scene,
-a project that is open right now. A program with three documents open makes three
-connections. When the document closes, the connection closes, and every permission given
-for it ends.
+A connection represents one **live resource**: usually a document, a scene or a project
+that is open right now, so that a program with three documents open makes three
+connections; or the running program itself, when it prefers one connection whose commands
+say which document they work on. When the resource goes away the connection closes, and
+the grants on it end.
 
 | Term | Meaning |
 | --- | --- |
 | hub | The Clak process that the program connects to. |
 | extension, program | The software that connects and offers commands. |
-| resource | What one connection represents: one opening of one document. |
+| resource | What one connection represents: one opening of one document, or the running program. |
 | tool, command | Something an agent can call, with a name, a description and a JSON Schema for its arguments. |
 | agent, harness | An AI agent running on the same computer, using the `clak` command line. |
-| grant | The permission one agent has to use one resource, for its session. |
+| grant | The permission one agent has on one resource, for its session. The user is asked once per agent and program: on the program's other resources the grant follows without a question, when the agent first uses them. |
 | approved command | A command the user approved in Clak, as it was: it runs for every agent allowed to use the program, until it changes. |
 
 ## 1. Finding the hub
@@ -44,7 +45,7 @@ The hub keeps its files in a folder called its *home*:
 
 - the folder named by the `CLAK_HOME` environment variable, if it is set and not empty;
 - otherwise `.clak` in the user's home folder (`%USERPROFILE%\.clak` on Windows,
-  `~/.clak` on macOS).
+  `~/.clak` on macOS and Linux).
 
 While the hub runs, the home contains `daemon.json`. On the Mac only the user can read it; on
 Windows it has the access rules of the folder it is in, which in the user's profile are the
@@ -127,7 +128,7 @@ sequenceDiagram
         E->>H: tools_changed
         Note over E,H: the selection changed, so did the commands
         E->>H: resource_changed
-        Note over E,H: the document was saved under another name
+        Note over E,H: the title changed: saved under another name
         H-->>E: revoked
         Note over E,H: the agent lost its permission
     end
@@ -177,9 +178,9 @@ after it is read once it is accepted.
 | --- | --- | --- |
 | `protocol` | no | The version the extension speaks. Absent means `1`. Always send it. |
 | `token` | yes | The `token` from `daemon.json`. |
-| `resource.app` | yes | The program's name, as the user knows it ("Blender", "QGIS"). Keep it stable: the user's consent is remembered for it, and the command-line name comes from it. |
-| `resource.title` | yes | What is open: a file name, a project name. Shown to the user and to agents. |
-| `resource.instance_id` | yes | A string unique to this opening, e.g. a random UUID. A document opened again is a new instance. |
+| `resource.app` | yes | The program's name, as the user knows it ("Notes"). Keep it stable: the user's consent is remembered for it, and the command-line name comes from it. |
+| `resource.title` | yes | What is open: a file name, a project name; for a connection that stands for the whole program, the document in front, or the program's name when none is open. Shown to the user and to agents. |
+| `resource.instance_id` | yes | A string unique to this connection, e.g. a random UUID. A document opened again is a new instance. |
 | `resource.publisher` | no | Who made the extension. Shown to the user as a claim, not as a fact: what the user is told about the program comes from the operating system (section 8). |
 | `tools` | yes | Every command the extension has (section 6). May be empty. |
 | `active` | no | The names of the commands available right now. Absent means all of them. |
@@ -204,8 +205,9 @@ removes them); if it is absent they stay as they were.
 
 ### `resource_changed`
 
-The same document has a new name: saved under another name, renamed. The hub shows the new
-title to the user and to agents from now on; the grants stay.
+The resource has a new title: the document was saved under another name or renamed or,
+for a connection that stands for the whole program, another document is now in front. The
+hub shows the new title to the user and to agents from now on; the grants stay.
 
 ```json
 {"type": "resource_changed", "title": "groceries.txt"}
@@ -215,8 +217,9 @@ title to the user and to agents from now on; the grants stay.
 | --- | --- | --- |
 | `title` | yes | The new `resource.title`, as in `register`. |
 
-A *different* document (the window now shows another file) is another opening: send `close`
-and `register` it on a new connection, and agents ask again for it.
+A program with one connection per document doesn't use it to move to another document: that
+one is another opening, registered on a connection of its own. Agents the user already let
+use the program don't ask again for it (section 8).
 
 ### `result`
 
@@ -269,7 +272,8 @@ The user is being asked whether this program may connect. Show it (for example
 ```
 
 The program is connected and agents can see it. `name` is how agents call it
-(`clak notes append --line milk`): show it to the user. `protocol` is the version the hub
+(`clak notes append --line milk`): show it to the user. It comes from `resource.app`, or is
+the one the user gave the program in Clak (section 6). `protocol` is the version the hub
 speaks.
 
 ### `denied`
@@ -289,7 +293,9 @@ denied without asking. Don't reconnect on your own: wait for the user to try aga
 {"type": "granted", "grant_id": "grant_6fb2ce07232e", "harness": "Claude Code · shopping"}
 ```
 
-An agent may now use the resource: the user allowed it, for the agent's session. The
+An agent may now use the resource: the user allowed it, for the agent's session. The user
+is asked once per agent and program: on the other resources of a program the agent may
+already use, `granted` arrives without a question, when the agent first uses them. The
 commands the user hasn't approved still ask, at each call. `harness` names the agent
 for the user, as the agent and the folder it works in: showing who is using the resource is
 good practice.
@@ -365,8 +371,9 @@ use `enum` and `default` where they apply: the agent sees all of it in `clak <na
 across connections and restarts: an application by its executable, for all its instances).
 When the user approves a command, the approval covers its name, description and schema
 exactly as they were shown. A command that is added or changed afterwards (even by a comma)
-asks the user again, showing what changed. Keep descriptions stable; don't put changing data
-in them. Send your whole manifest in `tools` and use `active` for what is on now: Clak keeps
+asks the user again, showing what changed. When a program first connects, the user may
+approve the active commands it declares in the same question. Keep descriptions stable;
+don't put changing data in them. Send your whole manifest in `tools` and use `active` for what is on now: Clak keeps
 the inactive ones too, so a mode switch doesn't look like new commands.
 
 **Active commands.** `tools` lists everything the extension can do; `active` lists what
@@ -383,7 +390,9 @@ with `…`.
 case, accents removed, every run of other characters turned into one `-`, at most 24
 characters ("Notion (work)" becomes `notion-work`). If the name is taken, `-2`, `-3`… is
 added. `list`, `status`, `help`, `version` and `settings` are reserved and get an `app-`
-prefix. The name is in `registered`.
+prefix. In Clak the user can give a program a name and a command of their own, and a suffix
+of their own to one of its openings: `registered` has the name in force when the program
+connects, and one changed later isn't announced.
 
 ## 7. Results
 
@@ -398,7 +407,7 @@ prefix. The name is in `registered`.
 "content": [
   {"type": "text", "text": "The render is ready."},
   {"type": "image", "data": "iVBORw0KGgo…", "mimeType": "image/png"},
-  {"type": "resource", "resource": {"uri": "file:///scene.blend", "mimeType": "application/x-blender", "blob": "QkxFTkRFUi…"}},
+  {"type": "resource", "resource": {"uri": "file:///exports/model.obj", "mimeType": "model/obj", "blob": "diAwIDAgMAp2…"}},
   {"type": "resource", "resource": {"uri": "file:///notes.md", "text": "# Notes"}}
 ]
 ```
@@ -419,7 +428,7 @@ than 25,000 characters are also written to a file. Keep the whole message under 
 **Who is connecting.** The hub doesn't trust what a program says about itself. When a
 connection arrives it asks the operating system which process is at the other end of the
 TCP connection, and shows the user that process's executable and its code signature
-("blender.exe, signed by Blender Foundation"). `resource.app` and `resource.publisher` are
+("notes.exe, signed by Example Ltd"). `resource.app` and `resource.publisher` are
 shown as what the program claims.
 
 **What is remembered.** When the user allows a program, the hub remembers the executable
@@ -430,13 +439,15 @@ again; a signed one isn't, as long as the signer is the same. A process the hub 
 identify is asked about every time and never remembered. The user can forget a program
 from the Clak window.
 
-**Plugins.** An extension that runs inside a host application (a Python add-on in Blender,
-a plugin in Rhino) is identified as that application: the user sees "blender.exe". Use a
+**Plugins.** An extension that runs inside a host application (an add-on, a plug-in, a
+script) is identified as that application: the user sees the host's executable. Use a
 precise `app` name: allowing one plugin of a host doesn't allow another with a different
 `app`.
 
 **Agents.** Every agent asks the user before it uses a program the first time, for its
-session, and never for good. Then each command the user hasn't approved asks, showing the
+session, and never for good. The yes is for the program: it covers all the resources of an
+application the hub remembers, those open now and those opened later, and a resource of a
+process the hub can't identify only by itself. Then each command the user hasn't approved asks, showing the
 arguments the agent sends. Grants end when the agent's process ends, when the user revokes them or
 blocks the program, or when the connection closes.
 

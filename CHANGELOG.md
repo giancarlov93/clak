@@ -16,8 +16,8 @@ So the entries are grouped by `X.Y`:
 ### Added
 
 - MCP: servers that still speak the older HTTP+SSE transport (a GET that opens a stream,
-  then the messages POSTed to the endpoint it names), like the one inside Affinity at
-  `http://localhost:6767/sse`. Nothing to choose: when a server refuses the POST that opens
+  then the messages POSTed to the endpoint it names), like the one some desktop programs
+  have inside. Nothing to choose: when a server refuses the POST that opens
   the session with 400, 404 or 405, Clak tries that transport at the same address by itself.
   The endpoint must be on the same server as the stream, so the token doesn't travel
   elsewhere; when the stream closes (the program quits) the connector shows it unreachable
@@ -45,7 +45,7 @@ So the entries are grouped by `X.Y`:
   allow" rules, its approved commands and the presets that name it follow; at the new place it is remembered by
   that file, as when it was allowed. Only from the panel of the app that runs the hub.
 - Status: in a connected program's page, its name for the agents can be given a suffix of
-  your own (`revit-test` instead of `revit-2`), to tell it apart when you talk to an agent.
+  your own (`notes-test` instead of `notes-2`), to tell it apart when you talk to an agent.
   It lasts while the program stays connected, and stays if the application's command
   changes. Only from the panel of the app that runs the hub.
 - Usage, a tab of its own above Settings: what the agents' tokens would cost at the API's
@@ -187,11 +187,17 @@ So the entries are grouped by `X.Y`:
   A click on the name opens what the command does, what changed since it was approved and
   when it was approved. New and changed commands come first, marked, and count as asking
   until you choose. A command stays in its place when its state changes.
+- The extension guide and the protocol say what they left out or got wrong since the
+  permissions changed: a connection may stand for a document or for the whole program (one
+  entry whose title follows the document in front); an agent's yes covers every opening of
+  a program Clak can identify, so a document opened again or a program connected again no
+  longer asks; the user may approve a program's commands as it first connects, and give it
+  a name and a command of their own. The examples name no real program.
 - The skill is several files instead of one: `SKILL.md` keeps when to use Clak, the commands
   and the rules, and says what Clak is; `programs.md` (what a program is and how applications,
   MCP servers and REST APIs are added, with the repository for writing an extension),
   `calling.md` (parameters, results, exit codes) and `permissions.md` sit next to it and are
-  read only when needed. On Windows the installer updates the skills already installed; on
+  read only when needed. It names no program in particular. On Windows the installer updates the skills already installed; on
   the Mac they show as outdated in Settings › Integration until updated there. The text to
   paste for agents without skills carries everything.
 

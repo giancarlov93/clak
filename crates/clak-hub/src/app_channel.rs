@@ -261,10 +261,10 @@ async fn handle(
                 c.touch();
             });
         }
-        // The same document under another name (saved as, renamed): the title follows, the
-        // permissions stay. The program's name and this opening's id don't change: the
-        // consent and the agents' command name hang on them. Another document is another
-        // opening, with its own connection: the agents ask again.
+        // The resource under another title (saved as, renamed, or another document in front
+        // for a program with one connection for all of them): the title follows, the
+        // permissions stay. The program's name and this connection's id don't change: the
+        // consent and the agents' command name hang on them.
         Some("resource_changed") => {
             let title = wire::required_string(message, "title")?.trim().to_owned();
             broker.run(|c| c.retitle(conn_id, title));

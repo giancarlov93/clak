@@ -1,5 +1,5 @@
 //! An MCP client over the HTTP+SSE transport of 2024-11-05, which some servers still speak
-//! (programs with an MCP server inside, like Affinity, and the older SDKs): a GET opens a
+//! (programs with an MCP server inside, and the older SDKs): a GET opens a
 //! stream that stays open, its first event (`endpoint`) says where to POST the messages, and
 //! every answer arrives on that stream, not in the POST's response.
 //!
@@ -271,7 +271,7 @@ impl McpSse {
 
     /// `initialize`, with the latest version, as over Streamable HTTP: a server negotiates
     /// it down. Some refuse it instead, and say which one they support (in `data.supported`,
-    /// or only in the message, like Affinity): then once more with that one.
+    /// or only in the message): then once more with that one.
     pub async fn initialize(&self) -> Result<(), McpError> {
         let result = match self.initialize_with(PROTOCOL_VERSION).await {
             Err(error) => match supported(&error).filter(|v| v != PROTOCOL_VERSION) {

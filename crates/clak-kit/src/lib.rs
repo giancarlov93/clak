@@ -129,10 +129,10 @@ impl LiveResource {
         self.state().title.clone()
     }
 
-    /// The same document has a new name (saved as, renamed): the hub shows it to the user and
-    /// to agents from now on, and the agents keep their permissions. Sent at once if
-    /// connected, otherwise with the next `register`. Another document is not a new name:
-    /// it's another `LiveResource`, and the agents ask again.
+    /// The resource has a new title (the document saved as or renamed, or another document
+    /// in front when one `LiveResource` stands for the whole program): the hub shows it to
+    /// the user and to agents from now on, and the agents keep their permissions. Sent at
+    /// once if connected, otherwise with the next `register`.
     pub fn set_title(&self, title: &str) {
         let mut state = self.state();
         if state.title == title {

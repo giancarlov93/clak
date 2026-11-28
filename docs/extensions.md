@@ -11,16 +11,17 @@ The details of every message are in the [protocol specification](protocol.md).
 2. Your program reads `~/.clak/daemon.json`, opens a WebSocket to the port written there
    and sends `register`: the program's name, the title of what is open (the instance) and
    its commands.
-3. The first time, Clak asks the user whether your program may connect. Clak remembers
-   the answer.
+3. The first time, Clak asks the user whether your program may connect, and remembers the
+   answer. In the same question the user may approve your commands at once.
 4. Agents see the instance in `clak list --others` (`clak list` shows the programs they can
    already use). The first time an agent uses your program, Clak asks the user, for that
-   agent. Then each command the user hasn't approved asks too, with what it sends; an
+   agent: a yes lasts until the agent's process ends, and covers every opening of your
+   program. Then each command the user hasn't approved asks too, with what it sends; an
    approved one runs until it changes.
 5. Agents call your commands (`clak notes append --line milk`). Your program receives
    `call`, runs the command and answers with `result`.
 6. When it closes, your program sends `close`. The instance disappears for agents, and
-   their permissions on it end.
+   their grants on it end.
 
 Your program never handles permissions: Clak asks, and tells you the outcome
 (`granted`, `revoked`).
@@ -100,21 +101,35 @@ async with websockets.connect(f"ws://127.0.0.1:{hub['ws_port']}") as socket:
 
 ## Designing the integration
 
-### One connection per open document
+### What a connection stands for
 
-A connection is one opening of one document, not your application. Open two documents
-and make two connections, each with its own `instance_id` (a fresh random id per opening)
-and its own `title`. Agents then see both (`clak notes`, `clak notes-2`) and the user
-grants them separately.
+A connection is one entry in the agents' list (`clak notes`), with a title that says what
+it works on. Choose what suits your program:
+
+- **One connection per open document.** Each opening registers on its own, with its own
+  `instance_id` (a fresh random id per opening) and its own `title`. Agents see them side
+  by side (`clak notes`, `clak notes-2`) and name the one they mean. It suits a program
+  whose documents live in windows of their own.
+- **One connection for the program.** It registers once, even with nothing open, and its
+  commands say which document they work on: the one in front unless an argument names
+  another, with commands to list the open documents and to open, switch, save and close
+  them. The `title` is the document in front, or the program's name when none is open. It
+  suits a program with one window, or one whose scripting works on "the active document".
+
+Either way the user's answers are about your program, not about one document. An agent the
+user lets use it may use every opening, those of now and those to come, until the agent's
+process ends; so a document opened again doesn't ask again. This holds for a program Clak
+can identify (the [protocol](protocol.md), section 8); one it can't is asked about each
+time.
 
 Keep `resource.app` the same across versions and documents. It is the name users know,
 it is part of what Clak remembers when the user allows your program, and it gives agents
 the command name.
 
-When the user saves the document under another name, send `resource_changed` with the
+When the title changes (the document is saved under another name or, with one connection
+for the program, another document comes to the front), send `resource_changed` with the
 new title: agents see it at once and keep their permissions. With `clak-kit`, call
-`set_title`. When the window shows a different document instead, that is another opening:
-close the connection and register the new document, so agents have to ask for it.
+`set_title`.
 
 ```json
 {"type": "resource_changed", "title": "groceries.txt"}
@@ -129,14 +144,15 @@ for the document. Show the state, because the user needs to know what is happeni
 | --- | --- |
 | `daemon.json` missing, or connection refused | Clak isn't running |
 | `waiting` | Waiting for permission in Clak… |
-| `registered` | Connected, as `clak <name>` |
-| `granted`, `revoked` | Which agents are using the document (`harness`) |
+| `registered` | Connected, as `clak <name>` (the user may have chosen the name in Clak) |
+| `granted`, `revoked` | Which agents are using it (`harness`) |
 | `denied` | Not allowed. Don't retry on your own. |
 | connection closed | Disconnected |
 
 When Clak quits, the connection closes. Reconnect when the user asks, or when Clak is back
-if the user turned the connection on. A new connection is a new registration, and agents
-need permission again.
+if the user turned the connection on: `daemon.json` then has another port and another
+token. A new connection is a new registration; Clak was restarted, so every agent asks
+again before it uses your program.
 
 ### Commands
 
@@ -217,15 +233,16 @@ CLAK_HOME=/tmp/clak-test python notes.py
 
 ## Checklist
 
-- [ ] `register` sends `protocol`, a stable `app`, the document's `title` and a fresh
-      `instance_id`.
+- [ ] `register` sends `protocol`, a stable `app`, a `title` that says what is open and a
+      fresh `instance_id`.
+- [ ] The title follows what it names: `resource_changed` when it changes.
 - [ ] Every command has a clear description and a complete schema, with no changing data.
 - [ ] Workflow and conventions are in `instructions`, not repeated in each description.
 - [ ] Every `call` gets exactly one `result`; errors have `is_error` and an actionable
       message.
 - [ ] Commands run where the host requires (main thread), without blocking the socket.
 - [ ] `cancel` is honoured.
-- [ ] The user sees the state: not running, waiting, connected, who is using the document.
-- [ ] Closing the document sends `close`.
+- [ ] The user sees the state: not running, waiting, connected, which agents are using it.
+- [ ] Closing what the connection stands for sends `close`.
 - [ ] The token is never logged.
 - [ ] Unknown message types and fields are ignored.

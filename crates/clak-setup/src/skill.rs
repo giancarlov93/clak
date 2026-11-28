@@ -392,7 +392,7 @@ A program is whatever is connected to Clak and offers commands. `clak list` name
 
 | Kind | What it is | How it is added |
 | --- | --- | --- |
-| Application | A desktop program the user has open (Blender, Rhino, Revit, QGIS, Photoshop…), through a Clak extension installed in it. Its commands act on what is open now: the user's own file, not a copy. | The user installs the extension and connects from inside the application, usually with a Clak button or panel. The first time, Clak asks them to allow it. |
+| Application | A desktop program the user has open, through a Clak extension installed in it. Its commands act on what is open now: the user's own file, not a copy. | The user installs the extension and connects from inside the application, usually with a Clak button or panel. The first time, Clak asks them to allow it. |
 | MCP server | A remote server (HTTP, with a token or OAuth) or a local one (a program over stdio). Its tools are the commands. | `clak settings add-server`, or the MCP tab of Clak's panel. |
 | REST API | A web API: each endpoint is a command. | `clak settings add-api`, from its OpenAPI document or endpoint by endpoint, or the APIs tab of Clak's panel. |
 | `settings` | Clak itself: lists, adds, changes and removes MCP servers and REST APIs. | Always there. |
@@ -401,7 +401,7 @@ A program is whatever is connected to Clak and offers commands. `clak list` name
 
 - It is listed only while it is running and connected.
 - Missing: ask the user to open it and connect it to Clak from inside it. You can't do that for them.
-- Open several times: `revit`, `revit-2`… (or a suffix the user chose: `revit-site`). The title in `clak list` says what each one has open; ask which one if it isn't clear.
+- Open several times: `<program>`, `<program>-2`… (or a suffix the user chose). The title in `clak list` says what each one has open; ask which one if it isn't clear.
 - Its commands follow its state (a document open or not, what is selected): if one is missing, run `clak <program> -h` again.
 
 ## An MCP server or a REST API
