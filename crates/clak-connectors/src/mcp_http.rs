@@ -13,8 +13,13 @@
 //!
 //! Canceling a request means dropping its future (with `tokio::time::timeout`, or
 //! because whoever was waiting is gone): the connection closes with it.
+//!
+//! A server that refuses the POST of `initialize` with 400, 404 or 405 may speak the older
+//! HTTP+SSE transport: [`McpHttp::initialize`] then tries it at the same address, and if it
+//! answers, the client goes on through it ([`McpSse`]).
 
 use crate::BoxFuture;
+use crate::mcp_sse::McpSse;
 use crate::oauth::OAuthChallenge;
 use clak_wire::json::{self as wire, MAX_MESSAGE_BYTES};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap};
@@ -267,6 +272,8 @@ struct State {
     instructions: Option<String>,
     server_name: Option<String>,
     icon: Option<String>,
+    /// The server speaks HTTP+SSE: everything goes through here.
+    legacy: Option<Arc<McpSse>>,
 }
 
 /// A server's MCP client. Used by several requests at once: the session and the
@@ -311,16 +318,51 @@ impl McpHttp {
 
     /// The instructions for how the server wants to be used, if it has any.
     pub fn instructions(&self) -> Option<String> {
-        self.lock().instructions.clone()
+        match self.legacy() {
+            Some(legacy) => legacy.instructions(),
+            None => self.lock().instructions.clone(),
+        }
     }
 
     pub fn server_name(&self) -> Option<String> {
-        self.lock().server_name.clone()
+        match self.legacy() {
+            Some(legacy) => legacy.server_name(),
+            None => self.lock().server_name.clone(),
+        }
     }
 
     /// The icon the server declares (`serverInfo.icons`), if the app can show it.
     pub fn icon(&self) -> Option<String> {
-        self.lock().icon.clone()
+        match self.legacy() {
+            Some(legacy) => legacy.icon(),
+            None => self.lock().icon.clone(),
+        }
+    }
+
+    /// True if the server speaks the older HTTP+SSE transport (known after `initialize`).
+    pub fn legacy_sse(&self) -> bool {
+        self.legacy().is_some()
+    }
+
+    fn legacy(&self) -> Option<Arc<McpSse>> {
+        self.lock().legacy.clone()
+    }
+
+    /// Arrives when the server says its commands have changed: only over HTTP+SSE, whose
+    /// stream is always open; otherwise never (the list is re-read every so often).
+    pub async fn changed(&self) {
+        match self.legacy() {
+            Some(legacy) => legacy.changed().await,
+            None => std::future::pending().await,
+        }
+    }
+
+    /// Arrives when the HTTP+SSE stream closes, with the reason; never otherwise.
+    pub async fn ended(&self) -> String {
+        match self.legacy() {
+            Some(legacy) => legacy.ended().await,
+            None => std::future::pending().await,
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -330,19 +372,31 @@ impl McpHttp {
     }
 
     pub async fn initialize(&self) -> Result<(), McpError> {
-        self.lock().session = None;
+        {
+            let mut state = self.lock();
+            state.session = None;
+            state.legacy = None;
+        }
         let capabilities = capabilities(self.can_elicit);
-        let result = self
-            .request(
+        let (id, response) = self
+            .send_request(
                 "initialize",
                 json!({
                     "protocolVersion": PROTOCOL_VERSION,
                     "capabilities": capabilities,
                     "clientInfo": { "name": "clak", "version": env!("CARGO_PKG_VERSION") },
                 }),
-                None,
             )
             .await?;
+        if matches!(response.status().as_u16(), 400 | 404 | 405) {
+            let refused = self
+                .check(&response)
+                .err()
+                .unwrap_or_else(|| McpError::Transport("refused".into()));
+            drop(response);
+            return self.fall_back(refused).await;
+        }
+        let result = self.receive(response, id, "initialize", None).await?;
         {
             let mut state = self.lock();
             state.protocol = Some(
@@ -360,8 +414,30 @@ impl McpHttp {
         self.notify("notifications/initialized").await
     }
 
+    /// The POST of `initialize` was refused: the server may speak HTTP+SSE at the same
+    /// address. If it doesn't open an event stream either, the refusal stands.
+    async fn fall_back(&self, refused: McpError) -> Result<(), McpError> {
+        let opened = McpSse::open(
+            self.http.clone(),
+            &self.url,
+            self.token.clone(),
+            self.can_elicit,
+            self.notifications.clone(),
+        )
+        .await?;
+        let Some(legacy) = opened else {
+            return Err(refused);
+        };
+        legacy.initialize().await?;
+        self.lock().legacy = Some(Arc::new(legacy));
+        Ok(())
+    }
+
     /// All the commands, page after page.
     pub async fn list_tools(&self) -> Result<Vec<Map<String, Value>>, McpError> {
+        if let Some(legacy) = self.legacy() {
+            return legacy.list_tools().await;
+        }
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
         for _ in 0..100 {
@@ -389,6 +465,9 @@ impl McpHttp {
         arguments: &Map<String, Value>,
         elicit: Option<&Elicit>,
     ) -> Result<Map<String, Value>, McpError> {
+        if let Some(legacy) = self.legacy() {
+            return legacy.call_tool(name, arguments, elicit).await;
+        }
         self.request(
             "tools/call",
             json!({ "name": name, "arguments": arguments }),
@@ -410,10 +489,30 @@ impl McpHttp {
         parameters: Value,
         elicit: Option<&Elicit>,
     ) -> Result<Map<String, Value>, McpError> {
+        let (id, response) = self.send_request(method, parameters).await?;
+        self.receive(response, id, method, elicit).await
+    }
+
+    async fn send_request(
+        &self,
+        method: &str,
+        parameters: Value,
+    ) -> Result<(i64, Response), McpError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         let response = self
             .send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": parameters }))
             .await?;
+        Ok((id, response))
+    }
+
+    /// The answer to request `id`, in JSON or in an SSE stream.
+    async fn receive(
+        &self,
+        response: Response,
+        id: i64,
+        method: &str,
+        elicit: Option<&Elicit>,
+    ) -> Result<Map<String, Value>, McpError> {
         self.check(&response)?;
         if method == "initialize"
             && let Some(session) = response
@@ -483,6 +582,10 @@ impl McpHttp {
     /// [`McpHttp::notifications`], its requests are answered. It lasts until the future is
     /// dropped; it ends at once if the server offers no such stream, or when it stops sending.
     pub async fn listen(&self) -> Result<(), McpError> {
+        // Over HTTP+SSE the stream is always open, and always read.
+        if self.legacy_sse() {
+            return Ok(());
+        }
         let mut cursor = Cursor::default();
         let mut quiet = 0;
         loop {
