@@ -1,5 +1,6 @@
-//! Clak's configuration in one file, to take to another computer or keep aside: the presets,
-//! the MCP servers and the REST APIs, from Settings › General.
+//! Clak's configuration in one file, to take to another computer or keep aside: the MCP
+//! servers and the REST APIs, from Settings › General. The presets a file of an older
+//! version holds are left where they are.
 //!
 //! No secret goes in it: no token, no key, no sign-in, and of a program's environment
 //! variables only the names. After an import each server asks for what it needs, as a new
@@ -14,7 +15,6 @@
 use crate::bridge;
 use clak_apis::{ApiAuth, ApiDraft, ApiEndpoint};
 use clak_connectors::launch::Launch;
-use clak_setup::presets;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -30,7 +30,6 @@ const VERSION: u64 = 1;
 #[tauri::command]
 pub async fn config_export(app: AppHandle, window: WebviewWindow) -> Result<Option<Value>, String> {
     let bridge = bridge::of(&app);
-    let home = bridge.home().clone();
     let connectors: Vec<Value> = bridge
         .connectors()
         .map(|hub| {
@@ -71,20 +70,11 @@ pub async fn config_export(app: AppHandle, window: WebviewWindow) -> Result<Opti
                 .collect()
         })
         .unwrap_or_default();
-    let presets: Vec<Value> = presets::all(&home)
-        .into_iter()
-        .map(|mut p| {
-            p.remove("id");
-            Value::Object(p)
-        })
-        .collect();
-    let counts =
-        json!({ "presets": presets.len(), "connectors": connectors.len(), "apis": apis.len() });
+    let counts = json!({ "connectors": connectors.len(), "apis": apis.len() });
     let content = json!({
         "kind": KIND,
         "version": VERSION,
         "exported": clak_wire::json::float(clak_wire::json::now()),
-        "presets": presets,
         "connectors": connectors,
         "apis": apis,
     });
@@ -143,11 +133,6 @@ pub async fn config_import(
             Some(hub) => import_api(hub, &item),
         };
         results.push(result("API", &name, outcome));
-    }
-    let home = bridge.home().clone();
-    for item in list("presets") {
-        let name = text(&item, "name").unwrap_or_default();
-        results.push(result("Preset", &name, import_preset(&home, item)));
     }
     Ok(Some(results))
 }
@@ -227,27 +212,6 @@ fn import_api(hub: &clak_apis::ApiHub, item: &Value) -> Result<bool, String> {
     };
     hub.add(draft)?;
     Ok(true)
-}
-
-fn import_preset(home: &std::path::Path, item: Value) -> Result<bool, String> {
-    let Value::Object(mut preset) = item else {
-        return Err("It isn't a preset.".into());
-    };
-    let name = preset
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned();
-    if presets::all(home)
-        .iter()
-        .any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()))
-    {
-        return Ok(false);
-    }
-    preset.remove("id");
-    presets::save(home, preset)
-        .map(|_| true)
-        .map_err(|e| e.to_string())
 }
 
 fn text(item: &Value, key: &str) -> Option<String> {

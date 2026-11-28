@@ -2,10 +2,10 @@
 //! starts at once (a server connects, an application is allowed), as if the user had added
 //! it now. Nothing already here is removed or replaced, but a missing secret.
 //!
-//! The order matters: the applications first, because the presets name them by their key,
-//! which may have changed if the user pointed one to where it is now. The
-//! commands the user approved come last, with the programs restored: an application under
-//! its key here, a server or an API under its id here (found by its address).
+//! The order matters: the applications first, because their key may have changed if the
+//! user pointed one to where it is now. The commands the user approved come last, with the
+//! programs restored: an application under its key here, a server or an API under its id
+//! here (found by its address).
 
 use crate::plan::{Check, Here, HereApi, HereConnector, Kind, Plan};
 use clak_apis::{ApiDraft, ApiHub};
@@ -56,10 +56,6 @@ impl Targets<'_> {
                         .collect()
                 })
                 .unwrap_or_default(),
-            presets: clak_setup::presets::all(self.home)
-                .iter()
-                .filter_map(|p| p.get("name").and_then(Value::as_str).map(str::to_owned))
-                .collect(),
             path,
         }
     }
@@ -144,33 +140,6 @@ pub async fn restore(plan: &Plan, chosen: &HashSet<String>, to: &Targets<'_>) ->
             None => Err("The REST APIs aren't available on this hub.".into()),
         };
         outcomes.push(outcome(item, result));
-    }
-
-    for item in picked(Kind::Preset) {
-        let mut preset = plan.contents.presets[item.index].clone();
-        preset.remove("id");
-        for program in preset
-            .get_mut("programs")
-            .and_then(Value::as_array_mut)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_object_mut)
-        {
-            if let Some(moved) = program
-                .get("app")
-                .and_then(Value::as_str)
-                .and_then(|k| keys.get(k))
-            {
-                program.insert("app".into(), json!(moved));
-            }
-        }
-        let saved = clak_setup::presets::save(to.home, preset)
-            .map(|_| match &item.check {
-                Check::Warn(_) => "Restored: change its folder.".to_owned(),
-                _ => "Restored.".to_owned(),
-            })
-            .map_err(|e| e.to_string());
-        outcomes.push(outcome(item, saved));
     }
 
     // The approvals of the programs this restore added (not of those already here): only

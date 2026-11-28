@@ -162,24 +162,6 @@ html.mac .group-head .group-name { font-size: 13px; color: var(--text); }
 .group.closed .group-body { display: none; }
 .group.closed .group-head { margin-bottom: 0; }
 
-/* An agent's conversations: the switch that groups them and the cleanup, the folder over
-   each group, the pin of the ones at the top, the cleanup's bar. */
-.talk-group { display: flex; align-items: center; gap: 8px; color: var(--quiet); white-space: nowrap; }
-.talk-group .switch .state { display: none; }
-.section.talk-folder h2 { min-width: 0; text-transform: none; letter-spacing: normal; }
-.talk-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -4px 0 12px; }
-.talk .name { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.talk-pin { color: var(--accent); flex: none; display: inline-flex; }
-.talk-pin .glyph svg { width: 12px; height: 12px; }
-.cleanup { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.cleanup .lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.cleanup select { margin: 0 4px; }
-.cleanup .actions { display: flex; align-items: center; gap: 8px; }
-
-/* An agent's newer version; the buttons of a span (Usage). */
-.update-line { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
-.usage-span button, html.mac .usage-span button { font-size: 12px; }
-
 .card { margin-bottom: 4px; padding: 12px 16px; border-radius: 6px; }
 html.mac .card { padding: 10px 14px; border-radius: var(--radius-card); margin-bottom: 8px; }
 .card.group, html.mac .card.group { padding: 0; overflow: hidden; }
@@ -188,8 +170,7 @@ html.mac .card { padding: 10px 14px; border-radius: var(--radius-card); margin-b
 html.mac .card.group > * + * { border-top: none; position: relative; }
 html.mac .card.group > * + *::before { content: ""; position: absolute; top: 0; left: 54px; right: 0; border-top: 1px solid var(--stroke); }
 html.mac .card.group.commands > * + *::before, html.mac .card.group > .parameter + .parameter::before { left: 14px; right: 14px; }
-/* Where the text starts after a larger icon: the Agents' (32 px) and the Applications' (36 px). */
-html.mac .card.group > .launch::before { left: 58px; }
+/* Where the text starts after a larger icon: the Applications' (36 px). */
 html.mac .card.group > .allowed::before { left: 62px; }
 
 .empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 16px; margin-bottom: 4px; border: 1px dashed var(--stroke); border-radius: 6px; color: var(--quiet); }
@@ -359,7 +340,7 @@ table.calls .tone .glyph svg { width: 14px; height: 14px; }
 .tone.err { color: var(--danger); }
 .tone.off { color: var(--faint); }
 
-/* --- Applications, Agents --------------------------------------------------------- */
+/* --- Applications, Settings › Integration ------------------------------------------ */
 
 .allowed, .setup { display: flex; align-items: center; gap: 16px; }
 html.mac .row { padding: 10px 14px; gap: 12px; }
@@ -483,12 +464,9 @@ table.calls td:last-child { width: 1px; }
 .reply { display: flex; flex-direction: column; gap: 8px; }
 .reply.failed .payload { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-bg); }
 
-/* --- Launch (panel-launch.js) ----------------------------------------------------------- */
+/* --- an editor that opens in the page: an application, the backup, a restore ------------ */
 
-.launch .folder-line, .preset-editor .folder-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.launch .folder-line .glyph { font-size: 12px; }
-.launch .folder-line .glyph svg { width: 12px; height: 12px; }
-.launch .folder-line button.link { padding: 1px 6px; font-size: 12px; }
+.inline-editor .folder-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .command-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .command-line input { flex: 1; min-width: 0; }
 /* A program's name for the agents, edited in its page (Status): under its tags. */
@@ -499,21 +477,12 @@ table.calls td:last-child { width: 1px; }
 .allowed.editing, .card.group > .app-editor { background: var(--subtle); }
 html.mac .card.group > .app-editor { margin: 0; padding: 2px 14px 14px 62px; }
 html.mac .card.group > .app-editor::before { display: none; }
-.chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 1px 8px 2px; border-radius: 10px; background: var(--subtle); white-space: nowrap; }
-.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
-.chip.on .dot { background: var(--ok); }
-.chip button.small-link { padding: 0 4px; min-height: 0; font-size: 12px; color: var(--accent); }
-.preset-editor { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px; }
-.preset-editor .field { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 12px; }
-.preset-editor .field.top { align-items: start; }
-.preset-editor .field > span:first-child { color: var(--quiet); }
-.preset-editor .picks { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow: auto; }
-.preset-editor .pick { display: flex; align-items: center; gap: 8px; }
-.preset-editor .indent-pick { margin-left: 24px; color: var(--quiet); }
-.preset-editor .tools { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 4px 48px; font-size: 12px; }
-.preset-editor .buttons { display: flex; justify-content: flex-end; gap: 8px; }
-.preset-editor .hint { font-size: 12px; }
+.inline-editor { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; padding: 14px 16px; }
+.inline-editor .field { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 12px; }
+.inline-editor .field > span:first-child { color: var(--quiet); }
+.inline-editor .pick { display: flex; align-items: center; gap: 8px; }
+.inline-editor .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.inline-editor .hint { font-size: 12px; }
 
 /* The import of MCP servers from other apps: a row to tick per server, under its app. */
 .import-card { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; padding: 14px 16px; }
@@ -534,12 +503,6 @@ html.mac .pivot { align-self: center; width: fit-content; margin: 0 auto 16px; g
 html.mac .pivot button { min-height: 22px; padding: 0 14px; border-radius: 5px; font-weight: 500; }
 html.mac .pivot button.selected { background: var(--segment-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .15); font-weight: 500; }
 html.mac .pivot button.selected::after { display: none; }
-
-/* An instructions file, edited in place: the agent's own, or a preset's. */
-.preset-editor textarea { min-height: 120px; line-height: 1.5; }
-.instructions-editor textarea { min-height: 280px; }
-.preset-editor .stack { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.preset-editor .stack select { width: fit-content; }
 
 /* Trying a command from its page: the fields, the run, what came back. */
 .try { display: flex; flex-direction: column; gap: 12px; }
@@ -576,74 +539,35 @@ html.mac .backup .settings .setting > .actions { width: 120px; }
 html.mac .backup .result-row > .glyph { width: 14px; font-size: 14px; }
 html.mac .backup .result-row > .glyph svg { width: 14px; height: 14px; }
 
-/* --- Usage ---------------------------------------------------------------------------- */
-
-/* A harness per color, then a kind of token per color, in a fixed order: each keeps its
-   color in every span. */
-.usage-costs { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
-  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; }
-}
-:root[data-theme="dark"] .usage-costs { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
-  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; }
-
-.cost-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 900px) { .cost-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.cost-stat { display: block; }
-.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; margin-right: 6px; vertical-align: -1px; }
-
-.cost-window .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.cost-window .line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
-.cost-window .value, .cost-span .value { font-size: 22px; font-weight: 600; line-height: 1.2; }
-
-.cost-span .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
-.cost-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 8px; }
-.cost-legend .item { display: inline-flex; align-items: center; gap: 6px; }
-.cost-legend .swatch { margin-right: 0; }
-
-.cost-chart { position: relative; overflow: hidden; }
-.cost-chart svg { display: block; }
-.cost-chart .grid { stroke: var(--stroke); stroke-width: 1; }
-.cost-chart .axis { fill: var(--quiet); font-size: 11px; font-variant-numeric: tabular-nums; }
-.cost-chart .hit { fill: transparent; }
-.cost-chart .hit.over { fill: var(--subtle); }
-.cost-tip { position: absolute; top: 0; min-width: 160px; padding: 8px 10px; border-radius: var(--radius); background: var(--solid); border: 1px solid var(--stroke); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14); pointer-events: none; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
-/* The tooltip fades in where it shows; from one bar to the next it just moves. */
-.cost-tip { transition: opacity var(--fast) var(--ease); }
-@starting-style { .cost-tip { opacity: 0; } }
-.cost-tip .tip-row { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
-
-/* One grid for the whole table, each row on its columns (subgrid): the columns line up. */
-.cost-table { padding: 0; overflow: hidden; display: grid; grid-template-columns: minmax(160px, 1fr) repeat(var(--columns), minmax(64px, max-content)); column-gap: 20px; }
-.cost-table > div { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; padding: 8px 16px; }
-.cost-table > div + div { border-top: 1px solid var(--stroke); }
-.cost-table > .head { font-size: 12px; font-weight: 600; color: var(--quiet); padding-top: 10px; padding-bottom: 8px; }
-.cost-table .right { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cost-table .lines .quiet { display: flex; align-items: center; }
-.cost-table .both { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-/* Narrow: without the requests, closer; past that it scrolls sideways. */
-.cost-table { overflow-x: auto; }
-@media (max-width: 900px) {
-  .cost-table > div > :nth-child(2) { display: none; }
-  .cost-table { grid-template-columns: minmax(120px, 1fr) repeat(calc(var(--columns) - 1), max-content); column-gap: 14px; }
-  .cost-table > div { padding: 8px 12px; }
-}
-.cost-note { margin: 16px 1px 0; line-height: 1.5; }
-
 /* --- a program's commands, as the user decides about them ------------------------- */
 
 .commands-summary { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.commands-summary .hint { font-size: 12px; }
 .commands-summary .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-.card.group.commands-review, html.mac .card.group.commands-review { padding: 0 16px; }
-.card.group.commands-review > * + *::before, html.mac .card.group.commands-review > * + *::before { left: 0; }
-.command-review { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; }
-.command-review .name { display: flex; align-items: center; gap: 8px; }
-.command-review .caption { font-size: 11px; color: var(--quiet); text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
-html.win .command-review .caption { text-transform: none; letter-spacing: 0; font-size: 12px; }
-.command-review .changes { display: grid; gap: 2px 8px; margin: 0; font-size: 12px; grid-template-columns: minmax(90px, max-content) 1fr; }
-.command-review .changes dt { color: var(--quiet); }
-.command-review .changes dd { margin: 0; overflow-wrap: anywhere; }
-.command-review .buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+/* One row per command: the name, which opens what it does, and its three states. */
+.card.group.commands-review > * + *::before, html.mac .card.group.commands-review > * + *::before { left: 14px; right: 14px; }
+.command-head { display: flex; align-items: center; gap: 12px; padding: 0 12px 0 4px; }
+html.mac .command-head { padding: 0 10px 0 2px; }
+.command-name, html.mac .command-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 8px; border: none; box-shadow: none; background: none; text-align: left; }
+html.mac .command-name { min-height: 34px; }
+.command-name:hover:not(:disabled) { background: none; }
+.command-name:hover .mono { color: var(--accent); }
+.command-name .badge { flex: none; }
+.command-chevron { flex: none; width: 14px; font-size: 10px; text-align: center; color: var(--quiet); transition: transform var(--normal) var(--ease); }
+.command-chevron svg { width: 10px; height: 10px; }
+.command-row.open .command-chevron { transform: rotate(90deg); }
+.command-more { display: none; flex-direction: column; gap: 4px; padding: 0 16px 12px 34px; }
+.command-row.open .command-more { display: flex; }
+.command-more .caption { font-size: 11px; color: var(--quiet); text-transform: uppercase; letter-spacing: .04em; margin-top: 4px; }
+html.win .command-more .caption { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.command-more .changes { display: grid; gap: 2px 8px; margin: 0; font-size: 12px; grid-template-columns: minmax(90px, max-content) 1fr; }
+.command-more .changes dt { color: var(--quiet); }
+.command-more .changes dd { margin: 0; overflow-wrap: anywhere; }
+/* The three states, icons only: the one in force in its color. */
+.segmented.states { flex: none; }
+.segmented.states button, html.mac .segmented.states button { min-width: 30px; min-height: 24px; padding: 0 7px; display: inline-grid; place-items: center; }
+.segmented.states .glyph { font-size: 13px; }
+.segmented.states .glyph svg { width: 14px; height: 14px; }
+.segmented.states button.on.off { color: var(--danger); }
+.segmented.states button.on.ask { color: var(--caution); }
+.segmented.states button.on.approved { color: var(--ok); }
+.segmented.states button:disabled { opacity: .35; }

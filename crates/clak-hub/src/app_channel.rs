@@ -319,8 +319,8 @@ pub fn instructions(message: &Map<String, Value>) -> Option<String> {
 /// A program gets in only if the user allows it: once per executable, and the hub remembers
 /// it. While the question is open the program knows it (`waiting`); if the user says no it
 /// receives `denied` and the connection closes. Admitted: the key of its application, if it
-/// can be remembered (a preset names the application by it), and whether the user also
-/// approved its commands, as the question showed them.
+/// can be remembered, and whether the user also approved its commands, as the question
+/// showed them.
 async fn admit(
     broker: &Broker,
     outbox: &Outbox,

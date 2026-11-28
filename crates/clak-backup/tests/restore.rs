@@ -184,20 +184,6 @@ fn first() -> First {
     apis.add(draft.into_entry("api_1".into(), 3.0), Some("s-shop"))
         .unwrap();
 
-    let preset = |name: &str, folder: &Path| {
-        let mut p = Map::new();
-        p.insert("name".into(), json!(name));
-        p.insert("agent".into(), json!("claude-code"));
-        p.insert("folder".into(), json!(text(folder)));
-        p.insert(
-            "programs".into(),
-            json!([{ "app": tool.key, "label": "Tool" }]),
-        );
-        p
-    };
-    clak_setup::presets::save(&home, preset("Work", &disk.join("work"))).unwrap();
-    clak_setup::presets::save(&home, preset("Gone", &disk.join("gone"))).unwrap();
-
     First {
         home,
         disk,
@@ -345,8 +331,6 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
         Check::Warn(why) if why.contains("/nowhere/at/all/tool")
     ));
     assert_eq!(state(&plan, "Shop", Api).check, Check::Ready);
-    assert_eq!(state(&plan, "Work", Preset).check, Check::Ready);
-    assert!(matches!(state(&plan, "Gone", Preset).check, Check::Warn(_)));
 
     // The panel's view has no secret, no key.
     let view = clak_wire::json::text(&plan.view());
@@ -382,10 +366,6 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
         said("Notion", Connector),
         Some((true, "Its token restored.".into()))
     );
-    assert_eq!(
-        said("Gone", Preset).unwrap().1,
-        "Restored: change its folder."
-    );
     assert!(outcomes.iter().all(|o| o.ok), "{outcomes:?}");
 
     // What the second computer has now.
@@ -411,10 +391,6 @@ async fn a_backup_comes_back_on_another_computer_after_its_checks() {
     let apis = ApiStore::new(&second.home, secrets(&second.home, "apis.secrets"));
     let shop = apis.all().into_iter().find(|a| a.name == "Shop").unwrap();
     assert_eq!(apis.secret(&shop.id).as_deref(), Some("s-shop"));
-
-    let presets = clak_setup::presets::all(&second.home);
-    assert_eq!(presets.len(), 2);
-    assert_eq!(presets[0]["programs"][0]["app"], json!(new_key));
 
     // Restored again: everything is already here.
     let again = second.plan(Contents::collect(

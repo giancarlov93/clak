@@ -13,7 +13,9 @@ const Kit = (() => {
     people: "", folder: "", chevron: "", back: "", copy: "", skill: "",
     client: "", file: "", refresh: "", search: "", trash: "", power: "",
     bell: "", speaker: "", options: "", calls: "", warn: "", stopwatch: "",
-    costs: "\uE9D2", shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", pin: "", play: "\uE768", edit: "\uE70F",
+    shield: "", show: "", ok: "", err: "", info: "", off: "", minus: "", plus: "", play: "\uE768", edit: "\uE70F",
+    // A command's three states: disabled (blocked), asking (help), always approved (check mark).
+    deny: "\uE733", ask: "\uE897", approve: "\uE73E",
     // The backup: on (sync), the copies kept (history), the password (lock), the last one
     // (upload), the restore (restore).
     sync: "\uE895", history: "\uE81C", lock: "\uE72E", upload: "\uE898", restore: "\uE777",
@@ -25,7 +27,6 @@ const Kit = (() => {
     status: '<circle cx="8" cy="8" r="1.6" fill="currentColor" stroke="none"/><path d="M5.2 5.2a4 4 0 0 0 0 5.6M10.8 5.2a4 4 0 0 1 0 5.6M3.1 3.1a7 7 0 0 0 0 9.8M12.9 3.1a7 7 0 0 1 0 9.8"/>',
     agents: '<path d="M7 1.5l1.3 3.7L12 6.5 8.3 7.8 7 11.5 5.7 7.8 2 6.5l3.7-1.3zM12.5 10l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor" stroke="none"/>',
     apps: '<rect x="2" y="2" width="12" height="12" rx="3"/><path d="M5.2 8.2l2 2 3.8-4"/>',
-    costs: '<path d="M2 14h12"/><rect x="3" y="8.5" width="2.6" height="5.5" rx=".6"/><rect x="6.7" y="3" width="2.6" height="11" rx=".6"/><rect x="10.4" y="6" width="2.6" height="8" rx=".6"/>',
     log: '<rect x="2.5" y="1.5" width="11" height="13" rx="2"/><path d="M5 5h6M5 8h6M5 11h4"/>',
     settings: '<circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>',
     program: '<rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 5.5h13"/>',
@@ -60,9 +61,11 @@ const Kit = (() => {
     minus: filled('<circle cx="8" cy="8" r="6.5" fill="currentColor" stroke="none"/>', "M5 8h6"),
     off: '<circle cx="8" cy="8" r="6" stroke-dasharray="2.2 2"/>',
     plus: '<path d="M8 2.5v11M2.5 8h11"/>',
-    pin: '<path d="M9.8 1.8l4.4 4.4M11.1 3.1L8.4 5.8 5.2 5.3 4 6.5l5.5 5.5 1.2-1.2-.5-3.2 2.7-2.7M6.8 9.2L2.2 13.8"/>',
     play: '<path d="M5 3.3v9.4L12.5 8z"/>',
     edit: '<path d="M10.5 2.5l3 3L6 13H3v-3z M9 4l3 3"/>',
+    deny: '<circle cx="8" cy="8" r="6"/><path d="M3.8 3.8l8.4 8.4"/>',
+    ask: '<circle cx="8" cy="8" r="6"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.8 1.7c-.6.3-1 .7-1 1.4M8 11.5v.1"/>',
+    approve: '<circle cx="8" cy="8" r="6"/><path d="M5.2 8.2l2 2 3.7-4"/>',
     sync: '<path d="M13.2 6.5A5.5 5.5 0 0 0 3.3 5.2M2.8 9.5a5.5 5.5 0 0 0 9.9 1.3M3 2.5v2.8h2.8M13 13.5v-2.8h-2.8"/>',
     history: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
     lock: '<rect x="3" y="7" width="10" height="7.5" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
@@ -94,7 +97,7 @@ const Kit = (() => {
     return exe ? Clak.withIcon(node, exe, size || 32) : node;
   };
 
-  const TINTS = { status: "#34c759", agents: "#ff9500", apps: "#007aff", costs: "#5856d6", log: "#8e8e93", settings: "#8e8e93" };
+  const TINTS = { status: "#34c759", agents: "#ff9500", apps: "#007aff", log: "#8e8e93", settings: "#8e8e93" };
 
   /// The page title, with what it needs on the right (a filter, a button).
   const title = (text, ...right) => el("header", { class: "title" }, el("h1", null, text), right.length ? el("div", { class: "actions" }, right) : null);
@@ -127,10 +130,10 @@ const Kit = (() => {
   const iconButton = (name, label, onclick) =>
     el("button", { class: "icon-button", title: label, "aria-label": label, onclick }, icon(name));
 
-  /// Brings an agent (`session`) or a program (`resource`) to the front: the app whose
-  /// window shows it. If it can't, the button says why on hover, for a moment.
-  const bringToFront = (button, kind, id) =>
-    Clak.invoke("bring_to_front", { kind, id }).catch((e) => {
+  /// Brings a connected program to the front: the app whose window shows it. If it can't,
+  /// the button says why on hover, for a moment.
+  const bringToFront = (button, id) =>
+    Clak.invoke("bring_to_front", { id }).catch((e) => {
       const help = button.title;
       button.title = `Couldn't bring it to the front: ${e}`;
       button.classList.add("failed");

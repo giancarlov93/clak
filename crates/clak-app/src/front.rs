@@ -1,9 +1,9 @@
-//! Brings an agent or a program to the front: the app whose window shows it.
+//! Brings a connected program to the front: the app whose window shows it.
 //!
-//! The process the hub knows is rarely the one with the window: an agent on the command
-//! line runs inside a terminal, and a program may connect from a helper process. So the
-//! walk goes up the parents until a process with a window, the same walk that finds the
-//! agent ([`clak_platform::process_lineage`]). On the Mac, Terminal and iTerm also select
+//! The process the hub knows is rarely the one with the window: a program may connect from
+//! a helper process, or run in a terminal. So the walk goes up the parents until a process
+//! with a window, the same walk that finds the agent
+//! ([`clak_platform::process_lineage`]). On the Mac, Terminal and iTerm also select
 //! the tab of the process, found by its tty: the first time, macOS asks whether Clak may
 //! control them. On Windows a program in a console is found through its console.
 
@@ -11,29 +11,21 @@ use serde_json::Value;
 
 const NO_WINDOW: &str = "no window shows it";
 
-/// The pid behind what the page names: a session (an agent) or a program connected over
-/// loopback. MCP servers, APIs and Clak's own settings have no window of their own: None.
-pub fn pid_of(state: &Value, kind: &str, id: &str) -> Option<u32> {
-    let list = match kind {
-        "session" => "sessions",
-        "resource" => "resources",
-        _ => return None,
-    };
-    let entry = state
-        .get(list)?
+/// The pid behind the program the page names, connected over loopback. MCP servers, APIs
+/// and Clak's own settings have no window of their own: None.
+pub fn pid_of(state: &Value, id: &str) -> Option<u32> {
+    let origin = state
+        .get("resources")?
         .as_array()?
         .iter()
-        .find(|e| e.get("id").and_then(Value::as_str) == Some(id))?;
-    let pid = if kind == "session" {
-        entry.get("pid")
-    } else {
-        let origin = entry.get("origin")?;
-        if origin.get("kind").is_some() {
-            return None;
-        }
-        origin.get("pid")
-    };
-    pid?.as_u64()
+        .find(|e| e.get("id").and_then(Value::as_str) == Some(id))?
+        .get("origin")?;
+    if origin.get("kind").is_some() {
+        return None;
+    }
+    origin
+        .get("pid")?
+        .as_u64()
         .and_then(|p| u32::try_from(p).ok())
         .filter(|&p| p > 0)
 }
@@ -248,9 +240,8 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_and_a_program_have_a_pid() {
-        assert_eq!(pid_of(&state(), "session", "s1"), Some(4242));
-        assert_eq!(pid_of(&state(), "resource", "word"), Some(777));
+    fn a_program_has_a_pid() {
+        assert_eq!(pid_of(&state(), "word"), Some(777));
     }
 
     /// On a Mac, run from an app (a terminal, an editor): the walk finds it, and it comes
@@ -265,11 +256,12 @@ mod tests {
     }
 
     #[test]
-    fn servers_settings_and_strangers_have_none() {
-        assert_eq!(pid_of(&state(), "resource", "notion"), None);
-        assert_eq!(pid_of(&state(), "resource", "settings"), None);
-        assert_eq!(pid_of(&state(), "resource", "lost"), None);
-        assert_eq!(pid_of(&state(), "session", "gone"), None);
-        assert_eq!(pid_of(&state(), "grant", "s1"), None);
+    fn servers_settings_agents_and_strangers_have_none() {
+        assert_eq!(pid_of(&state(), "notion"), None);
+        assert_eq!(pid_of(&state(), "settings"), None);
+        assert_eq!(pid_of(&state(), "lost"), None);
+        // An agent is never brought to the front: its id names no program.
+        assert_eq!(pid_of(&state(), "s1"), None);
+        assert_eq!(pid_of(&state(), "gone"), None);
     }
 }

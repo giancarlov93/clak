@@ -62,12 +62,4 @@ impl Platform for SystemPlatform {
         let signature = clak_platform::signature_of(exe);
         serde_json::json!({ "exe": exe, "signed": signature.signed, "signer": signature.signer })
     }
-
-    fn above(&self, pid: u32) -> Vec<String> {
-        clak_platform::process_lineage(pid)
-            .into_iter()
-            .skip(1)
-            .map(|a| a.name)
-            .collect()
-    }
 }

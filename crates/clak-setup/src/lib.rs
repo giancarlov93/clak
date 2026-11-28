@@ -1,7 +1,6 @@
-//! Skill, PATH, start with the system, clak:// scheme, MCP clients, the agents to launch
-//! and their presets.
+//! Skill, PATH, start with the system, clak:// scheme, MCP clients.
 //!
-//! What the app's Agents and Settings tabs and the installer do on the user's computer,
+//! What the app's Settings tab and the installer do on the user's computer,
 //! with a single rule: we write only what is ours, we remove only what is ours, and what
 //! belongs to others stays as it is.
 //!
@@ -11,20 +10,14 @@
 
 pub mod autostart;
 pub mod clients;
-pub mod conversations;
-pub mod costs;
 pub mod installation;
-pub mod instructions;
-pub mod launcher;
 mod places;
 pub mod preferences;
-pub mod presets;
 #[cfg(windows)]
 pub mod registry;
 pub mod shim;
 pub mod skill;
 pub mod uri_scheme;
 pub mod user_path;
-pub mod versions;
 
 pub use places::{Places, Result, SetupError};

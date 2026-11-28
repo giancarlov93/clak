@@ -32,10 +32,6 @@
   const clickable = (cls, onclick, label, ...children) =>
     el("button", { class: "hit " + cls, type: "button", title: label, "aria-label": label, onclick }, children);
 
-  /// The eye: brings the agent or the program to the front.
-  const show = (kind, id, label) =>
-    el("button", { class: "show", type: "button", title: label, "aria-label": label, onclick: (e) => Kit.bringToFront(e.currentTarget, kind, id) }, Kit.icon("show"));
-
   const program = (g, now) => {
     const r = D.resourceOf(state, g.resource_id);
     const title = r ? D.resourceShort(r) : g.resource_id;
@@ -45,7 +41,6 @@
         el("span", { class: "lines" },
           el("span", { class: "title ellipsis" }, title),
           el("span", { class: "quiet ellipsis" }, D.grantDetail(g, now)))),
-      D.showable(r) ? show("resource", r.id, `Brings ${title} to the front`) : null,
       el("button", { class: "revoke", type: "button", title: `Ends the permission to use ${title}`, onclick: () => revoke(g) }, "Revoke"));
   };
 
@@ -60,8 +55,7 @@
           el("span", { class: "lines" },
             el("span", { class: "title ellipsis" }, D.sessionTitle(s)),
             el("span", { class: "quiet ellipsis" }, detail)),
-          el("span", { class: "chevron", "aria-hidden": "true" }, "›")),
-        show("session", s.id, `Brings ${D.sessionTitle(s)} to the front`)),
+          el("span", { class: "chevron", "aria-hidden": "true" }, "›"))),
       own.length ? el("div", { class: "programs" }, own.map((g) => program(g, now))) : null);
   };
 

@@ -131,15 +131,6 @@ impl Bridge {
         }
     }
 
-    /// A step on the hub, only when it lives in here: a launch is prepared on the hub that
-    /// will see the agent arrive. None if the hub is in another process, or there is none.
-    pub fn with_hub<T>(&self, step: impl FnOnce(&mut clak_hub::Core) -> T) -> Option<T> {
-        match &self.inner().link {
-            Link::Local(host) => Some(host.broker().run(step)),
-            _ => None,
-        }
-    }
-
     pub fn send(&self, message: Map<String, Value>) {
         let mut inner = self.inner();
         match &mut inner.link {

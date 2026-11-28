@@ -15,8 +15,7 @@ crates/
   clak-settings    the settings as a program: `clak settings …`
   clak-host        everything together, with the real system
   clak-agent       `clak` (command line) and `clak-shim` (MCP over stdio)
-  clak-setup       the skill, PATH, start with the system, clak://, MCP clients, the agents'
-                   conversations, presets, token costs
+  clak-setup       the skill, PATH, start with the system, clak://, MCP clients
   clak-backup      backups locked with the user's password, and their restore after a check
   clak-kit         the program side, for writing programs in Rust
   clak-daemon      the hub on its own, without an interface
@@ -29,7 +28,7 @@ scripts/           packaging, release notes and the version; the git hook
 
 The hub, the app and the command line share only `daemon.json` (in `~/.clak`, or
 `CLAK_HOME`), the control channel, the programs' WebSocket and the hub's files (`apps.json`,
-`presets.json`, `connectors.json`, `apis.json` and their `.secrets`). Only the
+`commands.json`, `connectors.json`, `apis.json` and their `.secrets`). Only the
 app writes `backup.json`, the settings of the automatic backup.
 
 ## Building

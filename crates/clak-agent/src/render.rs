@@ -18,7 +18,7 @@ pub enum Style {
 /// Which connected programs a list shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Which {
-    /// Those the agent can use without a question: permission given, its preset, a rule.
+    /// Those the agent can use without a question: the user gave it permission.
     #[default]
     Usable,
     /// The others: the first use asks the user.
@@ -28,8 +28,8 @@ pub enum Which {
 }
 
 /// Whether the agent may use it now without being asked first (its commands not approved
-/// still ask). A hub that doesn't say `access` says `allowed`; `rule` is an older hub's
-/// "Always allow".
+/// still ask). A hub that doesn't say `access` says `allowed`; `rule` and `preset` are an
+/// older hub's "Always allow" and launch with a preset.
 pub fn usable(resource: &Object) -> bool {
     if flag(resource, "blocked") {
         return false;
@@ -116,10 +116,7 @@ fn rows(list: &[&Object]) -> String {
         let access = match str_of(r, "access") {
             _ if flag(r, "blocked") => "blocked by the user for you: don't use it".to_owned(),
             Some("granted") => "you may use it".to_owned(),
-            Some("preset") => match str_of(r, "preset") {
-                Some(preset) => format!("allowed by the preset «{preset}»"),
-                None => "allowed by the preset you were launched with".to_owned(),
-            },
+            Some("preset") => "you may use it".to_owned(),
             Some("rule") => "always allowed by the user".to_owned(),
             _ if flag(r, "allowed") => "you may use it".to_owned(),
             _ => "the first use asks the user for permission".to_owned(),
@@ -518,7 +515,6 @@ mod tests {
         let mine = programs(&response, Style::Cli, Which::Usable);
         assert!(mine.starts_with("Programs you can use (3):"), "{mine}");
         assert!(mine.contains("you may use it"));
-        assert!(mine.contains("allowed by the preset «Shopping»"));
         assert!(mine.contains("always allowed by the user"));
         assert!(!mine.contains("revit  Revit"));
         assert!(!mine.contains("mail  Mail"));

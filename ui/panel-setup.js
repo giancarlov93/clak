@@ -108,7 +108,7 @@ const Setup = (() => {
       data.shim ? `Shim: ${data.shim}` : `Shim not found (${data.shim_name})`);
     const copySkill = skills.length || (!Clak.mac && data.cli)
       ? Clak.mac
-        // As the other headers' buttons on the Mac ("Check again", "New preset").
+        // As the other headers' buttons on the Mac ("Check again").
         ? el("button", { class: "small", title: "For agents without skills: paste it into their instructions file", onclick: () => copy(skills[0]?.id || "skill:", "Copied") },
           Kit.icon("copy"), el("span", null, "Copy the instructions"))
         : Kit.link("Copy the instructions", "copy", () => copy(skills[0]?.id || "skill:", "Copied"),
